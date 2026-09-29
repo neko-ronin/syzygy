@@ -24,6 +24,10 @@ and produced wrong pixels.
 Not yet: street level does not read as inhabited, traffic is simulated but never
 drawn, night is nearly black, and WebGL 2 does not exist.
 
+**Read [`docs/COVERAGE.md`](docs/COVERAGE.md) if you want to know what is
+missing.** It maps the original build checklist to where each item is covered,
+and flags the subsystems that have a name and a tool but no system behind them.
+
 **Read [`docs/HANDOFF.md`](docs/HANDOFF.md) before working on this.** It says
 what works, what does not, and what to do first.
 
@@ -39,6 +43,7 @@ what works, what does not, and what to do first.
 | [`docs/ITERATION.md`](docs/ITERATION.md) | Chronological log of what changed and why |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Why the architecture is the way it is, and what was rejected |
 | [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | Vocabulary, so the next session and the next agent talk about the same things |
+| [`docs/COVERAGE.md`](docs/COVERAGE.md) | Living map from the original build checklist to where each item is covered — and what is a `PHANTOM` |
 
 ## Seeing it
 

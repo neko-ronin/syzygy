@@ -52,7 +52,9 @@ asked for, rather than to a memory of it.
 
 Each clause, and what it commits the project to. The roadmap in
 [`ROADMAP.md`](ROADMAP.md) is organised around these; the status column there is
-the honest current state against each.
+the honest current state against each. For the build-level map — which planned
+subsystems are covered, and which are a name with nothing behind it — see
+[`COVERAGE.md`](COVERAGE.md).
 
 | Clause from the prompt | What it demands | Where it lives |
 | --- | --- | --- |
@@ -61,14 +63,14 @@ the honest current state against each.
 | "dreamlike camera distortion" | A lens model, not a filter stack | `common.wgsl` + `post.wgsl`, driven by `Lens` in `state.ts` |
 | "depth, vertigo and scale" | Tilt-shift miniature, roll, speed-coupled FOV, canyon fog | `post.wgsl`, `camera.ts`, `applyFog` |
 | "seperate systems of simulations emerging into a living city" | Independent agents that compose into something unplanned | `src/sim/` |
-| "pedestrians and traffic" | Two populated systems, both visible | `crowd.ts`, `traffic.ts` |
+| "pedestrians and traffic" | Two populated systems, both visible | `crowd.ts`, `traffic.ts` — **traffic is simulated but never drawn** (F4); pedestrian rendering is unverified (F1) |
 | "no cars" — rail cars, trolleys, ziplines, blimps, hot air balloons | A closed set of vehicle kinds; nothing on four wheels | `VehicleKind` in `traffic.ts` |
 | "free floating camera to playstation controls and keyboard" | 6-DOF flight, gamepad first-class | `src/camera/` |
 | "solar punk beautiful colorings" | A palette doctrine, not a mood | `src/world/districts.ts` |
 | "large sections differing styles and colors" | Districts that are spatially coherent | `districtAt` / `districtField` |
 | "atmospheric lighting and atmosphere effects are **very** important" | Called out twice in the prompt. This is the highest-value target. | `lighting.wgsl`, `common.wgsl` |
 | "use performance tricks" | LOD, instancing, streaming, clustered lights — all present in kind | `renderer.ts` |
-| "structures should be able to transform into a destructible form" | Collapse/debris capability | **Not implemented.** Roadmap R6 |
+| "structures should be able to transform into a destructible form" | Collapse/debris capability | **Not implemented.** Roadmap R5. `structure-collapse` is a registered event and LLM tool with no renderer behind it — see [`COVERAGE.md`](COVERAGE.md) |
 | "no gameplay" | No score, no objectives, no fail state. A place, not a game. | Enforced by omission |
 | "LLM agent integration ... weather, camera, events" | Natural-language control of the world | `src/agent/` |
 | "each person ... independent goals but use optimzations to run this performatively" | Per-agent goals at population scale, not N agents × LLM | `crowd.ts` need-mix |
@@ -82,7 +84,8 @@ the honest current state against each.
 
 The prompt asked for **WebGL 2 and WebGPU**. This project is **WebGPU only**.
 `src/core/gpu.ts` requests an adapter and device from `navigator.gpu`; there is no
-GL context, no shader translation, and no fallback path.
+GL context, no shader translation, and no fallback path. Recorded as D1; the
+open product question is tracked as R8.
 
 This was a deliberate early call, not an oversight, and it should be recorded as
 one: WGSL compute is load-bearing for the light binning, the deferred G-buffer is
@@ -94,9 +97,12 @@ framing is "a genuine second renderer", not "a compatibility shim".
 
 ## Reference material
 
-The inspiration folder is committed as **`inpirations/`** (misspelled in the
-repository; it is not a typo this project introduced — do not "fix" it without
-asking, git history will be confusing). It holds:
+The inspiration folder is **`inpirations/`** (misspelled in the repository; it is
+not a typo this project introduced — do not "fix" it without asking, git history
+will be confusing). It is on disk but **not tracked in git**: the nine `.mov`
+files are ~670 MB of reference material rather than source (D22). A fresh clone
+does not include them, so copy them from a working checkout before comparing.
+It holds:
 
 - `dreamscape/` — nine `.mov` files, the actual quality bar. Extract frames with
   ffmpeg; they are the reference for density, palette, and atmosphere.

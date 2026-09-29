@@ -1,6 +1,7 @@
 # Handoff
 
 **Read this first, then [`ROADMAP.md`](ROADMAP.md) for what to work on,
+[`COVERAGE.md`](COVERAGE.md) for what is quietly missing,
 [`PITFALLS.md`](PITFALLS.md) before you touch the renderer, and
 [`DECISIONS.md`](DECISIONS.md) before you change the architecture.**
 
@@ -261,7 +262,16 @@ Verified by rendering it, not by assuming it.
 
 ## What is not working
 
-Ordered by how much it hurts the spectacle.
+Ordered by how much it hurts the spectacle. The full coverage map, including the
+`PHANTOM` rows, is [`COVERAGE.md`](COVERAGE.md).
+
+**0. Five phantoms.** `godRays` and `precip` are uniform slots that no shader
+reads. `structure-collapse` is a registered LLM tool with no fracture renderer
+behind it — ask the agent to collapse a structure and it reports success while
+doing nothing. `debrisChunk()` is defined and never called. Canal water is built
+and discarded. None of these are on the roadmap, which is how they survived
+three sessions. Cheapest to reason about, and the only one that makes a tool
+lie.
 
 **1. Street level is not inhabited.** The crowd is placed on real streets, but
 whether it renders at all is currently contradicted by our own counters (F1),
@@ -338,3 +348,9 @@ two sessions have already misread it as a winding bug and then a culling bug.
 After that, F4 (traffic) and F5 (ground detail) are what turn "a city" into "a
 city that is alive", and they are the clearest distance between the current
 output and the reference frames.
+
+**Before any of it, read [`COVERAGE.md`](COVERAGE.md).** It carries five
+`PHANTOM` rows — subsystems with a name, a uniform slot, or a registered LLM
+tool and no system behind them. `structure-collapse` is the sharp one: ask the
+agent to collapse a structure and it reports success while doing nothing. Those
+are not on the roadmap, which is why they survived three sessions.
