@@ -387,3 +387,12 @@ export function runCitySelfTest(): string {
     : `VIOLATIONS   ${violations.length}\n  - ${violations.join('\n  - ')}`);
   return L.join('\n');
 }
+
+// A self-test you have to wrap in a temporary file to run is a self-test
+// nobody runs. Make the documented command work.
+const isMain = (): boolean => {
+  const url = import.meta.url;
+  return url.endsWith('__selftest.ts') || url.endsWith('__selftest.js');
+};
+
+if (isMain()) console.log(runCitySelfTest());
