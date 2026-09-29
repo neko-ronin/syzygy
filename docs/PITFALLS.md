@@ -231,6 +231,64 @@ before you act on it, and delete diagnostics that have lied once.
 - **A subagent returning an empty result did nothing.** Twice. `ls` the paths
   before believing the report.
 
+## 14. A ffmpeg graph that drops half its inputs still exits 0
+
+**Symptom:** `tools/compare.mjs` printed a clean summary and wrote a valid PNG.
+The grid was wrong — every tile showed the same frame, and the `REFERENCE`
+column showed our own render instead of the reference video.
+
+**Cause:** a refactor replaced `-filter_complex` `${graph};${vstackChain}` with
+just `filter`, and `graph` — the half that actually *defines* the tile labels
+`[r0c0]`…`[r2c2]` — was never passed to ffmpeg. The labels went undefined, and
+ffmpeg produced a plausible image from the surviving inputs instead of
+erroring.
+
+**Rule:** a command that succeeds and emits an artifact is not evidence the
+artifact is correct. Check the artifact against a known-different source. Two
+related traps, both fixed here:
+
+- The chain ended on a *labelled* pad, and ffmpeg auto-maps only *unlabelled*
+  outputs — so single-row grids failed to bind. Always end on an explicit label
+  and `-map` it.
+- `vstack` rejects `inputs=1`, so a one-row grid needs a `null` passthrough.
+
+Never crop the image under test to fit a tile; crop the *reference*. Cropping
+the subject hides the thing you are trying to look at.
+
+## 15. Two predicates that look identical and disagree
+
+**Symptom, measured in one frame from the `01b-crowd-closeup` pose:**
+
+```
+crowd: 250              // visibleCount, from Pass B   (crowd.ts:265-276)
+instancesCount: 0       // buildInstances()            (crowd.ts:794-841)
+```
+
+Both apply the same guard (`f[o + F.active] < 0.5`) and the same test
+(`dx*dx + dz*dz > viewRadius*viewRadius`) to the same `cam`, in the same
+`update()`, with `viewRadius` unchanged between them. They cannot both be right.
+**This is unresolved** — see [`HANDOFF.md`](HANDOFF.md).
+
+**Rule:** when two code paths compute the same predicate, do not reason about
+which is wrong. Print both, plus the raw per-agent state for a handful of
+agents, and find the agent where they diverge. The disagreement *is* the bug;
+picking a side by inspection just relocates it.
+
+## 16. The camera was not where the diagnostic pose said
+
+**Symptom:** the `01b-crowd-closeup` and `01c-street-crowd` poses both show an
+empty street. Chased for several iterations as a *rendering* bug — suspected
+entity winding, then G-buffer culling.
+
+The poses are hardcoded at the world origin (`position: [0, 2.4, -40]`), while
+the crowd centroid sat at `(974, 46)` — roughly 975 units away, well outside
+`viewRadius: 190`. The pose was never looking at the crowd.
+
+**Rule:** before suspecting the renderer, confirm the camera and the subject are
+in the same place. A "close-up" diagnostic that is 975 units from its subject
+will read as an absence forever. When adding a diagnostic pose, derive its
+position from live state (centroid, nav node, camera) rather than hardcoding it.
+
 ---
 
 ## Working norms that held up

@@ -46,10 +46,14 @@ Three sub-problems, and the third is nearly free:
    at eye height. The `bakeGround` kerb strips exist but are barely visible.
    *Why it matters:* it is 60% of the pixels in a street-level shot, and it is
    the cheapest large-area quality win available.
-2. **Crowd density and distribution.** The crowd renders and is placed on real
-   streets, but ~1900 people over a 320 m disc is thin per avenue. *Watch out:*
-   raising the count without fixing distribution just produces a clump — see
-   `PITFALLS.md` §Snap collapse.
+2. **Crowd density and distribution.** **Blocked on an unresolved contradiction
+   first** — see the open questions at the top of
+   [`HANDOFF.md`](HANDOFF.md). The crowd's two visibility predicates report 250
+   and 0 in the same frame, and the two poses meant to show it are hardcoded at
+   the world origin while the crowd centroid sits ~975 units away. Until both are
+   settled, do not tune density: you cannot tell a distribution problem from a
+   rendering one. *Watch out:* raising the count without fixing distribution just
+   produces a clump — see `PITFALLS.md` §9.
 3. **Traffic on screen.** `TrafficSim` already produces 207 vehicles on real rail
    lines. `Renderer.drawEntitySet` already works. This is wiring, not design.
 
@@ -149,7 +153,8 @@ level and the night shot enormously.
 
 The prompt asked for both. Only WebGPU exists. See
 [`ORIGINAL_PROMPT.md` § The one outright deviation](ORIGINAL_PROMPT.md) for why,
-and for the cost.
+and for the cost. The decision itself is recorded in
+[`DECISIONS.md`](DECISIONS.md).
 
 Genuinely a second renderer: no compute (the light binner needs a transform
 feedback path), GLSL ES 3.00 instead of WGSL, no `float32-filterable`, and the
@@ -186,6 +191,11 @@ cheaply it can be looked at.
 Highest-leverage remaining work: a `?seed=&chunks=N&warm=N` parameter that bakes
 the whole view synchronously at boot, so a capture is a second rather than a
 minute. See [`PROCEDURES.md`](PROCEDURES.md).
+
+**Partly done.** `node tools/compare.mjs --latest --ref <video>` builds a
+baseline/current/reference grid in one shot, so "did this help?" no longer
+requires holding two images in your head. It is documented in
+[`PROCEDURES.md`](PROCEDURES.md) §2.
 
 ---
 

@@ -2,3 +2,18 @@ node_modules/
 dist/
 .DS_Store
 *.log
+
+# Reference video is ~670MB of binary. It is quality-bar material, not source:
+# it lives on disk, and the docs say where. Untracked as of 0e90072's successor,
+# so it no longer grows the working tree or future commits.
+#
+# This does NOT shrink .git — the blobs are still in history, and the repo is
+# still ~1GB to clone. Shrinking it means rewriting history, which is
+# destructive and needs an explicit human decision. See docs/ROADMAP.md.
+inpirations/**/*.mov
+
+# Iteration output. Screenshots are evidence, not source — the curated set that
+# matters is committed deliberately, the rest churns every run.
+shots/*
+!shots/baseline/
+shots/latest.json

@@ -37,6 +37,8 @@ what works, what does not, and what to do first.
 | [`docs/PITFALLS.md`](docs/PITFALLS.md) | The catalogue of silent failures and how to catch them next time |
 | [`docs/PROCEDURES.md`](docs/PROCEDURES.md) | How to run, capture, debug, and extend this |
 | [`docs/ITERATION.md`](docs/ITERATION.md) | Chronological log of what changed and why |
+| [`docs/DECISIONS.md`](docs/DECISIONS.md) | Why the architecture is the way it is, and what was rejected |
+| [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | Vocabulary, so the next session and the next agent talk about the same things |
 
 ## Seeing it
 
@@ -56,6 +58,22 @@ failure signal, not a dark scene.
 question is aesthetic rather than correct, extract a frame and compare. That
 distinction settled several arguments during bring-up that reading the code could
 not.
+
+Those videos are ~670 MB and are **not tracked in git** — they live on disk, and
+the repo is still ~1 GB to clone because they remain in history. See
+`.gitignore`.
+
+Build the side-by-side grid rather than opening two images in sequence; you will
+not hold both in your head:
+
+```bash
+node tools/compare.mjs --latest --ref dreamscape-05@12
+# columns:  BASELINE  |  CURRENT  |  REFERENCE
+# rows:    poses present in both shots/baseline/ and the latest run
+```
+
+`shots/baseline/` holds the curated frames worth keeping. Everything else in
+`shots/` is transient and ignored.
 
 ## Shape of the thing
 
@@ -79,8 +97,8 @@ and the WebGPU type definitions.
 
 ```bash
 npx tsc --noEmit
-npx vite-node src/world/__selftest.ts   # citygen
-npx vite-node src/sim/__selftest.ts     # weather + traffic
-npx vite-node src/camera/__selftest.ts  # camera
+npx vite-node src/world/__selftest.ts   # citygen   (prints VIOLATIONS: none)
+npx vite-node src/sim/__selftest.ts     # weather + traffic  (ALL PASS)
+npx vite-node src/camera/__selftest.ts  # camera              (ALL PASS)
 node tools/lsp-check.mjs                 # all five language servers
 ```

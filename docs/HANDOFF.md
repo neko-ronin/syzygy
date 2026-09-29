@@ -1,12 +1,55 @@
 # Handoff
 
-**Read this first, then [`ROADMAP.md`](ROADMAP.md) for what to work on, and
-[`PITFALLS.md`](PITFALLS.md) before you touch the renderer.**
+**Read this first, then [`ROADMAP.md`](ROADMAP.md) for what to work on,
+[`PITFALLS.md`](PITFALLS.md) before you touch the renderer, and
+[`DECISIONS.md`](DECISIONS.md) before you change the architecture.**
 
-State as of the end of the session that built the renderer. Two commits:
-`27f3b66` (renderer bring-up) and `1481e47` (crowd).
+State as of the end of the session that built the renderer, plus the audit
+session that followed. Commits: `27f3b66` (renderer bring-up), `1481e47`
+(crowd), `0e90072` (documentation set).
+
+The audit session added `DECISIONS.md`, `GLOSSARY.md` and `tools/compare.mjs`,
+corrected the reference-video tracking, restored G-buffer back-face culling, and
+found the two open questions below. It changed no renderer behaviour on the
+strength of an unverified theory.
 
 ---
+
+## Read this first: two open questions block the crowd work
+
+Both were measured, not guessed. Do not start R1 without reading this section.
+
+**1. The crowd's two visibility predicates disagree.** From a single frame at
+the `01b-crowd-closeup` pose:
+
+```
+crowd: 250              // visibleCount, from Pass B   (crowd.ts:265-276)
+instancesCount: 0       // buildInstances()            (crowd.ts:794-841)
+```
+
+Same guard (`f[o + F.active] < 0.5`), same radius test
+(`dx*dx + dz*dz > viewRadius*viewRadius`), same `cam`, same `update()`, and
+`viewRadius` is not modified between them. One of these is lying. **Do not
+resolve it by reading the code and picking a side** — print both counts plus raw
+per-agent state (`x`, `z`, `active`) for a handful of agents and find the agent
+where they diverge. The disagreement is the bug.
+
+Note this contradicts the claim below that the crowd "renders, but too sparse".
+That claim rests on framing a known agent once, in the `1481e47` session. It has
+not been re-verified since. **Treat crowd rendering as unverified.**
+
+**2. The crowd diagnostic poses do not point at the crowd.** `01b-crowd-closeup`
+and `01c-street-crowd` are hardcoded at the world origin
+(`position: [0, 2.4, -40]`), while the crowd centroid measured at `(974, 46)` —
+~975 units away, outside `viewRadius: 190`. Those two poses have been reporting
+an empty street for a diagnostic reason, not a rendering one. Earlier sessions
+chased this as an entity-winding bug and then as G-buffer culling; both were
+wrong. When fixing the crowd, either move these poses onto the live centroid or
+derive them from it, and only then judge the picture.
+
+**Cheapest next step:** add a `--pose=crowd-live` that seeds the pose from
+`crowd.population()`, and a diagnostic that prints the per-agent state for the
+first ~8 agents within range. That answers question 1 in a single run.
 
 ## The short version
 
@@ -94,7 +137,8 @@ Verified by rendering it, not by assuming it.
 - `TrafficSim` — 207 vehicles across tram/trolley/cablecar/funicular/zipline/
   blimp/balloon/cycle, wind-responsive, 0.04 ms/frame. **Not drawn.**
 - `CrowdSim` — SoA, 6000 agents, need-driven goals, spatial hash, view-space
-  seeding, street placement. ~2 ms/frame. **Renders, but too sparse.**
+  seeding, street placement. ~2 ms/frame. **Rendering unverified — see the two
+  open questions above.**
 
 **Camera** (`src/camera/`)
 - 6-DOF inertial flight, auto-banking proportional to yaw rate and speed,
@@ -114,11 +158,12 @@ Verified by rendering it, not by assuming it.
 
 Ordered by how much it hurts the spectacle.
 
-**1. Street level is not inhabited.** The crowd renders — confirmed by framing a
-known agent from 3.4 m — and is placed on real streets. But ~1900 people spread
-across the streets within 160 m is thin on any single avenue, and the street deck
-is a featureless grey slab. A camera at 2.4 m looking down an avenue sees an
-empty road. This is the gap most visible against the reference frames.
+**1. Street level is not inhabited.** The crowd is placed on real streets, but
+whether it renders at all is currently contradicted by our own counters (see
+open question 1), and the two poses meant to show it are pointed at empty ground
+(open question 2). ~1900 people spread across the streets within 160 m would be
+thin on any single avenue regardless, and the street deck is a featureless grey
+slab. This is the gap most visible against the reference frames.
 
 **2. Traffic is invisible.** `TrafficSim` produces vehicles and 64 lights, but
 only pedestrians are submitted through the instanced draw path. The fix is

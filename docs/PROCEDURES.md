@@ -20,10 +20,13 @@ Then, before touching anything:
 3. Run the self-tests to confirm the ground truth matches what the docs claim:
 
 ```bash
-npx vite-node src/world/__selftest.ts   # citygen   (expect ALL PASS)
-npx vite-node src/sim/__selftest.ts     # weather + traffic
-npx vite-node src/camera/__selftest.ts  # camera
+npx vite-node src/world/__selftest.ts   # citygen   (expect VIOLATIONS: none)
+npx vite-node src/sim/__selftest.ts     # weather + traffic  (expect ALL PASS)
+npx vite-node src/camera/__selftest.ts  # camera              (expect ALL PASS)
 ```
+
+The world self-test does not print `ALL PASS` — it prints a `VIOLATIONS` line,
+which is the line to read. Do not go looking for an `ALL PASS` that is not there.
 
 If a self-test fails, the docs are wrong or the code regressed. Fix one or the
 other before starting new work — do not build on a false premise.
@@ -57,6 +60,34 @@ Then change one thing, and shoot the same pose again.
 | `--quality=<tier>` | Force a quality tier |
 | `--timeout=<s>` | Global timeout, default 120 |
 
+### Comparing against the reference
+
+```bash
+node tools/compare.mjs --latest --ref dreamscape-05@12
+```
+
+Builds a grid: `BASELINE | CURRENT | REFERENCE`, one row per pose, rows paired
+by pose name so each row is the same framing. This exists because the question
+that matters every iteration is "did this change help?", and answering it by
+opening two images in sequence does not work — the first one is gone by the time
+you look at the second.
+
+| Flag | Effect |
+| --- | --- |
+| `--latest` | Use the most recent `shots/<timestamp>/` as CURRENT |
+| `--ref <name>[@<sec>]` | Extract a frame from `inpirations/dreamscape/<name>.mov` (default 10 s, past the title cards), cached in `shots/reference/` |
+| `--pose=<substr>` | Restrict rows, as in the capture harness |
+| `--width=<px>` | Tile width, default 520 |
+| *(bare paths)* | An explicit left-to-right strip instead of `--latest` |
+
+ffmpeg here has no `drawtext`, so columns are not labelled in-image. A `.txt`
+sidecar is written beside each grid naming every column. `BASELINE | CURRENT |
+REFERENCE` is the contract — keep the reference on the right, where the eye ends
+up.
+
+The reference video is portrait and our shots are 16:9, so the tool crops the
+*reference* to fill its tile. It never crops our own output.
+
 ### Two rules
 
 **Always dev server, never preview.** The harness enforces this. A `preview`
@@ -65,6 +96,11 @@ wrong.
 
 **Any GPU or WGSL error fails the run.** You will see
 `run INVALIDATED by N GPU/shader error(s)`. Fix it before looking at pixels.
+
+**A tool exiting 0 is not evidence its output is right.** `compare.mjs` once
+printed a clean summary and wrote a grid in which every tile was the same frame.
+Verify the artifact against a source you know differs — see
+[`PITFALLS.md`](PITFALLS.md) §14.
 
 ### Reading results
 

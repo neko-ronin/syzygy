@@ -316,7 +316,7 @@ export class Renderer {
       // the clear, and the world silently renders as empty sky.
       depth: { format: DEPTH, depthWriteEnabled: true, depthCompare: 'greater' },
       vertexBuffers: [mvl, ivl],
-      cull: 'none',
+      cull: 'back',
     });
 
     // --- shadow (depth only, two entry points)
