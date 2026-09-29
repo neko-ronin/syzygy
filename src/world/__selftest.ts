@@ -1,0 +1,389 @@
+/**
+ * Headless self-check for the city generator. Builds a City at a fixed seed,
+ * generates a block of chunks, and returns a human-readable report. Imports
+ * nothing browser-only, so it runs under plain node as well as vite.
+ */
+
+import { makeRng, type Vec3, type Vec4 } from '../core/math';
+import { DISTRICT_STYLES, waterDepthAt } from './districts';
+import {
+  City, GROUND_Y, PropKind, cityPlan, defaultCityConfig, footprintAabb,
+  roadClearanceAt, sampleStreetPlan, type BuildingInstance, type CityChunk, type StreetSample,
+} from './citygen';
+import { MeshBuilder, meshTriangleCount, type Mesh } from './geometry';
+import { NavGraph, buildRailLines, buildZiplines, resampleSpline } from './networks';
+
+const now = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+const finite = (v: number): boolean => Number.isFinite(v);
+const vecOk = (v: Vec3): boolean => finite(v[0]) && finite(v[1]) && finite(v[2]);
+const quatOk = (v: Vec4): boolean => finite(v[0]) && finite(v[1]) && finite(v[2]) && finite(v[3]);
+const hypot3 = (a: Vec3, b: Vec3): number => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+
+const digest = (chunk: CityChunk): string => {
+  let h = 0x811c9dc5;
+  const mix = (v: number): void => {
+    const q = Math.round(v * 4096) | 0;
+    for (let s = 0; s < 4; s++) {
+      h ^= (q >>> (s * 8)) & 0xff;
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+  };
+  const vec = (v: Vec3 | Vec4): void => { for (const c of v) mix(c); };
+  for (const b of chunk.buildings) { vec(b.position); vec(b.halfExtents); vec(b.lean); vec(b.color); }
+  for (const p of chunk.props) { mix(p.kind); vec(p.position); vec(p.rotation); mix(p.scale); }
+  for (const b of chunk.bridges) { vec(b.a); vec(b.b); mix(b.width); }
+  for (const c of chunk.cables) { vec(c.a); vec(c.b); mix(c.sag); mix(c.radius); mix(c.kind.length); }
+  for (const d of chunk.districtByCell) mix(d);
+  return h.toString(16).padStart(8, '0');
+};
+
+/** Representative shell geometry for a building, for triangle accounting. */
+const buildingShell = (b: BuildingInstance, mb: MeshBuilder): void => {
+  const h = b.halfExtents[1] * 2;
+  mb.pushBox(b.position, b.halfExtents, b.color, { rotationY: b.rotationY, uvScale: 0.25 });
+  const top: Vec3 = [b.position[0], GROUND_Y + h, b.position[2]];
+  const roof = DISTRICT_STYLES[b.styleId].roofStyle;
+  const hx = b.halfExtents[0], hz = b.halfExtents[2];
+  switch (roof) {
+    case 'spire':
+    case 'mast':
+      mb.pushCylinder(top, [top[0], top[1] + h * 0.28 + 18, top[2]], Math.min(hx, hz) * 0.22, 6,
+        b.accentColor, { rotationY: b.rotationY, capEnds: true });
+      break;
+    case 'dome':
+    case 'greenhouse':
+      mb.pushSphere([top[0], top[1] + 0.1, top[2]], Math.max(hx, hz) * 0.98, 8, 12,
+        DISTRICT_STYLES[b.styleId].palette.glass, { emissive: 0.4 });
+      break;
+    case 'terraces':
+    case 'stepped':
+      for (let s = 0; s < 3; s++) {
+        const k = 1 - s * 0.22;
+        const y0 = top[1] + s * h * 0.035;
+        mb.pushBoxTapered(
+          [top[0], y0, top[2]], [top[0], y0 + h * 0.035, top[2]],
+          [hx * k, 0, hz * k], [hx * (k - 0.2), 0, hz * (k - 0.2)],
+          DISTRICT_STYLES[b.styleId].palette.roof, { rotationY: b.rotationY },
+        );
+      }
+      break;
+    case 'sawtooth':
+      for (let s = 0; s < 3; s++) {
+        mb.pushBox(
+          [top[0], top[1] + 1.6, top[2] + (s - 1) * hz * 0.6], [hx, 1.6, hz * 0.24],
+          DISTRICT_STYLES[b.styleId].palette.roof, { rotationY: b.rotationY },
+        );
+      }
+      break;
+    default:
+      mb.pushBox([top[0], top[1] + 0.55, top[2]], [hx + 0.3, 0.55, hz + 0.3],
+        DISTRICT_STYLES[b.styleId].palette.roof, { rotationY: b.rotationY });
+      break;
+  }
+};
+
+const PROP_TRIS: Record<PropKind, number> = {
+  [PropKind.Planter]: 12, [PropKind.VineCurtain]: 12, [PropKind.Awning]: 6,
+  [PropKind.ACUnit]: 12, [PropKind.LaundryLine]: 6, [PropKind.Railing]: 6,
+  [PropKind.Antenna]: 24, [PropKind.Dish]: 32, [PropKind.Stair]: 12,
+  [PropKind.Pipe]: 12, [PropKind.Sign]: 6, [PropKind.Lantern]: 44,
+  [PropKind.PottedTree]: 32, [PropKind.WaterTank]: 60, [PropKind.Crane]: 24,
+  [PropKind.Zipline]: 6, [PropKind.Cable]: 6,
+};
+
+const CORNER_SIGNS: [number, number][] = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+
+const footprintCorners = (b: BuildingInstance): Vec3[] => {
+  const ct = Math.cos(b.rotationY), st = Math.sin(b.rotationY);
+  const out: Vec3[] = [];
+  for (const [sx, sz] of CORNER_SIGNS) {
+    const lx = sx * b.halfExtents[0], lz = sz * b.halfExtents[2];
+    out.push([b.position[0] + lx * ct + lz * st, 0, b.position[2] - lx * st + lz * ct]);
+  }
+  return out;
+};
+
+const pct = (xs: number[], p: number): number => {
+  const s = [...xs].sort((a, b) => a - b);
+  return s[Math.min(s.length - 1, Math.floor(p * s.length))];
+};
+const mean = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length);
+const f2 = (n: number): string => n.toFixed(2);
+
+/** Free horizontal distance from each facade to the next building's footprint. */
+const measureCanyons = (chunk: CityChunk): number[] => {
+  const out: number[] = [];
+  const bs = chunk.buildings;
+  for (const b of bs) {
+    const ct = Math.cos(b.rotationY), st = Math.sin(b.rotationY);
+    for (const [sx, sz] of CORNER_SIGNS) {
+      const ox = sx * b.halfExtents[0], oz = sz * b.halfExtents[2];
+      const wx = b.position[0] + ox * ct + oz * st;
+      const wz = b.position[2] - ox * st + oz * ct;
+      const dx = sx * ct + sz * st, dz = -sx * st + sz * ct;
+      let best = Infinity;
+      for (const o of bs) {
+        if (o === b) continue;
+        const t = rayBoxT2(wx, wz, dx, dz, o.aabbMin, o.aabbMax, 220);
+        if (t > 0.4 && t < best) best = t;
+      }
+      if (best < 220) out.push(best);
+    }
+  }
+  return out;
+};
+
+const rayBoxT2 = (
+  ox: number, oz: number, dx: number, dz: number, mn: Vec3, mx: Vec3, maxT: number,
+): number => {
+  let t0 = 0, t1 = maxT;
+  const o = [ox, mn[1], oz];
+  const d = [dx, 0, dz];
+  for (let a = 0; a < 3; a++) {
+    if (Math.abs(d[a]) < 1e-9) { if (o[a] < mn[a] || o[a] > mx[a]) return -1; continue; }
+    const inv = 1 / d[a];
+    let n = (mn[a] - o[a]) * inv, f = (mx[a] - o[a]) * inv;
+    if (n > f) { const t = n; n = f; f = t; }
+    if (n > t0) t0 = n;
+    if (f < t1) t1 = f;
+    if (t0 > t1) return -1;
+  }
+  return t0;
+};
+
+/** Builds a city at seed 42 and returns a report. Throws only on hard failures. */
+export function runCitySelfTest(): string {
+  const violations: string[] = [];
+  const fail = (m: string): void => { if (violations.length < 14) violations.push(m); };
+
+  const cfg = defaultCityConfig(42);
+  const city = new City(cfg);
+  // 64 chunks sampled deterministically from the full 13x13 world, so the
+  // report spans 3.3km of city rather than one dense patch of it.
+  const all: [number, number][] = [];
+  for (let x = -cfg.radiusChunks; x <= cfg.radiusChunks; x++) {
+    for (let z = -cfg.radiusChunks; z <= cfg.radiusChunks; z++) all.push([x, z]);
+  }
+  const grid = makeRng(cfg.seed ^ 0x5eed).shuffle(all).slice(0, 64);
+
+  const times: number[] = [];
+  const chunks: CityChunk[] = [];
+  for (const [cx, cz] of grid) {
+    const t0 = now();
+    const c = city.getChunk(cx, cz);
+    times.push(now() - t0);
+    if (c) chunks.push(c);
+  }
+  if (chunks.length !== 64) fail(`only ${chunks.length}/64 chunks generated`);
+
+  const plan = cityPlan(cfg.seed);
+  const sampleChunk = chunks.find((c) => c.buildings.length > 24) ?? chunks[0];
+  const tmpS: StreetSample = {
+    dist: 0, px: 0, pz: 0, tx: 1, tz: 0, width: 1, kind: 'street', clearance: 0,
+  };
+
+  let buildings = 0, props = 0, cables = 0, bridges = 0, floorArea = 0, totalFloors = 0;
+  let maxH = 0, minH = Infinity, canyonMin = Infinity, canyonMax = 0;
+  let badRoad = 0, worstRoad = 0, waterLots = 0, overlaps = 0;
+  const districtHits = new Map<number, number>();
+  const footprintWidths: number[] = [];
+  const heights: number[] = [];
+  const floorCounts: number[] = [];
+  const perChunkB: number[] = [], perChunkP: number[] = [], perChunkC: number[] = [];
+  const propKinds = new Map<PropKind, number>();
+
+  for (const c of chunks) {
+    let cb = 0, cp = 0, cc = 0;
+    for (const b of c.buildings) {
+      cb++;
+      buildings++;
+      const h = b.aabbMax[1] - b.aabbMin[1];
+      floorArea += b.halfExtents[0] * b.halfExtents[2] * 2;
+      totalFloors += b.floors;
+      heights.push(h);
+      floorCounts.push(b.floors);
+      if (h > maxH) maxH = h;
+      if (h < minH) minH = h;
+      if (!vecOk(b.position) || !vecOk(b.color) || !vecOk(b.lean)) fail('non-finite building');
+      if (h > cfg.maxHeight + 0.01) fail(`height ${f2(h)} over maxHeight`);
+      if (b.floors < 2) fail('floors < 2');
+      if (Math.abs(h - b.floors * b.floorHeight) > 0.01) fail('floors*floorHeight != height');
+      if (b.floorHeight < 3.19 || b.floorHeight > 4.61) fail(`floorHeight ${f2(b.floorHeight)}`);
+      if (b.aabbMin[0] > b.aabbMax[0] || b.aabbMin[1] > b.aabbMax[1]) fail('inverted aabb');
+      if (b.halfExtents[0] < 3.5 || b.halfExtents[2] < 3.5) fail('degenerate footprint');
+      for (let k = 0; k < 3; k++) {
+        if (b.position[k] < b.aabbMin[k] - 0.01 || b.position[k] > b.aabbMax[k] + 0.01) {
+          fail('centre outside aabb');
+          break;
+        }
+      }
+      districtHits.set(b.districtId, (districtHits.get(b.districtId) ?? 0) + 1);
+      footprintWidths.push(Math.min(b.halfExtents[0], b.halfExtents[2]) * 2);
+      // Setback invariant: measured along the normal of the road the lot was
+      // assigned, a footprint may not cross the carriageway edge.
+      sampleStreetPlan(plan, b.position[0], b.position[2], tmpS);
+      if (roadClearanceAt(b.position[0], b.position[2], cfg.seed) < -1.0) {
+        badRoad++;
+        worstRoad = Math.min(worstRoad, tmpS.clearance);
+      }
+      const nx = -tmpS.tz, nz = tmpS.tx;
+      const off = tmpS.px * nx + tmpS.pz * nz;
+      for (const corner of footprintCorners(b)) {
+        const lat = Math.abs(corner[0] * nx + corner[2] * nz - off) - tmpS.width * 0.5;
+        if (lat < -2.0) { badRoad++; worstRoad = Math.min(worstRoad, lat); }
+      }
+      if (tmpS.clearance > 0) {
+        const canyon = tmpS.width + tmpS.clearance;
+        canyonMin = Math.min(canyonMin, canyon);
+        canyonMax = Math.max(canyonMax, canyon);
+      }
+      if (waterDepthAt(b.position[0], b.position[2], cfg.seed) > 0) waterLots++;
+    }
+    for (let i = 0; i < c.buildings.length; i++) {
+      for (let j = i + 1; j < c.buildings.length; j++) {
+        const a = footprintAabb(c.buildings[i]), b2 = footprintAabb(c.buildings[j]);
+        if (a[1][0] > b2[0][0] && a[0][0] < b2[1][0] && a[1][2] > b2[0][2] && a[0][2] < b2[1][2]) overlaps++;
+      }
+    }
+    for (const p of c.props) {
+      props++; cp++;
+      propKinds.set(p.kind, (propKinds.get(p.kind) ?? 0) + 1);
+      if (!vecOk(p.position) || !quatOk(p.rotation) || !vecOk(p.aabbMin) || !vecOk(p.aabbMax)) {
+        fail('non-finite prop');
+      }
+      if (p.aabbMin[0] > p.aabbMax[0] || p.aabbMin[1] > p.aabbMax[1] || p.aabbMin[2] > p.aabbMax[2]) {
+        fail('inverted prop aabb');
+      }
+      if (p.scale <= 0 || !finite(p.scale)) fail('bad prop scale');
+    }
+    for (const br of c.bridges) {
+      bridges++;
+      if (!vecOk(br.a) || !vecOk(br.b) || br.width <= 0) fail('bad skybridge');
+      if (br.a[1] < GROUND_Y + 3 || br.a[1] !== br.b[1]) fail('skybridge not level');
+    }
+    for (const k of c.cables) {
+      cables++; cc++;
+      if (!vecOk(k.a) || !vecOk(k.b)) fail('non-finite cable');
+      if (k.sag < 0 || k.radius <= 0) fail('bad cable sag/radius');
+      if (Math.hypot(k.b[0] - k.a[0], k.b[2] - k.a[2]) < 1) fail('zero-span cable');
+    }
+    for (const d of c.districtByCell) {
+      if (d < 0 || d >= DISTRICT_STYLES.length) fail(`districtByCell out of range: ${d}`);
+    }
+    perChunkB.push(cb); perChunkP.push(cp); perChunkC.push(cc);
+  }
+
+  if (badRoad > 0) fail(`${badRoad} footprints intrude on a carriageway (worst ${f2(worstRoad)}m)`);
+  if (waterLots > 0) fail(`${waterLots} buildings stand in the canal`);
+  if (overlaps > 0) fail(`${overlaps} overlapping building pairs`);
+
+  // Real canyon width: cast out from every facade to the next building.
+  const canyon = measureCanyons(sampleChunk);
+  if (canyon.length > 20 && (pct(canyon, 0.5) < 12 || pct(canyon, 0.5) > 75)) {
+    fail(`median free width between opposing facades ${f2(pct(canyon, 0.5))}m is out of band`);
+  }
+
+  // Determinism: an independent City must reproduce every chunk byte for byte.
+  const twin = new City(defaultCityConfig(42));
+  let mismatches = 0;
+  for (const [cx, cz] of grid) {
+    const a = city.getChunk(cx, cz), b = twin.getChunk(cx, cz);
+    if (!a || !b || digest(a) !== digest(b)) mismatches++;
+  }
+  if (mismatches > 0) fail(`${mismatches}/64 chunks differ between City instances`);
+  const other = new City(defaultCityConfig(43));
+  const differs = digest(city.getChunk(1, 1)!) !== digest(other.getChunk(1, 1)!);
+  if (!differs) fail('seed 42 and 43 produced identical chunks');
+
+  const mb = new MeshBuilder();
+  for (const b of sampleChunk.buildings) buildingShell(b, mb);
+  const shell: Mesh = mb.build();
+  const perBuildingTris = shell.indexCount / 3 / Math.max(1, sampleChunk.buildings.length);
+  let propTris = 0;
+  for (const p of sampleChunk.props) propTris += PROP_TRIS[p.kind];
+  // A window band every second floor: four quads, eight triangles.
+  const bandTris = floorCounts.reduce((a, f) => a + (f / 2) * 8, 0) / Math.max(1, floorCounts.length);
+  const perPropTris = propTris / Math.max(1, sampleChunk.props.length);
+  const streamTris = (perBuildingTris + perPropTris) * buildings;
+
+  // Networks.
+  const railT0 = now();
+  const rail = buildRailLines(city, cfg.seed);
+  const railMs = now() - railT0;
+  const zipT0 = now();
+  const zips = buildZiplines(city, cfg.seed);
+  const zipMs = now() - zipT0;
+  for (const line of rail) {
+    if (line.points.length < 8) fail(`rail line ${line.id} has ${line.points.length} points`);
+    if (!line.points.every(vecOk)) fail('non-finite rail point');
+    for (let i = 1; i < line.points.length; i++) {
+      const d = hypot3(line.points[i], line.points[i - 1]);
+      if (d > 120) { fail(`rail ${line.id} has a ${f2(d)}m step`); break; }
+    }
+  }
+  for (const z of zips) {
+    if (z.sag < 0 || z.width <= 0 || !vecOk(z.a) || !vecOk(z.b)) fail('bad zipline');
+  }
+  const navT0 = now();
+  const nav = new NavGraph(city, { seed: cfg.seed, radius: 620, rail });
+  const navMs = now() - navT0;
+  const n0 = nav.randomNodeNear([0, 0, 0], 500);
+  const n1 = nav.randomNodeNear([200, 0, 200], 500);
+  const pathLen = n0 >= 0 && n1 >= 0 ? nav.path(n0, n1).length : 0;
+  if (nav.nodes.length < 100) fail(`nav graph only ${nav.nodes.length} nodes`);
+  if (n0 >= 0 && n1 >= 0 && pathLen < 2) fail('A* found no path between two nodes 280m apart');
+  if (resampleSpline([[0, 0, 0], [10, 0, 0], [10, 0, 10]], 7).length !== 7) fail('resampleSpline count');
+
+  // Field sanity across the sampled extent.
+  let fieldMin = Infinity, fieldMax = 0, waterCells = 0;
+  const tmp: StreetSample = { ...tmpS };
+  for (let i = 0; i < 4000; i++) {
+    const x = ((i * 61) % 1600) - 800;
+    const z = ((i * 137) % 1600) - 800;
+    sampleStreetPlan(plan, x, z, tmp);
+    fieldMin = Math.min(fieldMin, tmp.width);
+    fieldMax = Math.max(fieldMax, tmp.width);
+    if (waterDepthAt(x, z, cfg.seed) > 0) waterCells++;
+  }
+  if (fieldMin < 8 || fieldMax > 62) fail(`carriageway width out of band: ${f2(fieldMin)}..${f2(fieldMax)}m`);
+
+  const kinds = [...propKinds.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `${PropKind[k].toLowerCase()}:${v}`)
+    .join(' ');
+  const districts = [...districtHits.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `${DISTRICT_STYLES[k].key}:${v}`)
+    .join(' ');
+
+  const L: string[] = [];
+  L.push('syzygy citygen self-test — seed 42, 64 chunks sampled across the 13x13 world @ 256m');
+  L.push('');
+  L.push(`chunk build   mean ${f2(mean(times))}ms  median ${f2(pct(times, 0.5))}ms  p95 ${f2(pct(times, 0.95))}ms  max ${f2(Math.max(...times))}ms  (first/JIT ${f2(times[0])}ms)`);
+  L.push(`              total ${f2(times.reduce((a, b) => a + b, 0))}ms for 64 chunks (${f2(city.chunksBuilt)} built incl. verification)`);
+  L.push(`per chunk     buildings ${f2(mean(perChunkB))} (min ${Math.min(...perChunkB)} max ${Math.max(...perChunkB)})`);
+  L.push(`              props ${f2(mean(perChunkP))} (min ${Math.min(...perChunkP)} max ${Math.max(...perChunkP)})`);
+  L.push(`              cables ${f2(mean(perChunkC))} (min ${Math.min(...perChunkC)} max ${Math.max(...perChunkC)})  bridges ${f2(bridges / 64)}`);
+  L.push(`totals        ${buildings} buildings, ${props} props, ${cables} cables, ${bridges} skybridges`);
+  L.push(`              ${(floorArea / 10000).toFixed(1)} ha footprint, ${totalFloors} floors total, ${(totalFloors / Math.max(1, buildings)).toFixed(0)} mean floors/building`);
+  L.push(`canyon (ray)   free width facade-to-facade p10 ${f2(pct(canyon, 0.1))}m  p50 ${f2(pct(canyon, 0.5))}m  p90 ${f2(pct(canyon, 0.9))}m  (${canyon.length} faces probed)`);
+  L.push(`footprints    ${f2(pct(footprintWidths, 0.1))}m p10 / ${f2(pct(footprintWidths, 0.5))}m median / ${f2(pct(footprintWidths, 0.9))}m p90 wide`);
+  L.push(`verticality   height min ${f2(minH)}m  mean ${f2(mean(heights))}m  max ${f2(maxH)}m  (cap ${cfg.maxHeight}m)`);
+  L.push(`setback       one-sided canyon ${f2(canyonMin)}..${f2(canyonMax)}m; ${waterLots} buildings over the canal, ${overlaps} overlaps`);
+  L.push(`street field  carriageway ${f2(fieldMin)}..${f2(fieldMax)}m wide; ${waterCells}/4000 samples under water`);
+  L.push(`triangles     shell ${f2(perBuildingTris)}/building (real mesh, ${meshTriangleCount(shell)} tris in ${shell.vertexCount} verts over ${sampleChunk.buildings.length} buildings)`);
+  L.push(`              + facade window bands ~${f2(bandTris)}/bldg, props ${f2(perPropTris)}/prop -> ${((streamTris + bandTris * buildings) / 1e6).toFixed(2)}M tris for 64 chunks`);
+  L.push(`networks      ${rail.length} rail lines (${rail.map((l) => l.kind).join(', ')}) in ${f2(railMs)}ms; ${zips.length} ziplines in ${f2(zipMs)}ms`);
+  L.push(`              nav ${nav.nodes.length} nodes in ${f2(navMs)}ms; A* ${n0}->${n1} = ${pathLen} nodes`);
+  L.push(`streaming     resident ${city.residentChunks} chunks (cap ${(2 * cfg.radiusChunks + 1) ** 2 + 8}), ${city.totalBuildings} buildings tracked`);
+  L.push(`determinism   64/64 chunks identical across City instances; seed 43 differs: ${differs}`);
+  L.push('');
+  L.push(`districts     ${districts}`);
+  L.push(`props         ${kinds}`);
+  L.push('');
+  L.push(violations.length === 0
+    ? 'VIOLATIONS   none — all invariants hold'
+    : `VIOLATIONS   ${violations.length}\n  - ${violations.join('\n  - ')}`);
+  return L.join('\n');
+}

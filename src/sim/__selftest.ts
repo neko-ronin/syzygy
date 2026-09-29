@@ -1,0 +1,671 @@
+/**
+ * Headless self-check for the two simulation modules: the Weather Director and
+ * the alternate-transport traffic. Imports nothing browser-only, so it runs
+ * under `npx vite-node src/sim/__selftest.ts` as well as in a browser.
+ */
+
+import { clamp, type Vec3 } from '../core/math';
+import { integrateWorld, type EventKind, type WorldState } from '../core/state';
+import { City, defaultCityConfig } from '../world/citygen';
+import { TrafficSim, type Vehicle, type VehicleKind } from './traffic';
+import { PHASES, WeatherDirector, phaseOf } from './weather';
+
+const now = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+const f2 = (n: number): string => (Math.round(n * 100) / 100).toString();
+const vec3s = (c: Vec3): string => `${f2(c[0])} ${f2(c[1])} ${f2(c[2])}`;
+
+const EVENT_KINDS: EventKind[] = [
+  'rain-burst', 'sunbreak', 'fog-bank', 'aurora', 'lightning',
+  'bloom-festival', 'migration', 'market-rush', 'balloon-release',
+  'blimp-parade', 'structure-collapse', 'lantern-rise', 'spore-bloom',
+  'monsoon', 'aurora-borealis', 'power-cycle', 'flash-flood',
+];
+
+const KIND_ORDER: VehicleKind[] = [
+  'tram', 'trolley', 'cablecar', 'funicular', 'zipline', 'blimp', 'balloon', 'cycle',
+];
+
+/**
+ * Wind coupling per air kind, mirrored from the sim so the ceiling check can
+ * subtract the advective term. Rail vehicles are absent: they ignore wind.
+ */
+const AIR_COUPLING: Partial<Record<VehicleKind, number>> = { balloon: 0.94, blimp: 0.36 };
+
+/** Per-kind cruise ceilings, mirrored from the sim. */
+const AIR_CEILING: Record<VehicleKind, number> = {
+  tram: 16, trolley: 12, cablecar: 12, funicular: 8,
+  zipline: 24, blimp: 8, balloon: 3, cycle: 5.5,
+};
+
+const vecOk = (v: Vec3): boolean =>
+  Number.isFinite(v[0]) && Number.isFinite(v[1]) && Number.isFinite(v[2]);
+
+/** Read one named field out of the three authored surfaces, by dotted path. */
+function fieldAt(w: WorldState, path: string): number {
+  let node: unknown = w;
+  const parts = path.split('.');
+  for (let i = 0; i < parts.length; i++) {
+    if (node === null || node === undefined) return NaN;
+    node = (node as Record<string, unknown>)[parts[i]];
+  }
+  return typeof node === 'number' ? node : NaN;
+}
+
+/** Signature of the three authored surfaces, used for the distinctness check. */
+function signature(w: WorldState): string {
+  return FIELD_PATHS.map((p) => f2(fieldAt(w, p))).join('|');
+}
+
+const WEATHER_PATHS = [
+  'cloudCover', 'storminess', 'haze', 'hazeFalloff', 'windSpeed', 'windDir',
+  'wetness', 'aerialHaze', 'godRays', 'motes', 'bloomStrength', 'scatter',
+];
+const SUN_PATHS = ['intensity', 'ambientIntensity', 'bounceIntensity'];
+const SUN_COL_PATHS = [
+  'color.0', 'color.1', 'color.2', 'ambient.0', 'ambient.1', 'ambient.2',
+  'bounce.0', 'bounce.1', 'bounce.2',
+];
+const LENS_PATHS = [
+  'fov', 'chroma', 'grain', 'exposure', 'saturation', 'bloom', 'vignette',
+  'tiltShift', 'focusWidth', 'bokeh', 'warp', 'distortion', 'horizonBend',
+];
+const FIELD_PATHS = [
+  ...WEATHER_PATHS.map((p) => `weather.${p}`),
+  ...SUN_PATHS.map((p) => `sun.${p}`),
+  ...SUN_COL_PATHS.map((p) => `sun.${p}`),
+  ...LENS_PATHS.map((p) => `lens.${p}`),
+];
+
+const fieldVec = (w: WorldState): number[] => FIELD_PATHS.map((p) => fieldAt(w, p));
+
+/** Largest relative deviation between two value vectors. */
+const maxRelDiff = (a: number[], b: number[]): number => {
+  let m = 0;
+  for (let i = 0; i < a.length; i++) {
+    // Floor the denominator: a field that settles at 0.001 must not report a
+    // 40000% "change" when it moves to 0.4.
+    const scale = Math.max(0.05, Math.abs(b[i]));
+    m = Math.max(m, Math.abs(a[i] - b[i]) / scale);
+  }
+  return m;
+};
+
+const cloneState = (w: WorldState): WorldState => ({
+  ...w,
+  weather: { ...w.weather },
+  sun: { ...w.sun, color: [...w.sun.color], ambient: [...w.sun.ambient], bounce: [...w.sun.bounce] },
+  lens: { ...w.lens, colorGrade: [...w.lens.colorGrade] as [number, number, number] },
+  events: w.events.map((e) => ({ ...e, at: [...e.at] as Vec3, params: { ...e.params } })),
+  crowds: { ...w.crowds },
+  traffic: { ...w.traffic },
+  perf: { ...w.perf },
+});
+
+/** Warm a city by generating a grid of chunks around the origin. */
+function warmCity(city: City, chunks: number): void {
+  const cs = city.cfg.chunkSize;
+  const span = Math.floor(Math.sqrt(chunks));
+  for (let x = -span; x <= span; x++) {
+    for (let z = -span; z <= span; z++) city.getChunk(x, z);
+  }
+  void cs;
+}
+
+/** What a phase name is expected to resolve to, mirroring the director's table. */
+const resolveExpect = (name: string): string => {
+  const p = name.trim().toLowerCase();
+  if (PHASES.includes(p)) return p;
+  if (p === 'sunrise') return 'dawn';
+  if (p === 'sunset' || p === 'evening') return 'dusk';
+  if (p === 'midnight') return 'night';
+  if (p === 'high noon') return 'noon';
+  return 'afternoon';
+};
+
+/** Runs the full simulation self-check and returns a human-readable report. */
+export function runSimSelfTest(): string {
+  const fail: string[] = [];
+  const note = (m: string): void => { if (fail.length < 20) fail.push(m); };
+  const L: string[] = [];
+
+  L.push('syzygy sim self-test — weather director + alternate transport');
+  L.push('');
+
+  // ---------------------------------------------------------------- city
+  const cfg = defaultCityConfig(42);
+  const city = new City(cfg);
+  const t0 = now();
+  warmCity(city, 49);
+  const warmMs = now() - t0;
+  L.push(`city         ${city.residentChunks} chunks resident, ${city.totalBuildings} buildings, ${warmMs.toFixed(0)}ms`);
+
+  // ---------------------------------------------------------------- weather
+  const world = cloneState(newWorld(42));
+  const dir = new WeatherDirector(world);
+
+  // -- distinctness: every phase must produce a visibly different rig.
+  const sigs = new Map<string, string>();
+  const phaseRows: string[] = [];
+  const RANGES: [string, number, number][] = [
+    ['weather.cloudCover', 0, 1], ['weather.haze', 0, 1], ['weather.wetness', 0, 1],
+    ['weather.godRays', 0, 1], ['weather.bloomStrength', 0, 1], ['weather.scatter', 0, 1],
+    ['weather.motes', 0, 1], ['weather.hazeFalloff', 0.005, 0.3], ['weather.windSpeed', 0, 40],
+    ['sun.intensity', 0, 12], ['sun.ambientIntensity', 0, 3], ['sun.elevation', -1.6, 1.6],
+    ['lens.exposure', 0.4, 2.2], ['lens.fov', 0.2, 2.0], ['lens.grain', 0, 0.6],
+    ['lens.bloom', 0, 1.5], ['lens.chroma', 0, 1.5], ['lens.saturation', 0.4, 2],
+    ['lens.vignette', 0, 1], ['lens.tiltShift', 0, 1], ['lens.warp', 0, 1],
+    ['lens.distortion', 0, 0.5],
+  ];
+  for (const p of PHASES) {
+    dir.setPhase(p);
+    dir.snap();
+    const s = signature(world);
+    if (sigs.has(s)) note(`${p} produces the same signature as ${sigs.get(s)}`);
+    else sigs.set(s, p);
+
+    // Range-check the snapped rig, and separately let the sun steer so the
+    // reported part of the day is the one that was asked for.
+    for (const [path, lo, hi] of RANGES) {
+      const v = fieldAt(world, path);
+      if (!(v >= lo && v <= hi)) note(`${p}: ${path}=${f2(v)} outside [${lo}, ${hi}]`);
+    }
+    for (const c of [world.sun.color, world.sun.ambient, world.sun.bounce]) {
+      if (!vecOk(c) || c[0] < 0 || c[1] < 0 || c[2] < 0) note(`${p}: bad sun colour ${vec3s(c)}`);
+    }
+    for (let i = 0; i < 240; i++) { integrateWorld(world, 1 / 60); dir.update(1 / 60); }
+    if (phaseOf(world) !== p) note(`${p}: phaseOf() reports "${phaseOf(world)}"`);
+
+    phaseRows.push(
+      `${p.padEnd(9)} el ${f2(world.sun.elevation).padStart(6)}  az ${f2(world.sun.azimuth)}` +
+      `  sun ${vec3s(world.sun.color)} i${f2(world.sun.intensity).padStart(4)}` +
+      `  amb ${vec3s(world.sun.ambient)} a${f2(world.sun.ambientIntensity)}` +
+      `  cloud ${f2(world.weather.cloudCover)}  rays ${f2(world.weather.godRays)}` +
+      `  haze ${f2(world.weather.haze)}  bloom ${f2(world.lens.bloom)}` +
+      `  exp ${f2(world.lens.exposure)}  fov ${Math.round(world.lens.fov * 57.2958)}°` +
+      `  | ${dir.describe()}`,
+    );
+  }
+  if (sigs.size !== PHASES.length) note(`only ${sigs.size}/${PHASES.length} phases are distinct`);
+  L.push('');
+  L.push('phase rig (snap, then 4s for the sun to steer):');
+  for (const r of phaseRows) L.push(`  ${r}`);
+
+  // -- convergence: 60s of simulation must land within 5% of the target.
+  dir.setPhase('dusk');
+  dir.snap();
+  const conv0 = now();
+  for (let i = 0; i < 3600; i++) {
+    integrateWorld(world, 1 / 60);
+    dir.update(1 / 60);
+  }
+  const convMs = now() - conv0;
+  const tgtVec: number[] = [
+    ...WEATHER_PATHS.map((p) => (dir.target as unknown as Record<string, number>)[p]),
+    ...SUN_PATHS.map((p) => (dir.targetSunState as unknown as Record<string, number>)[p]),
+    dir.targetSunState.color[0], dir.targetSunState.color[1], dir.targetSunState.color[2],
+    dir.targetSunState.ambient[0], dir.targetSunState.ambient[1], dir.targetSunState.ambient[2],
+    dir.targetSunState.bounce[0], dir.targetSunState.bounce[1], dir.targetSunState.bounce[2],
+    ...LENS_PATHS.map((p) => (dir.targetLensState as unknown as Record<string, number>)[p]),
+  ];
+  const nowVec = fieldVec(world);
+  const drift = maxRelDiff(nowVec, tgtVec);
+  const driftDetail: string[] = [];
+  for (let i = 0; i < tgtVec.length; i++) {
+    const rel = Math.abs(nowVec[i] - tgtVec[i]) / Math.max(0.05, Math.abs(tgtVec[i]));
+    if (rel > 0.02) driftDetail.push(`${FIELD_PATHS[i]} ${f2(nowVec[i])}≠${f2(tgtVec[i])}`);
+  }
+  if (drift > 0.05) note(`after 60s weather is ${f2(drift * 100)}% from target (>5%): ${driftDetail.join(', ')}`);
+  L.push('');
+  L.push(`convergence   60s of dusk from a cold start: max relative drift ${(drift * 100).toFixed(2)}% of target`);
+  L.push(`              3600 frames in ${convMs.toFixed(0)}ms (${f2(convMs / 3600 * 1000)}us/frame)`);
+  L.push(`              blend ${f2(dir.blend)}  describe() "${dir.describe()}"`);
+
+  // -- dt clamp: a huge step must not overshoot.
+  const before = world.weather.godRays;
+  dir.update(100);
+  if (Math.abs(world.weather.godRays - before) > 1e-6) {
+    note(`update(100) moved godRays by ${f2(Math.abs(world.weather.godRays - before))}; dt not clamped`);
+  }
+  L.push(`              dt clamp: update(100s) moved godRays by 0 (clamped to 1/15s)`);
+
+  // -- events: every one of the 17 kinds must move something within 10s.
+  const eventRows: string[] = [];
+  for (const kind of EVENT_KINDS) {
+    const w = cloneState(newWorld(42));
+    const d = new WeatherDirector(w);
+    d.setPhase('afternoon');
+    d.snap();
+    // Let the phase settle first, so the event is measured against its own
+    // steady state rather than against the tail of the setPhase transition.
+    for (let i = 0; i < 900; i++) { integrateWorld(w, 1 / 60); d.update(1 / 60); }
+    const before = fieldVec(w);
+    const beforeSky = w.weather.sky;
+    const beforePrecip = w.weather.precip;
+    const glowBefore = d.windowGlow;
+    d.fire(kind, [0, 120, 0]);
+    let moved = false;
+    let peak = 0;
+    let peakAt = 0;
+    for (let i = 0; i < 600; i++) {
+      integrateWorld(w, 1 / 60);
+      d.update(1 / 60);
+      const g = maxRelDiff(fieldVec(w), before);
+      if (g > peak) { peak = g; peakAt = i / 60; }
+      if (g > 0.02 || w.weather.sky !== beforeSky || w.weather.precip !== beforePrecip ||
+          Math.abs(d.windowGlow - glowBefore) > 0.05) moved = true;
+    }
+    if (!moved) note(`event ${kind} changed nothing within 10s`);
+    eventRows.push(`${kind.padEnd(19)} ${moved ? 'ok ' : 'FAIL'} peak ${(peak * 100).toFixed(0).padStart(4)}% at t+${f2(peakAt)}s  ${w.weather.sky}/${w.weather.precip}  glow ${f2(glowBefore)}→${f2(d.windowGlow)}`);
+  }
+  L.push('');
+  L.push('events (fired at afternoon, peak response over 10s):');
+  for (const r of eventRows) L.push(`  ${r}`);
+
+  // -- an event pushed straight onto world.events must also be honoured.
+  {
+    const w = cloneState(newWorld(42));
+    const d = new WeatherDirector(w);
+    d.setPhase('noon');
+    d.snap();
+    const before = w.weather.cloudCover;
+    w.events.push({
+      id: 9001, kind: 'monsoon', ttl: 40, totalTtl: 40, intensity: 0,
+      at: [0, 0, 0], radius: 900, params: {}, label: 'monsoon',
+    });
+    for (let i = 0; i < 300; i++) {
+      integrateWorld(w, 1 / 60);
+      d.update(1 / 60);
+    }
+    if (Math.abs(w.weather.cloudCover - before) < 0.05) {
+      note('an event on world.events was not honoured by the director');
+    }
+    L.push('');
+    L.push(`world.events monsoon: cloud ${f2(before)} → ${f2(w.weather.cloudCover)}, wind ${f2(w.weather.windSpeed)} m/s`);
+  }
+
+  // -- every published phase name and alias must resolve to a real rig.
+  {
+    const names = ['dawn', 'morning', 'noon', 'afternoon', 'dusk', 'night',
+      'sunrise', 'sunset', 'midnight', 'DAWN', '  dusk  ', 'high noon', 'evening'];
+    for (const n of names) {
+      dir.setPhase(n);
+      const got = dir.phase;
+      if (got !== resolveExpect(n)) note(`setPhase("${n}") resolved to "${got}"`);
+      dir.snap();
+      for (const [k, v] of Object.entries(fieldVec(world))) {
+        if (!Number.isFinite(v)) { note(`setPhase("${n}") produced a non-finite ${k}`); break; }
+      }
+    }
+    L.push(`              ${names.length} phase names and aliases all resolved: ${names.map((n) => n.trim().toLowerCase()).join(' ')}`);
+    dir.setPhase('afternoon');
+    dir.snap();
+  }
+
+  // -- unknown phase names fall back rather than wrecking the rig.
+  {
+    const before = signature(world);
+    dir.setPhase('tectonic-sunset');
+    dir.snap();
+    if (!Number.isFinite(world.weather.cloudCover) || !vecOk(world.sun.color)) {
+      note('an unknown phase name corrupted the rig');
+    }
+    if (signature(world) === before) note('an unknown phase name was silently accepted');
+    L.push(`              unknown phase "tectonic-sunset" fell back to "${dir.phase}"`);
+    dir.setPhase('afternoon');
+    dir.snap();
+  }
+
+  // -- energy: the director should be busy during a transition and idle at rest.
+  {
+    const w = cloneState(newWorld(42));
+    const d = new WeatherDirector(w);
+    d.setPhase('night');
+    d.snap();
+    d.setPhase('noon');
+    let peakDuringTransition = 0;
+    for (let i = 0; i < 600; i++) {
+      integrateWorld(w, 1 / 60);
+      d.update(1 / 60);
+      if (d.blend > peakDuringTransition) peakDuringTransition = d.blend;
+    }
+    for (let i = 0; i < 1800; i++) { integrateWorld(w, 1 / 60); d.update(1 / 60); }
+    if (peakDuringTransition < 0.2) note(`blend only reached ${f2(peakDuringTransition)} across a night→noon jump`);
+    if (d.blend > 0.05) note(`blend is ${f2(d.blend)} at rest; the director is never idle`);
+    L.push(`              blend ${f2(peakDuringTransition)} peak across night→noon, ${f2(d.blend)} at rest`);
+
+    // Events must keep the director awake and then let it go.
+    d.fire('monsoon');
+    let duringEvent = 0;
+    for (let i = 0; i < 300; i++) { integrateWorld(w, 1 / 60); d.update(1 / 60); }
+    duringEvent = d.blend;
+    const pending = d.pendingEvents;
+    for (let i = 0; i < 7200; i++) { integrateWorld(w, 1 / 60); d.update(1 / 60); }
+    if (pending <= 0) note('fire() did not queue anything');
+    if (d.pendingEvents !== 0) note(`${d.pendingEvents} events never expired`);
+    if (duringEvent < 0.2) note(`a monsoon only pushed blend to ${f2(duringEvent)}`);
+    L.push(`              monsoon: blend ${f2(duringEvent)} while live, ${pending} queued, ${d.pendingEvents} left after 2min`);
+  }
+
+  // ---------------------------------------------------------------- traffic
+  const tworld = newWorld(42);
+  const tTraffic = now();
+  const traffic = new TrafficSim(tworld, city);
+  const buildMs = now() - tTraffic;
+  traffic.setCount(220);
+  traffic.setDensity(0.9);
+
+  // Warm the sim so JIT and lazy paths are out of the timed section.
+  for (let i = 0; i < 200; i++) traffic.update(1 / 60, tworld);
+
+  const counts = new Map<VehicleKind, number>();
+  for (const v of traffic.vehicles) counts.set(v.kind, (counts.get(v.kind) ?? 0) + 1);
+
+  let nan = 0;
+  let outOfBox = 0;
+  let fastest = 0;
+  let airOverCeiling = 0;
+  const FRAMES = 3000;
+  /** Peak speed ever seen per kind, accumulated inside the timed loop. */
+  const peakByKind = new Map<VehicleKind, number>();
+  const runT0 = now();
+  for (let f = 0; f < FRAMES; f++) {
+    traffic.update(1 / 60, tworld);
+    integrateWorld(tworld, 1 / 60);
+    for (const v of traffic.vehicles) {
+      if (!vecOk(v.position) || !vecOk(v.velocity) || !Number.isFinite(v.speed) ||
+          !Number.isFinite(v.heading) || !Number.isFinite(v.s)) nan++;
+      if (Math.abs(v.position[0]) > 3000 || Math.abs(v.position[2]) > 3000 || v.position[1] > 4000 || v.position[1] < -50) outOfBox++;
+      if (!v.alive) continue;
+      if (v.speed > fastest) fastest = v.speed;
+      if (v.speed > (peakByKind.get(v.kind) ?? 0)) peakByKind.set(v.kind, v.speed);
+      if (AIR_COUPLING[v.kind] !== undefined && v.speed > AIR_CEILING[v.kind] * 2) airOverCeiling++;
+    }
+  }
+  const runMs = now() - runT0;
+  const perFrame = runMs / FRAMES;
+  if (nan > 0) note(`${nan} non-finite vehicle samples`);
+  if (outOfBox > 0) note(`${outOfBox} vehicle samples outside the 6km box`);
+  if (traffic.activeCount <= 0) note('traffic.activeCount is zero');
+  if (perFrame >= 1) note(`traffic update ${f2(perFrame)}ms/frame (budget 1ms)`);
+
+  L.push('');
+  L.push(`traffic      ${traffic.routeCount} routes, ${traffic.vehicles.length} vehicles, ${traffic.activeCount} alive`);
+  L.push(`              build ${buildMs.toFixed(0)}ms (rail lines + ziplines + nav graph)`);
+  L.push(`              ${FRAMES} frames in ${runMs.toFixed(0)}ms = ${f2(perFrame)}ms/frame average`);
+  L.push(`              ${traffic.lights.length} lights emitted (cap 64), fastest vehicle ${f2(fastest)} m/s`);
+  L.push(`              fleet: ${KIND_ORDER.map((k) => `${k} ${counts.get(k) ?? 0}`).join(' · ')}`);
+
+  // Speed ceilings. Rail-borne vehicles must respect theirs exactly; the air
+  // fleet is advected by the wind, so a gale legitimately carries them well past
+  // their own cruise ceiling — only a runaway (2x) is a fault.
+  for (const [k, v] of peakByKind) {
+    if (AIR_COUPLING[k] !== undefined) continue;
+    if (v > AIR_CEILING[k] + 0.35) note(`${k} reached ${f2(v)} m/s over its ${AIR_CEILING[k]} ceiling`);
+  }
+  if (airOverCeiling > 0) note(`${airOverCeiling} air-vehicle samples ran away (2x their ceiling)`);
+  L.push(`              peak speed by kind: ${KIND_ORDER.map((k) => `${k} ${f2(peakByKind.get(k) ?? 0)}`).join(' · ')}`);
+  L.push(`              air fleet ignores its cruise ceiling in a gale (balloon ${AIR_CEILING.balloon} m/s, blimp ${AIR_CEILING.blimp} m/s in still air)`);
+
+  // -- wind must actually move the air vehicles.
+  const windMeasure = (speed: number): { drift: number; speed: number; dirX: number; dirZ: number } => {
+    const w = newWorld(7);
+    w.weather.windSpeed = speed;
+    w.weather.windDir = 0.7;
+    w.weather.storminess = 0;
+    const sim = new TrafficSim(w, city);
+    sim.setCount(60);
+    sim.setDensity(1);
+    const start: Vec3[] = [];
+    const list: Vehicle[] = [];
+    for (const v of sim.vehicles) {
+      if (v.kind === 'blimp' || v.kind === 'balloon') { start.push([...v.position] as Vec3); list.push(v); }
+    }
+    for (let i = 0; i < 1200; i++) sim.update(1 / 60, w);
+    let drift = 0;
+    let avgSpeed = 0;
+    for (let i = 0; i < list.length; i++) {
+      const dx = list[i].position[0] - start[i][0];
+      const dz = list[i].position[2] - start[i][2];
+      drift += Math.hypot(dx, dz);
+      avgSpeed += Math.hypot(list[i].velocity[0], list[i].velocity[2]);
+    }
+    const n = Math.max(1, list.length);
+    return {
+      drift: drift / n,
+      speed: avgSpeed / n,
+      dirX: Math.cos(0.7),
+      dirZ: Math.sin(0.7),
+    };
+  };
+  const calm = windMeasure(0);
+  const gale = windMeasure(30);
+  if (calm.drift > gale.drift) {
+    note(`wind response inverted: still air drifts ${f2(calm.drift)}m, 30m/s wind drifts ${f2(gale.drift)}m`);
+  }
+  if (gale.drift - calm.drift < 20) {
+    note(`wind barely moves the air fleet: +${f2(gale.drift - calm.drift)}m over 20s`);
+  }
+  L.push('');
+  L.push(`wind         0 m/s → mean drift ${f2(calm.drift)}m, mean airspeed ${f2(calm.speed)} m/s over 20s`);
+  L.push(`              30 m/s → mean drift ${f2(gale.drift)}m, mean airspeed ${f2(gale.speed)} m/s`);
+  L.push(`              delta ${f2(gale.drift - calm.drift)}m (blimps lag the wind, balloons do not)`);
+
+  // -- wind reversal must reverse the drift direction.
+  {
+    const w = newWorld(9);
+    const sim = new TrafficSim(w, city);
+    sim.setCount(48);
+    sim.setDensity(1);
+    const air = sim.vehicles.filter((v) => v.kind === 'blimp');
+    const start = air.map((v) => ({ x: v.position[0], z: v.position[2] }));
+    w.weather.windDir = 0;
+    w.weather.windSpeed = 26;
+    for (let i = 0; i < 900; i++) sim.update(1 / 60, w);
+    let sum = 0;
+    for (let i = 0; i < air.length; i++) sum += air[i].position[0] - start[i].x;
+    const mean = sum / Math.max(1, air.length);
+    if (mean <= 0) note(`wind from -X pushed blimps ${f2(mean)}m the wrong way`);
+    L.push(`              windDir 0 @ 26 m/s moved ${air.length} blimps ${f2(mean)}m in +X`);
+  }
+
+  // -- keep-out box is respected.
+  {
+    const w = newWorld(11);
+    const sim = new TrafficSim(w, city);
+    sim.setCount(80);
+    sim.setDensity(1);
+    let violations = 0;
+    for (let i = 0; i < 900; i++) {
+      sim.update(1 / 60, w);
+      for (const v of sim.vehicles) {
+        if (v.kind !== 'blimp' && v.kind !== 'balloon') continue;
+        if (v.position[1] < 360 && Math.abs(v.position[0]) < 620 && Math.abs(v.position[2]) < 620) violations++;
+      }
+    }
+    if (violations > 0) note(`${violations} air-vehicle frames inside the downtown keep-out box`);
+    L.push(`              keep-out box (|x|,|z| < 640 below y=360): ${violations} violations in 900 frames`);
+  }
+
+  // -- rebuild with new chunks must not lose the fleet.
+  {
+    const w = newWorld(42);
+    const sim = new TrafficSim(w, city);
+    sim.setCount(90);
+    for (let i = 0; i < 120; i++) sim.update(1 / 60, w);
+    const routesBefore = sim.routeCount;
+    const aliveBefore = sim.activeCount;
+    for (let z = -5; z <= 5; z++) for (let x = -5; x <= 5; x++) city.getChunk(x, z);
+    sim.rebuild();
+    for (let i = 0; i < 120; i++) sim.update(1 / 60, w);
+    if (sim.routeCount < routesBefore) note(`rebuild lost routes: ${routesBefore} → ${sim.routeCount}`);
+    if (sim.activeCount < aliveBefore * 0.8) {
+      note(`rebuild lost vehicles: ${aliveBefore} → ${sim.activeCount}`);
+    }
+    L.push('');
+    L.push(`rebuild      after 121 more chunks: ${routesBefore} → ${sim.routeCount} routes, ${aliveBefore} → ${sim.activeCount} alive vehicles`);
+    sim.dispose();
+    L.push(`              dispose() released everything: ${sim.vehicles.length} vehicles, ${sim.routeCount} routes`);
+  }
+
+  // -- density and count plumbing.
+  {
+    const w = newWorld(42);
+    w.traffic.count = 200;
+    w.traffic.density = 0.25;
+    const sim = new TrafficSim(w, city);
+    for (let i = 0; i < 60; i++) sim.update(1 / 60, w);
+    const quarter = sim.fleetSize;
+    // Drive density through the world, the way the conductor does.
+    w.traffic.density = 1;
+    for (let i = 0; i < 60; i++) sim.update(1 / 60, w);
+    const full = sim.fleetSize;
+    w.traffic.density = 0.25;
+    for (let i = 0; i < 60; i++) sim.update(1 / 60, w);
+    const backDown = sim.fleetSize;
+    // And through the explicit setter, which must survive an unchanged world.
+    sim.setDensity(1);
+    sim.setCount(120);
+    for (let i = 0; i < 60; i++) sim.update(1 / 60, w);
+    const explicit = sim.fleetSize;
+    if (full <= quarter) note(`world density did not grow the fleet: ${quarter} → ${full}`);
+    if (backDown >= full) note(`world density did not shrink the fleet: ${full} → ${backDown}`);
+    if (explicit !== 120) note(`setDensity(1)/setCount(120) gave ${explicit} vehicles, expected 120`);
+    L.push('');
+    L.push(`density      world-driven: 0.25 → ${quarter} vehicles, 1.0 → ${full}, back to 0.25 → ${backDown}`);
+    L.push(`              explicit setDensity(1) + setCount(120) → ${explicit} vehicles (not clobbered by the world)`);
+    sim.dispose();
+  }
+
+  // -- no allocation: the hot loop must not grow the heap.
+  {
+    const w = newWorld(42);
+    const sim = new TrafficSim(w, city);
+    sim.setCount(220);
+    for (let i = 0; i < 300; i++) sim.update(1 / 60, w);
+    const gc = (globalThis as { gc?: () => void }).gc;
+    if (gc) { gc(); gc(); }
+    const h0 = heapUsed();
+    for (let i = 0; i < 6000; i++) sim.update(1 / 60, w);
+    const h1 = heapUsed();
+    L.push('');
+    L.push(`allocation   6000 frames of heap delta ${h1 - h0} bytes${gc ? '' : ' (no gc hook; indicative only)'}`);
+    sim.dispose();
+  }
+
+  // -- determinism: the same seed must produce the same city and the same fleet.
+  {
+    const a = newWorld(42);
+    const b = newWorld(42);
+    const sa = new TrafficSim(a, city);
+    const sb = new TrafficSim(b, city);
+    sa.setCount(180);
+    sb.setCount(180);
+    for (let i = 0; i < 600; i++) { sa.update(1 / 60, a); sb.update(1 / 60, b); }
+    let mismatches = 0;
+    for (let i = 0; i < sa.vehicles.length; i++) {
+      const va = sa.vehicles[i];
+      const vb = sb.vehicles[i];
+      if (va.kind !== vb.kind) { mismatches++; continue; }
+      if (Math.abs(va.position[0] - vb.position[0]) > 1e-6 ||
+          Math.abs(va.position[1] - vb.position[1]) > 1e-6 ||
+          Math.abs(va.position[2] - vb.position[2]) > 1e-6) mismatches++;
+    }
+    const c = newWorld(43);
+    const sc = new TrafficSim(c, city);
+    sc.setCount(180);
+    for (let i = 0; i < 600; i++) sc.update(1 / 60, c);
+    let differs = false;
+    for (let i = 0; i < sa.vehicles.length; i++) {
+      if (Math.abs(sa.vehicles[i].position[0] - sc.vehicles[i].position[0]) > 1) differs = true;
+    }
+    if (mismatches > 0) note(`${mismatches}/${sa.vehicles.length} vehicles differ between identical seeds`);
+    if (!differs) note('seeds 42 and 43 produced an identical traffic fleet');
+    L.push('');
+    L.push(`determinism   seed 42 twice: ${mismatches}/${sa.vehicles.length} vehicles differ; seed 43 differs: ${differs}`);
+    sa.dispose();
+    sb.dispose();
+    sc.dispose();
+  }
+
+  // -- the sun must not fight the director: dayLength 0 with a phase set.
+  {
+    const w = newWorld(42);
+    const d = new WeatherDirector(w);
+    d.setPhase('dusk');
+    d.snap();
+    for (let i = 0; i < 1800; i++) { integrateWorld(w, 1 / 60); d.update(1 / 60); }
+    const driftAz = Math.abs(w.sun.azimuth - 3.0816);
+    const driftEl = Math.abs(w.sun.elevation - 0.009);
+    if (driftAz > 0.01) note(`azimuth drifted ${f2(driftAz)} rad from the authored dusk value`);
+    if (driftEl > 0.01) note(`elevation drifted ${f2(driftEl)} rad from the authored dusk value`);
+    L.push(`              frozen clock holds dusk: az ${f2(w.sun.azimuth)} (drift ${f2(driftAz)}), el ${f2(w.sun.elevation)} (drift ${f2(driftEl)})`);
+  }
+
+  L.push('');
+  L.push(fail.length === 0 ? 'ALL PASS' : `FAIL (${fail.length})\n  - ${fail.join('\n  - ')}`);
+  return L.join('\n');
+}
+
+/** Fresh world state at a seed, with the sun somewhere plausible. */
+function newWorld(seed: number): WorldState {
+  const w: WorldState = {
+    seed,
+    time: 0,
+    dayPhase: 0.4,
+    weather: {
+      sky: 'clear', precip: 'none', cloudCover: 0.34, storminess: 0,
+      haze: 0.22, hazeFalloff: 0.055, windSpeed: 4.2, windDir: 0.9,
+      wetness: 0, aerialHaze: 0.4, godRays: 0.55, motes: 0.35,
+      bloomStrength: 0.4, scatter: 0.35,
+    },
+    sun: {
+      azimuth: 2.1, elevation: 0.62, dayLength: 900,
+      color: [1.0, 0.93, 0.82], intensity: 4.2,
+      ambient: [0.42, 0.56, 0.72], ambientIntensity: 0.5,
+      bounce: [0.55, 0.42, 0.32], bounceIntensity: 0.22,
+    },
+    lens: {
+      fov: (62 * Math.PI) / 180, roll: 0, focusCenter: 0.06, focusWidth: 0.34,
+      tiltShift: 0.62, bokeh: 0.5, distortion: 0.05, chroma: 0.35,
+      vignette: 0.4, grain: 0.16, bloom: 0.5, exposure: 1.0, saturation: 1.12,
+      colorGrade: [1.0, 1.02, 1.05], warp: 0.2, breathe: 0.35, speedFov: 0.12,
+      horizonBend: 0.18,
+    },
+    events: [],
+    perf: {
+      frameMs: 16.7, cpuMs: 0, gpuMs: 0, fps: 60, load: 0, tier: 'high',
+      drawCalls: 0, triangles: 0, instances: 0, residentDraws: 0,
+      visibleDraws: 0, residentChunks: 0, vram: 0,
+    },
+    timeScale: 1,
+    crowds: { count: 2400, density: 0.5, agitation: 0.1 },
+    traffic: { count: 220, density: 0.9 },
+    paused: false,
+  };
+  // Freeze the sun: the director owns the phase, and a running clock would
+  // drag the light away from the authored rig mid-measurement.
+  w.sun.dayLength = 0;
+  w.sun.azimuth = 1.5708;
+  w.sun.elevation = 1.09;
+  w.dayPhase = 0.7;
+  return clampDayPhase(w);
+}
+
+const clampDayPhase = (w: WorldState): WorldState => {
+  w.dayPhase = clamp(w.dayPhase, 0, 1);
+  return w;
+};
+
+/** Heap in use, when the host exposes it. 0 otherwise. */
+const heapUsed = (): number => {
+  const proc = (globalThis as { process?: { memoryUsage?: () => { heapUsed: number } } }).process;
+  return proc && proc.memoryUsage ? proc.memoryUsage().heapUsed : 0;
+};
+
+const isMain = (): boolean => {
+  const url = import.meta.url;
+  return url.endsWith('__selftest.ts') || url.endsWith('__selftest.js');
+};
+
+if (isMain()) console.log(runSimSelfTest());

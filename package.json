@@ -1,0 +1,21 @@
+{
+  "name": "syzygy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A dreamscape city simulation — WebGPU/WebGL2, hyperreal with surreal proportion",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 4173 --strictPort",
+    "typecheck": "tsc --noEmit",
+    "shot": "node tools/capture.mjs",
+    "shots": "node tools/capture.mjs --sequence"
+  },
+  "devDependencies": {
+    "@webgpu/types": "^0.1.60",
+    "playwright": "^1.50.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
+  }
+}
