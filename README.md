@@ -33,6 +33,10 @@ what works, what does not, and what to do first.
 
 ## Documentation
 
+Working on it as an agent or a contributor? Read
+[`AGENTS.md`](AGENTS.md) — it routes you to the right document, and
+[`docs/PROCESS.md`](docs/PROCESS.md) is the short list of rules to work by.
+
 | Document | What it is for |
 | --- | --- |
 | [`docs/ORIGINAL_PROMPT.md`](docs/ORIGINAL_PROMPT.md) | The brief, verbatim, read clause by clause as a specification — including the one place the build deviates from it |
@@ -44,6 +48,7 @@ what works, what does not, and what to do first.
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Why the architecture is the way it is, and what was rejected |
 | [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | Vocabulary, so the next session and the next agent talk about the same things |
 | [`docs/COVERAGE.md`](docs/COVERAGE.md) | Living map from the original build checklist to where each item is covered — and what is a `PHANTOM` |
+| [`docs/PROCESS.md`](docs/PROCESS.md) | Ten working rules, each one bought with a real bug |
 
 ## Seeing it
 
