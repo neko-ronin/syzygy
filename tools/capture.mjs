@@ -26,7 +26,7 @@ const GLOBAL_TIMEOUT_MS = Number(process.env.SYZYGY_TIMEOUT || 120_000);
 // ---------------------------------------------------------------- cli
 
 function parseArgs(argv) {
-  const opts = { sequence: false, poses: [], debug: 0, debugseq: false, grab: null, quality: '', eval: null, dev: false, timeout: GLOBAL_TIMEOUT_MS, keepOpen: false };
+  const opts = { sequence: false, poses: [], debug: 0, debugseq: false, grab: null, query: '', quality: '', eval: null, dev: false, timeout: GLOBAL_TIMEOUT_MS, keepOpen: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--sequence' || a === '-s') opts.sequence = true;
@@ -35,6 +35,7 @@ function parseArgs(argv) {
     else if (a.startsWith('--debug=')) opts.debug = Number(a.slice(8));
     else if (a === '--debugseq') opts.debugseq = true;
     else if (a.startsWith('--grab=')) opts.grab = a.slice(7);
+    else if (a.startsWith('--query=')) opts.query = a.slice(8);
     else if (a === '--keep-open') opts.keepOpen = true;
     else if (a === '--quality' || a === '-q') opts.quality = argv[++i] ?? '';
     else if (a === '--eval' || a === '-e') opts.eval = argv[++i] ?? null;
@@ -73,12 +74,20 @@ const POSES = [
     settle: 30,
   },
   {
-    name: '01b-skyline-flat',
-    label: 'wide skyline, saturation/chroma/blur disabled — the diagnostic pose',
-    position: [900, 120, 1400], lookAt: [0, 200, 0], fov: 1.12, roll: 0,
-    weather: { sky: 'clear', cloudCover: 0.34, haze: 0.22, aerialHaze: 0.4, godRays: 0.55 },
-    lens: { tiltShift: 0, focusWidth: 1, bokeh: 0, chroma: 0, grain: 0, saturation: 0, vignette: 0.34 },
-    settle: 30,
+    name: '01b-crowd-closeup',
+    label: 'street-level crowd close-up — are pedestrians actually drawn?',
+    position: [0, 2.4, -40], lookAt: [30, 1.2, -180], fov: 0.95, roll: 0,
+    weather: { sky: 'clear', haze: 0.2, godRays: 0.4 },
+    lens: { tiltShift: 0, focusWidth: 1, bokeh: 0, chroma: 0.05, grain: 0, saturation: 1.1, vignette: 0.2 },
+    settle: 40,
+  },
+  {
+    name: '01c-street-crowd',
+    label: 'street level looking down an avenue — crowd density check',
+    position: [0, 4.5, -30], lookAt: [6, 2, -300], fov: 0.9, roll: 0,
+    weather: { sky: 'clear', haze: 0.15, godRays: 0.3 },
+    lens: { tiltShift: 0, focusWidth: 1, bokeh: 0, chroma: 0, grain: 0, saturation: 1.1, vignette: 0.15 },
+    settle: 45,
   },
   {
     name: '02-canyon-up',
@@ -381,7 +390,7 @@ async function main() {
     page.on('pageerror', (e) => pageErrors.push(String(e?.message || e).split('\n')[0]));
     page.on('console', (m) => { if (m.type() === 'error' && pageErrors.length < 6) pageErrors.push(m.text().split('\n')[0]); });
 
-    await page.goto(BASE + '/', { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await page.goto(BASE + '/' + (opts.query ? `?seed=0x5e7a17&${opts.query}` : ''), { waitUntil: 'domcontentloaded', timeout: 30_000 });
     await waitForApp(page, opts.timeout);
     say(`  app       ready (frameCount=${await page.evaluate(() => window.__syzygy?.frameCount ?? 0)})`);
 

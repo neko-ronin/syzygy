@@ -73,6 +73,8 @@ class App {
   ui!: ConductorUI;
   port!: CameraPort;
 
+  readonly targetsW = 1600;
+  readonly targetsH = 900;
   private running = false;
   private last = 0;
   private fpsAccum = 0;
@@ -228,7 +230,7 @@ class App {
       const simDt = dt * this.world.timeScale;
       integrateWorld(this.world, simDt);
       this.weather.update(simDt);
-      this.crowd.update(simDt, this.camera, this.world);
+      this.crowd.update(simDt, { position: this.camera.position, lookAt: this.camera.lookTarget }, this.world);
       this.traffic.update(simDt, this.world);
       this.input.setFov(this.camera.fov);
       this.input.endFrame();
@@ -236,6 +238,7 @@ class App {
 
     // Entities are drawn inside the G-buffer so they get shadows, fog and
     // deferred lighting for free.
+    this.renderer.entityDraws.length = 0;
     this.renderer.pendingEntities = (p) => {
       this.renderer.drawEntitySet(p, 'pedestrian', this.crowd.instances.data, this.crowd.instances.count);
     };
@@ -421,6 +424,13 @@ class App {
           saturation: +app.world.lens.saturation.toFixed(2),
         },
         crowd: app.crowd.visibleCount,
+      crowdSample: app.crowd.sampleInstances(4),
+      entityDraws: app.renderer.entityDraws.slice(-4),
+      pop: app.crowd.population(),
+      rawInst: app.crowd.rawInstance(0),
+      inView: app.crowd.inView(app.camera.position, app.camera.forward, app.camera.fov, app.targetsW / app.targetsH),
+      pedMesh: { idx: app.renderer.entityGeometry.pedestrian.indexCount },
+        crowdDebug: { ...app.crowd.debug(), instancesCount: app.crowd.instances.count },
         traffic: app.traffic.activeCount,
       }),
       setPose: (pose: { position?: [number, number, number]; lookAt?: [number, number, number]; fov?: number; roll?: number }) => {
@@ -445,6 +455,7 @@ class App {
       capture: () => app.refreshCapture(),
       probe: (t: string) => app.renderer.probe(t as never),
       camPos: () => app.camera.position.slice() as [number, number, number],
+      camLook: () => app.camera.lookTarget.slice() as [number, number, number],
       frameUniforms: () => Array.from(app.renderer.frameData.slice(0, 256)),
       ask: (text: string) => app.ui.send(text),
     };

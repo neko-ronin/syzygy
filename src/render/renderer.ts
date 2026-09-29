@@ -316,7 +316,7 @@ export class Renderer {
       // the clear, and the world silently renders as empty sky.
       depth: { format: DEPTH, depthWriteEnabled: true, depthCompare: 'greater' },
       vertexBuffers: [mvl, ivl],
-      cull: 'back',
+      cull: 'none',
     });
 
     // --- shadow (depth only, two entry points)
@@ -399,6 +399,7 @@ export class Renderer {
   private buildStaticGeometry(): void {
     const ground = bakeGround(4096, this.world.seed);
     this.ground = uploadMesh(this.gpu, 'ground', ground.mesh);
+    this.entities = { ground: uploadMesh(this.gpu, 'ground2', ground.mesh) };
     this.entities = {
       pedestrian: uploadMesh(this.gpu, 'ped', entityMeshes.pedestrian()),
       tram: uploadMesh(this.gpu, 'tram', entityMeshes.tramCar()),
@@ -860,6 +861,7 @@ export class Renderer {
     this.drawEntity(pass, mesh, n);
     this.stats.drawCalls++;
     this.stats.triangles += (mesh.indexCount / 3) * n;
+    this.entityDraws.push(`${name}:${n}/${mesh.indexCount}`);
   }
 
   private recordLighting(enc: GPUCommandEncoder): void {
@@ -1141,6 +1143,9 @@ export class Renderer {
     return out;
   }
 
+
+  /** Recent entity draw calls, for diagnosing "is it actually being issued". */
+  entityDraws: string[] = [];
 
   get entityGeometry() { return this.entities; }
   get instanceBuffer() { return this.instBuf; }

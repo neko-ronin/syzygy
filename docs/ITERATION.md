@@ -95,19 +95,54 @@ These exist because guessing from a screenshot was slower than looking.
 - `stats()` exposes sun, ambient, weather, lens, crowd and traffic so "the
   colours are wrong" is answerable without a debugger.
 
+## Crowd: what actually happened
+
+The crowd now **renders** (verified by framing a known agent from 3.4m — a dense
+stream of pedestrians is plainly visible). Getting there took five separate
+faults, each of which presented as the same symptom, "no pedestrians":
+
+1. **Recycling gated on a deficit that never recurred.** Agents were seeded once
+   and then only recycled when they left the view radius. A free camera sits
+   *inside* the population it seeded, so the recycle arm never fired and the
+   whole crowd stayed where the camera happened to start. Recycling and
+   refilling must be two independent rules that always both run.
+2. **`groundAt` returned the roof of the first building containing the point.**
+   Since the city is mostly buildings, essentially the entire crowd was placed
+   on top of towers, hundreds of metres up. Replaced by street-based placement.
+3. **`MAT.DIFFUSE` on a 1.7m pedestrian.** The building facade synthesiser has a
+   3.1m x 3.6m window grid, so a person falls entirely inside one cell and is
+   shaded as dark glass. Entities need `MAT.PLAIN`.
+4. **`roadClearanceAt` sign convention inverted.** `clearance` is
+   `dist - width/2`, so it is *negative* inside a carriageway. A hill-climb that
+   assumes "positive means on the road" walks confidently away from every street
+   and into the middle of blocks.
+5. **Snapping to the street *centreline*** collapses the distribution. In a
+   dense block the nearest street is the same one for most of the view cone, so
+   2500 people pile into a single 11m line. Stepping only as far as the kerb
+   preserves the sampled distribution.
+
+The remaining gap is **density, not correctness**: ~1900 people spread over the
+street segments within 160m is thin on any one avenue, and the street deck is a
+featureless grey slab, so even people who are present do not read.
+
 ## Known gaps, in priority order
 
-1. **Crowd renders nothing.** `stats().crowd` is 0. The sim runs (see
-   `src/sim/crowd.ts`) but agents are not being drawn. Traffic likewise.
-2. **Street level is empty and the ground is a featureless slab.** No markings,
-   no kerb read, no props at eye height.
-3. **Night is far too dark.** The night city should be the brightest thing in the
-   frame — it is currently a purple murk.
+1. **Street level does not read as inhabited.** The ground plane has no markings,
+   no kerb detail, no props at eye height, and the crowd is too sparse on any
+   one street. This is the single biggest remaining gap against the reference
+   frames.
+2. **Traffic is not drawn.** `TrafficSim` produces 129-207 vehicles and 64
+   lights, but only pedestrians are submitted through the instanced path.
+3. **Night is far too dark.** The night city should be the brightest thing in
+   the frame; it is currently a purple murk.
 4. **Severe aliasing on distant geometry.** Deferred has no MSAA; TAA is not
-   converging within the capture's settle budget.
+   converging within the capture's settle budget. This is the most visible
+   remaining *rendering* artefact.
 5. **District variety is uneven** — some framings are entirely one district.
-6. **Destructible structures, rain, and volumetric god rays** are not implemented.
-   The `godRays` and `precip` state exists and drives nothing yet.
+6. **Destructible structures, rain, and volumetric god rays** are not
+   implemented. The `godRays` and `precip` state exists and drives nothing yet.
+7. **Aerial view is 1M+ triangles** and the shadow cascades are the dominant
+   cost. Needs LOD above tier 0 and a smaller shadow atlas for the far cascades.
 
 ## Capture cost
 

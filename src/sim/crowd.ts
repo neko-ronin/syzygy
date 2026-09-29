@@ -12,10 +12,12 @@
  */
 
 import {
-  clamp, lerp, makeRng, saturate, smoothstep, v3norm, type Rng, type Vec3,
+  clamp, lerp, makeRng, saturate, smoothstep, v3cross, v3norm, type Rng, type Vec3,
 } from '../core/math';
 import { defaultWorld, type WorldState } from '../core/state';
-import { City, GROUND_Y } from '../world/citygen';
+import {
+  City, GROUND_Y, cityPlan, sampleStreetPlan, type StreetSample,
+} from '../world/citygen';
 import { NavGraph, type NavNode } from '../world/networks';
 import { MAT, INSTANCE_FLOATS } from '../render/citymesh';
 import { districtAt, districtPaletteLinear, districtStyle } from '../world/districts';
@@ -150,6 +152,8 @@ export class CrowdSim {
 
   private grid = new HashGrid();
   private lastCam: Vec3 = [0, 0, 0];
+  private lastFwd: Vec3 = [0, 0, -1];
+  private streetTangent = { x: 0, z: 0, tx: 1, tz: 0 };
   private nbr: Int32Array;
 
   private nav: NavGraph | null = null;
@@ -180,6 +184,8 @@ export class CrowdSim {
   private marketTimer = 0;
 
   visibleCount = 0;
+  /** Live diagnostic counters; surfaced through the automation stats(). */
+  diag = { frames: 0, live: 0, target: 0, radius: 0, instances: 0, cursor: 0, navNodes: 0, ms: 0 };
   /** Per-instance (mat4, tint, params) for the renderer to upload verbatim. */
   instances: CrowdInstanceView;
 
@@ -217,20 +223,36 @@ export class CrowdSim {
     );
   }
 
-  update(dt: number, camera: { position: Vec3 }, world: WorldState): void {
+  update(
+    dt: number,
+    camera: { position: Vec3; lookAt?: Vec3 },
+    world: WorldState,
+  ): void {
     const t0 = performance.now();
     dt = Math.min(dt, MAX_DT);
     const f = this.f;
 
+    this.diag.frames++;
     this.seedRef = world;
     this.lastCam[0] = camera.position[0];
     this.lastCam[2] = camera.position[2];
+    // Derive the view direction from the look target rather than trusting a
+    // passed-in basis. Seeding ahead of the camera is what makes a street-level
+    // view populated instead of empty, and getting the sign wrong puts the
+    // entire crowd behind the viewer.
+    const eye = camera.position;
+    const look = camera.lookAt;
+    if (look) {
+      const dx = look[0] - eye[0], dy = look[1] - eye[1], dz = look[2] - eye[2];
+      const l = Math.hypot(dx, dy, dz) || 1;
+      this.lastFwd[0] = dx / l; this.lastFwd[1] = dy / l; this.lastFwd[2] = dz / l;
+    }
     this.wanderClock += dt;
     if (!this.nav && this.city) this.attach(this.city, world.seed);
 
     this.densityTarget(world);
     this.maybeRebuild(camera.position, dt);
-    this.rebuildSlices(camera.position);
+    this.rebuildSlices(camera.position, this.lastFwd);
 
     const cam = camera.position;
     this.grid.configure(cam, this.viewRadius + 40);
@@ -257,6 +279,12 @@ export class CrowdSim {
       this.stepAgent(i, dt, world);
     }
     this.visibleCount = visible;
+    this.diag.live = this.liveCount;
+    this.diag.target = this.targetVisible;
+    this.diag.radius = this.viewRadius;
+    this.diag.cursor = this.rebuildCursor;
+    this.diag.navNodes = this.nodes.length;
+    this.diag.ms = this.lastMs;
 
     // Pass C: rebuild instance data for the visible set.
     this.buildInstances();
@@ -269,6 +297,78 @@ export class CrowdSim {
   }
 
   get msPerFrame(): number { return this.lastMs; }
+
+  /** Full diagnostic block for the automation surface. */
+  debug() { return { ...this.diag, attached: this.city !== null, hasNav: this.nav !== null }; }
+
+  /** Centroid and extent of the active population, so drift is visible. */
+  population(): { n: number; cx: number; cz: number; spread: number; minY: number; maxY: number } {
+    const f = this.f;
+    let n = 0, sx = 0, sz = 0, spread = 0, minY = Infinity, maxY = -Infinity;
+    for (let i = 0; i < this.capacity; i++) {
+      const o = i * F.LOCAL;
+      if (f[o + F.active] < 0.5) continue;
+      n++; sx += f[o + F.x]; sz += f[o + F.z];
+      if (f[o + F.y] < minY) minY = f[o + F.y];
+      if (f[o + F.y] > maxY) maxY = f[o + F.y];
+    }
+    if (n === 0) return { n: 0, cx: 0, cz: 0, spread: 0, minY: 0, maxY: 0 };
+    const cx = sx / n, cz = sz / n;
+    for (let i = 0; i < this.capacity; i++) {
+      const o = i * F.LOCAL;
+      if (f[o + F.active] < 0.5) continue;
+      spread = Math.max(spread, Math.hypot(f[o + F.x] - cx, f[o + F.z] - cz));
+    }
+    return { n, cx: +cx.toFixed(0), cz: +cz.toFixed(0), spread: +spread.toFixed(0), minY: +minY.toFixed(1), maxY: +maxY.toFixed(1) };
+  }
+
+  /** How many instances actually land inside the view cone, and their depth range. */
+  inView(cam: Vec3, fwd: Vec3, fovY: number, aspect: number): { inside: number; total: number; minD: number; maxD: number } {
+    const d = this.instData;
+    const n = this.instances.count;
+    const ty = Math.tan(fovY * 0.5);
+    const tx = ty * aspect;
+    // Build a basis around the view direction.
+    const f = v3norm([fwd[0], fwd[1], fwd[2]]);
+    const upRef: Vec3 = Math.abs(f[1]) > 0.98 ? [1, 0, 0] : [0, 1, 0];
+    const r = v3norm(v3cross(upRef, f));
+    const u = v3cross(f, r);
+    let inside = 0, minD = Infinity, maxD = 0;
+    for (let i = 0; i < n; i++) {
+      const b = i * INSTANCE_FLOATS;
+      const px = d[b + 12] - cam[0], py = d[b + 13] - cam[1], pz = d[b + 14] - cam[2];
+      const z = px * f[0] + py * f[1] + pz * f[2];
+      if (z <= 0.5) continue;
+      const xx = px * r[0] + py * r[1] + pz * r[2];
+      const yy = px * u[0] + py * u[1] + pz * u[2];
+      if (Math.abs(xx / z) > tx || Math.abs(yy / z) > ty) continue;
+      inside++;
+      if (z < minD) minD = z;
+      if (z > maxD) maxD = z;
+    }
+    return { inside, total: n, minD: +minD.toFixed(1), maxD: +maxD.toFixed(1) };
+  }
+
+  /** One full 24-float instance record, so a bad matrix is legible. */
+  rawInstance(i = 0): number[] {
+    const d = this.instData;
+    const b = i * INSTANCE_FLOATS;
+    return Array.from(d.subarray(b, b + INSTANCE_FLOATS)).map((v) => +v.toFixed(3));
+  }
+
+  /** First few instance records, decoded, so a wrong transform is visible. */
+  sampleInstances(k = 4): number[][] {
+    const d = this.instData;
+    const out: number[][] = [];
+    for (let i = 0; i < Math.min(k, this.instances.count); i++) {
+      const b = i * INSTANCE_FLOATS;
+      out.push([
+        +d[b + 12].toFixed(2), +d[b + 13].toFixed(2), +d[b + 14].toFixed(2),
+        +d[b + 20].toFixed(0), +d[b + 16].toFixed(2), +d[b + 17].toFixed(2), +d[b + 18].toFixed(2),
+      ]);
+    }
+    return out;
+  }
 
   // ---------------------------------------------------------------- internals
 
@@ -480,20 +580,59 @@ export class CrowdSim {
 
   }
 
-  private groundAt(x: number, z: number): number {
-    if (!this.city) return GROUND_Y;
-    const cs = this.city.cfg.chunkSize;
-    const cx = Math.floor(x / cs), cz = Math.floor(z / cs);
-    const chunk = this.city.getChunk(cx, cz);
-    if (!chunk) return GROUND_Y;
-    // Find the tallest building whose footprint contains the point; if none,
-    // the agent is on the street.
-    for (const b of chunk.buildings) {
-      if (x > b.aabbMin[0] && x < b.aabbMax[0] && z > b.aabbMin[2] && z < b.aabbMax[2]) {
-        return b.aabbMax[1];
-      }
-    }
+  /**
+   * Street height. Multi-level walking is not implemented yet, so this is
+   * always the deck.
+   *
+   * It used to return the roof of the first building whose footprint contained
+   * the point, which meant that seeding anywhere in the city — and the city is
+   * mostly buildings — put the entire crowd on top of towers, hundreds of
+   * metres up. Rejection sampling in `seedAgent` keeps them off the footprints
+   * in the first place; this is just the floor.
+   */
+  private groundAt(_x: number, _z: number): number {
     return GROUND_Y;
+  }
+
+  /** Reusable output for the street sampler; the module's own is private. */
+  private streetOut: StreetSample = {
+    dist: 0, px: 0, pz: 0, tx: 1, tz: 0, width: 1, kind: 'street', clearance: 0,
+  };
+  private plan: ReturnType<typeof cityPlan> | null = null;
+
+  /**
+   * Place a point on the nearest carriageway, and report which way that street
+   * runs.
+   *
+   * The city already knows: `sampleStreetPlan` returns the closest point on the
+   * nearest centreline plus the tangent along it. So this is one lookup, not a
+   * search — and it is exact.
+   *
+   * The earlier version hill-climbed on `roadClearanceAt`, assuming a positive
+   * value meant "on the road". It does not: `clearance` is `dist - width/2`, so
+   * it is *negative* inside the carriageway. The climb therefore walked
+   * confidently away from every street and into the middle of the blocks, which
+   * is why the crowd ended up 25m behind the camera and out of frame.
+   */
+  private snapToStreet(x: number, z: number): { x: number; z: number; tx: number; tz: number } {
+    if (!this.plan) this.plan = cityPlan(this.seedRef.seed);
+    const s = sampleStreetPlan(this.plan, x, z, this.streetOut);
+    // Already on (or beside) the carriageway — leave it where it was sampled.
+    if (s.clearance <= 1.5) return { x, z, tx: s.tx, tz: s.tz };
+    // Otherwise step only as far as it takes to reach the *edge* of the road.
+    //
+    // Snapping all the way to the centreline looks correct and is catastrophic:
+    // in a dense block the nearest street is the same one for most of the view
+    // cone, so the entire population collapses into a single 11m line. Stepping
+    // to the kerb keeps the sampled distribution and only corrects the part
+    // that is genuinely unwalkable.
+    const need = s.dist - s.width * 0.5 - 1.5;
+    if (need <= 0) return { x, z, tx: s.tx, tz: s.tz };
+    const dx = s.px - x, dz = s.pz - z;
+    const l = Math.hypot(dx, dz);
+    if (l < 1e-3) return { x, z, tx: s.tx, tz: s.tz };
+    const k = Math.min(1, need / l);
+    return { x: x + dx * k, z: z + dz * k, tx: s.tx, tz: s.tz };
   }
 
   private resolveBuildings(x: number, z: number, y: number): Vec3 {
@@ -519,41 +658,55 @@ export class CrowdSim {
   // ---------------------------------------------------------------- population
 
   /**
-   * Recycle agents. Runs in slices so a camera teleport does not cost a frame:
-   * each frame only seeds or kills `capacity / rebuildStride` agents.
+   * Recycle agents toward the camera, in slices so a teleport cannot spike a
+   * frame.
+   *
+   * The two rules are independent and both always run: anything that has fallen
+   * out of the view radius is retired, and anything inactive is refilled while
+   * the population is under target. Coupling the refill to a "deficit" alone
+   * looks equivalent and is not — once the population reaches target, the
+   * deficit is permanently zero, the recycle arm never fires, and the whole
+   * crowd is stranded wherever the camera happened to be at startup. That is
+   * exactly what happened: 2550 agents alive, zero visible.
    */
-  private rebuildSlices(cam: Vec3): void {
+  private rebuildSlices(cam: Vec3, fwd: Vec3): void {
     const f = this.f;
     const slice = Math.ceil(this.capacity / this.rebuildStride);
     const end = Math.min(this.capacity, this.rebuildCursor + slice);
     const r2 = this.viewRadius * this.viewRadius;
-    const deficit = this.targetVisible - this.liveCount;
-    let seeded = 0;
 
+    const fx = fwd[0], fz = fwd[2];
     for (let i = this.rebuildCursor; i < end; i++) {
       const o = i * F.LOCAL;
       const active = f[o + F.active] > 0.5;
       const dx = f[o + F.x] - cam[0], dz = f[o + F.z] - cam[2];
-      const far = dx * dx + dz * dz > r2;
-      // Recycle whichever is scarcer: too many (kill the distant), or too few
-      // (seed here). Seeding is capped by the deficit so the population ramps
-      // up rather than snapping to full on the first pass.
-      if (deficit > 0 && seeded < deficit && (!active || far)) {
-        this.seedAgent(i, cam);
-        this.liveCount++;
-        seeded++;
-        continue;
-      }
-      if (deficit <= 0 && active && far && seeded > -deficit) {
+      const d2 = dx * dx + dz * dz;
+      // Retire an agent when it is out of range *or* behind the viewer.
+      //
+      // The radius test alone is not enough. A free-flying camera can sit well
+      // inside a population it seeded elsewhere, and then the recycle loop never
+      // fires, the crowd stays centred where the camera happened to start, and
+      // the view is an empty street with thousands of people at your back. The
+      // crowd has to follow the view, not merely coexist with it.
+      // Retire anything behind the view plane. A generous negative margin
+      // here is what let the whole population sit in a clump 25m behind the
+      // camera: it was technically "not too far", and therefore immortal.
+      const behind = (dx * fx + dz * fz) < 0;
+      const retire = active && (d2 > r2 || behind);
+
+      if (retire) {
         f[o + F.active] = 0;
         this.liveCount--;
-        seeded--;
+        continue;
+      }
+      if (!active && this.liveCount < this.targetVisible) {
+        this.seedAgent(i, cam, fwd);
+        this.liveCount++;
       }
     }
     this.rebuildCursor = end >= this.capacity ? 0 : end;
   }
 
-  /** Re-sample the market attractor a few times a second, not every frame. */
   private maybeRebuild(_cam: Vec3, dt: number): void {
     this.marketTimer -= dt;
     if (this.marketTimer > 0) return;
@@ -564,22 +717,53 @@ export class CrowdSim {
     this.hasMarket = true;
   }
 
-  private seedAgent(i: number, cam: Vec3): void {
+  private seedAgent(i: number, cam: Vec3, fwd: Vec3 = [0, 0, -1]): void {
     const f = this.f;
     const o = i * F.LOCAL;
     const r = this.rng;
-    // Uniform disc, biased toward the camera so the near field is dense.
-    const a = r.next() * Math.PI * 2;
-    const rad = Math.sqrt(r.next()) * this.viewRadius;
-    const x = cam[0] + Math.cos(a) * rad;
-    const z = cam[2] + Math.sin(a) * rad;
+    // Uniform disc, pushed a little ahead of the camera. A free-flying camera
+    // covers ground far faster than a person walks, so seeding symmetrically
+    // leaves the view half-empty by construction.
+    //
+    // Rejection-sample against building footprints: a point inside one is a
+    // rooftop or a wall, and a person standing there is a person nobody can
+    // see. Eight attempts clears even the densest blocks.
+    // Sample in *view* space, not as a world disc.
+    //
+    // A world-space disc around a free-flying camera wastes most of the
+    // population: half of it is behind you, and the part in front is spread
+    // thin over a 320m circle. Sampling forward-weighted in the camera's own
+    // basis puts the density where the frustum actually is — and it is what
+    // makes a street-level view populated rather than deserted.
+    const fx = fwd[0], fz = fwd[2];
+    const fl = Math.hypot(fx, fz) || 1;
+    const ux = fx / fl, uz = fz / fl;          // forward, horizontal
+    const vx = -uz, vz = ux;                   // left/right
+    // d^2 weighting: uniform area density on the ground plane, no concentration
+    // at the near point.
+    const d = Math.sqrt(r.next()) * this.viewRadius;
+    // Spread across the view cone; `spread` widens with distance so the density
+    // stays roughly uniform in screen space.
+    const lateral = (r.next() * 2 - 1) * d * 0.75;
+    const sx = cam[0] + ux * d + vx * lateral;
+    const sz = cam[2] + uz * d + vz * lateral;
+    const placed = this.snapToStreet(sx, sz);
+    // Jitter across the carriageway. Without this every sample in a block
+    // collapses onto the same centreline and the crowd piles into one clump.
+    const jx = placed.x + (r.next() * 2 - 1) * 2.2;
+    const jz = placed.z + (r.next() * 2 - 1) * 2.2;
+    const x = jx;
+    const z = jz;
+    // Face along the street rather than a random direction — a crowd walking
+    // across traffic reads as nonsense, and this costs nothing.
+    this.streetTangent = placed;
 
     f[o + F.x] = x;
     f[o + F.z] = z;
     f[o + F.y] = this.groundAt(x, z);
     f[o + F.vx] = 0;
     f[o + F.vz] = 0;
-    f[o + F.heading] = r.range(0, Math.PI * 2);
+    f[o + F.heading] = Math.atan2(this.streetTangent.tx, this.streetTangent.tz) + r.jitter(0.9);
     f[o + F.gait] = r.range(0, 100);
     f[o + F.speed] = 0;
     f[o + F.pace] = r.range(0.85, 1.75);
@@ -638,7 +822,11 @@ export class CrowdSim {
       d[b + 18] = f[o + F.cb];
       d[b + 19] = mask;
       // Params: matId, roughness, emissive (0), gait phase, density.
-      d[b + 20] = MAT.DIFFUSE;
+      // MAT.PLAIN, not MAT.DIFFUSE: a pedestrian is 1.7m tall, so under the
+      // building facade synthesiser it lands entirely inside one 3.1m x 3.6m
+      // window cell and is shaded as dark glass. People were being drawn the
+      // whole time and were simply invisible.
+      d[b + 20] = MAT.PLAIN;
       d[b + 21] = 0.66;
       d[b + 22] = 0;
       d[b + 23] = gait;
@@ -649,6 +837,7 @@ export class CrowdSim {
       n++;
     }
     this.instances.count = n;
+    this.diag.instances = n;
   }
 
 
