@@ -157,12 +157,16 @@ for natural-language control.
 **Iteration** — change one thing, shoot the same pose, look at it. The loop this
 project is built around.
 
-**Baseline** — the curated screenshot set in `shots/baseline/`, committed. This
-is the "before" for the next change.
+**Baseline** — a curated screenshot set used as the "before" in a comparison
+grid. *No longer committed* (D22); `shots/` is ignored entirely, so the
+`BASELINE` column of `tools/compare.mjs` only appears if you populate
+`shots/baseline/` yourself. The comparison degrades to `CURRENT | REFERENCE`,
+which is weaker but not broken.
 
 **Reference** — the nine videos in `inpirations/dreamscape/`. The quality bar,
 not a mood board. When a question is aesthetic rather than correct, extract a
-frame and compare. Untracked in git (D22); they are on disk, ~670 MB.
+frame and compare. ~670 MB, on disk, and **not in git** (D22) — a fresh clone
+has none of them.
 
 **Contact sheet** — the overview strip of a capture run, `_contact-sheet.png`.
 Generated only when ffmpeg is on `PATH`.

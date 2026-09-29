@@ -367,11 +367,10 @@ camera coordinates safe.
 **Check first:** if a diagnostic shot shows an absence, confirm the camera and
 the subject are co-located *before* touching the renderer.
 
-## D22 — Reference media is untracked; the resulting history cost is accepted
+## D22 — Reference media and screenshots are not stored in git
 
-**Decision.** `inpirations/**/*.mov` (~670 MB) is untracked and gitignored. The
-`.git` directory stays ~929 MB because the blobs remain in history, and that cost
-is accepted for now.
+**Decision.** `inpirations/**/*.mov` (~670 MB) and all of `shots/` are
+untracked, gitignored, **and purged from history**. `.git` is 1.3 MB.
 
 **Why.** The videos are the quality bar, not source. They live on disk; every
 session has them; committing 670 MB of binary buys nothing. The untracking
@@ -380,11 +379,31 @@ they were still tracked, that earlier entry was doing nothing at all. A
 configuration file that claims a benefit it does not deliver is worse than no
 entry, because it reads as done.
 
-**Not decided.** Shrinking `.git` requires a history rewrite — destructive,
-irreversible, and rewriting shared history affects anyone else who has cloned.
-That is a human decision, not one to take silently in a session. If it is
-wanted, it needs explicit approval, a fresh clone to verify, and the
-`inpirations/` videos confirmed present on disk afterwards.
+**Done, on explicit instruction.** History was rewritten with
+`git filter-repo --invert-paths --path-glob 'inpirations/**/*.mov' --path shots`,
+after copying all nine videos to a backup outside the repository and verifying
+every file by md5 first. `.git` went from **929 MB to 1.3 MB**.
+
+Three consequences, all accepted deliberately:
+
+- **Commit hashes all changed.** Any clone or fork must be re-cloned; the old
+  history is unreachable. This is the cost of the operation and was authorised
+  with full knowledge of it.
+- **The videos are not recoverable from a fresh clone.** They must be copied
+  from a working checkout before `tools/compare.mjs --ref` can extract a frame.
+- **`shots/baseline/` is gone from history too.** Screenshots were never source
+  and a 10-pose run is ~25 MB; storing renders in git was never worth 210 MB of
+  clone. `compare.mjs` falls back to `CURRENT | REFERENCE` when the baseline is
+  absent — a weaker comparison, not a broken one. Re-capture if a committed
+  baseline is ever wanted again.
+
+**A note on doing this again.** `git filter-repo --path 'inpirations/**/*.mov'`
+— with `**`, as a `--path` argument rather than `--path-glob` — reports success,
+rewrites nothing, and prints a cheerful "Completely finished". The first attempt
+did exactly that, and `.git` barely moved. **Verify a rewrite by checking a
+known-absent object, not by the tool's exit status.** That is
+[`PITFALLS.md`](PITFALLS.md) §3 in a new costume, and it is why the first
+rewrite had to be redone.
 
 ---
 
@@ -395,5 +414,3 @@ Decisions this project has deliberately *not* made. Do not resolve one in passin
 - **WebGL 2 backend.** Settled as *WebGPU only* (D1); the brief asked for both,
   and the cost of the second backend is weeks. Revisit only if the brief's
   intent changes.
-- **History rewrite** to drop the 670 MB of reference video (D22). Needs
-  explicit human approval.

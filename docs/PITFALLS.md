@@ -237,6 +237,12 @@ the stats line is noise.
   `Content-Length` framing. `tools/lsp-check.mjs` now drives a real handshake.
 - **A subagent returning an empty result did nothing.** Twice. `ls` the paths
   before believing the report.
+- **A tool that reports success may have done nothing at all.**
+  `git filter-repo --path 'inpirations/**/*.mov'` — `**` as a `--path` rather
+  than `--path-glob` — printed "Completely finished", rewrote nothing, and left
+  every `.mov` blob reachable. `.git` barely moved. The tell was the *speed*:
+  0.07s for 700MB. **Verify by checking a known object is gone**, not by the
+  exit status. The rewrite had to be redone.
 
 ## 14. A ffmpeg graph that drops half its inputs still exits 0
 

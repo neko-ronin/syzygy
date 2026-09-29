@@ -10,10 +10,14 @@
  *
  * So: put them side by side, in a fixed, documented order.
  *
- *   Column 1  BASELINE   the committed best-so-far (shots/baseline/)
- *   Column 2  PREVIOUS   the run before last
- *   Column 3  CURRENT    the run you just made
- *   Column N  REFERENCE  a frame extracted from inpirations/dreamscape/*.mov
+ *   Column 1  BASELINE   best-so-far, from shots/baseline/ — OPTIONAL. That
+ *                     directory is not in git (D22); nothing is committed
+ *                     there, so this column appears only if you populate it
+ *   Column 2  CURRENT    the run you just made
+ *   Column 3  REFERENCE  a frame extracted from inpirations/dreamscape/*.mov
+ *
+ *   With no shots/baseline/, the grid is CURRENT | REFERENCE. Weaker, not
+ *   broken: the reference is the column that actually answers the question.
  *
  * Examples
  *   # current against baseline and the reference video

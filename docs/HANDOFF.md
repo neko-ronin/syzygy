@@ -201,9 +201,12 @@ perfectly valid while being completely wrong. This cost an hour once.
 
 ## Where the screenshots are
 
-`shots/<timestamp>/` per run, plus `shots/latest.json` with per-shot stats. The
-reference set from the end of the last session is
-`shots/2026-09-29T19-30-34/`, with `_contact-sheet.png` as the overview.
+`shots/<timestamp>/` per run, plus `shots/latest.json` with per-shot stats.
+
+**Nothing in `shots/` is in git** — ignored, and purged from history along with
+the reference videos (D22). The 10-pose reference set from the end of the last
+session is on this machine at `shots/2026-09-29T19-30-34/`, with
+`_contact-sheet.png` as the overview, but a fresh clone has none of it.
 
 `_contact-sheet.png` is generated only when ffmpeg is on `PATH`.
 

@@ -151,5 +151,8 @@ and an open question is better than committing a speculative fix.
 ## Two things needing a human decision
 
 - **WebGL 2** — the brief asked for both backends; this is WebGPU-only (D1, R8).
-- **History rewrite** — the 670 MB of reference video is untracked (D22) but
-  still in history, so `.git` is ~929 MB. Shrinking it is destructive. Ask.
+  Weeks of work for a second renderer. Do not start it in passing.
+
+The reference videos and all screenshots are deliberately **not** in git (D22) —
+`.git` is 1.3 MB. A fresh clone has neither. Copy the videos from a working
+checkout before `tools/compare.mjs --ref` will work.

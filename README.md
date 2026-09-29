@@ -69,21 +69,24 @@ question is aesthetic rather than correct, extract a frame and compare. That
 distinction settled several arguments during bring-up that reading the code could
 not.
 
-Those videos are ~670 MB and are **not tracked in git** — they live on disk, and
-the repo is still ~1 GB to clone because they remain in history. See
-`.gitignore`.
+Those videos are ~670 MB and are **not in git at all** — untracked, ignored, and
+purged from history, which is why this repo is 1.3 MB rather than 930 MB. A fresh
+clone does not include them; copy from a working checkout. See
+[`docs/DECISIONS.md`](docs/DECISIONS.md) D22.
 
 Build the side-by-side grid rather than opening two images in sequence; you will
 not hold both in your head:
 
 ```bash
 node tools/compare.mjs --latest --ref dreamscape-05@12
-# columns:  BASELINE  |  CURRENT  |  REFERENCE
-# rows:    poses present in both shots/baseline/ and the latest run
+# columns:  CURRENT  |  REFERENCE
+#          (BASELINE too, if shots/baseline/ is populated)
+# rows:    one per pose in the latest run
 ```
 
-`shots/baseline/` holds the curated frames worth keeping. Everything else in
-`shots/` is transient and ignored.
+Everything under `shots/` is ignored — screenshots are evidence, not source
+(D22). Nothing under `inpirations/` is tracked either. A fresh clone has
+neither, so copy the videos from a working checkout before `--ref` will work.
 
 ## Shape of the thing
 

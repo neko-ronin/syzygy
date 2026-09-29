@@ -66,11 +66,16 @@ Then change one thing, and shoot the same pose again.
 node tools/compare.mjs --latest --ref dreamscape-05@12
 ```
 
-Builds a grid: `BASELINE | CURRENT | REFERENCE`, one row per pose, rows paired
-by pose name so each row is the same framing. This exists because the question
-that matters every iteration is "did this change help?", and answering it by
-opening two images in sequence does not work — the first one is gone by the time
-you look at the second.
+Builds a grid, one row per pose, rows paired by pose name so each row is the same
+framing. This exists because the question that matters every iteration is "did
+this change help?", and answering it by opening two images in sequence does not
+work — the first one is gone by the time you look at the second.
+
+Columns are `CURRENT | REFERENCE`, plus `BASELINE` on the left if
+`shots/baseline/` is populated. **It is not populated by default** — `shots/` is
+gitignored and purged from history (D22), so the baseline column is opt-in. Drop
+a capture run's output in `shots/baseline/` if you want a "before" to diff
+against.
 
 | Flag | Effect |
 | --- | --- |

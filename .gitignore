@@ -3,17 +3,20 @@ dist/
 .DS_Store
 *.log
 
-# Reference video is ~670MB of binary. It is quality-bar material, not source:
-# it lives on disk, and the docs say where. Untracked as of 0e90072's successor,
-# so it no longer grows the working tree or future commits.
-#
-# This does NOT shrink .git — the blobs are still in history, and the repo is
-# still ~1GB to clone. Shrinking it means rewriting history, which is
-# destructive and needs an explicit human decision. See docs/ROADMAP.md.
+# Reference video: ~670MB of binary quality-bar material, never source. Untracked
+# AND purged from history (see docs/DECISIONS.md D22), so the repo is ~1MB
+# instead of ~930MB. The files themselves live on disk and are not recoverable
+# from a fresh clone -- copy them from a working checkout before comparing against
+# them, or `tools/compare.mjs --ref` will not find its source.
 inpirations/**/*.mov
 
-# Iteration output. Screenshots are evidence, not source — the curated set that
-# matters is committed deliberately, the rest churns every run.
-shots/*
-!shots/baseline/
-shots/latest.json
+# Iteration output. Screenshots are evidence, not source. Every run churns these,
+# and a 10-pose sequence is ~25MB, so history grew ~210MB of PNGs before this was
+# purged. Purged from history too, baseline included -- if the curated set is ever
+# wanted again it is one capture run away, and storing renders in git was never
+# worth the clone cost.
+#
+# Consequence: shots/baseline/ is no longer a committed baseline. compare.mjs
+# falls back to CURRENT-only columns when it is absent, which is a weaker
+# comparison, not a broken one. See docs/DECISIONS.md D22.
+shots/
