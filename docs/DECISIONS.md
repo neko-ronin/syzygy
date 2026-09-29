@@ -342,3 +342,58 @@ happening?" and get an answer.
 
 **Invariant:** events ramp in and out over their lifetime. `integrateWorld`
 owns the envelope. Never snap an event's effect on.
+
+---
+
+## D21 — Diagnostic poses are derived from live state, never hardcoded
+
+**Decision.** A capture pose whose job is to show a system must compute its
+position from that system's live state — centroid, nav node, camera — not from
+coordinates typed in by hand.
+
+**Why.** `01b-crowd-closeup` was hardcoded at `position: [0, 2.4, -40]` while
+the crowd centroid sat at `(974, 46)`, ~975 units away and outside
+`viewRadius: 190`. The pose was never looking at its subject. It reported an
+empty street, and two separate sessions read that as a *rendering* fault — first
+entity winding, then G-buffer culling — chasing the renderer for a problem that
+was entirely in the pose. A control run killed it: `pedestrian:0/180` under
+both cull modes.
+
+**This generalises.** Any hardcoded pose silently becomes a lie the moment the
+thing it frames moves. The city generates deterministically but the crowd does
+not stay where it was seeded, so "deterministic world" does not make hardcoded
+camera coordinates safe.
+
+**Check first:** if a diagnostic shot shows an absence, confirm the camera and
+the subject are co-located *before* touching the renderer.
+
+## D22 — Reference media is untracked; the resulting history cost is accepted
+
+**Decision.** `inpirations/**/*.mov` (~670 MB) is untracked and gitignored. The
+`.git` directory stays ~929 MB because the blobs remain in history, and that cost
+is accepted for now.
+
+**Why.** The videos are the quality bar, not source. They live on disk; every
+session has them; committing 670 MB of binary buys nothing. The untracking
+happened in `a893dbe`, after `.gitignore` had already listed them — and because
+they were still tracked, that earlier entry was doing nothing at all. A
+configuration file that claims a benefit it does not deliver is worse than no
+entry, because it reads as done.
+
+**Not decided.** Shrinking `.git` requires a history rewrite — destructive,
+irreversible, and rewriting shared history affects anyone else who has cloned.
+That is a human decision, not one to take silently in a session. If it is
+wanted, it needs explicit approval, a fresh clone to verify, and the
+`inpirations/` videos confirmed present on disk afterwards.
+
+---
+
+## Open decisions
+
+Decisions this project has deliberately *not* made. Do not resolve one in passing.
+
+- **WebGL 2 backend.** Settled as *WebGPU only* (D1); the brief asked for both,
+  and the cost of the second backend is weeks. Revisit only if the brief's
+  intent changes.
+- **History rewrite** to drop the 670 MB of reference video (D22). Needs
+  explicit human approval.

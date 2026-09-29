@@ -220,6 +220,13 @@ It was wrong, and I kept believing it for several iterations.
 wrong — a screenshot is ground truth. Corroborate a measurement against pixels
 before you act on it, and delete diagnostics that have lied once.
 
+**Still open.** `inView()` is in the tree at `crowd.ts:326`, called from
+`main.ts:431`, along with the hardcoded `targetsW/1600, targetsH/900` arguments
+that exist only to feed it. Deleting both is work item **F3** in
+[`HANDOFF.md`](HANDOFF.md). F1 below makes the case sharper: two counters in that
+same file are currently measured disagreeing, so a third unverified opinion in
+the stats line is noise.
+
 ## 13. Tools that quietly do nothing
 
 - **`vite preview` serves a stale `dist/`.** The capture harness once produced a
@@ -274,6 +281,8 @@ which is wrong. Print both, plus the raw per-agent state for a handful of
 agents, and find the agent where they diverge. The disagreement *is* the bug;
 picking a side by inspection just relocates it.
 
+**Proposed fix:** work item **F1** in [`HANDOFF.md`](HANDOFF.md).
+
 ## 16. The camera was not where the diagnostic pose said
 
 **Symptom:** the `01b-crowd-closeup` and `01c-street-crowd` poses both show an
@@ -287,7 +296,9 @@ the crowd centroid sat at `(974, 46)` — roughly 975 units away, well outside
 **Rule:** before suspecting the renderer, confirm the camera and the subject are
 in the same place. A "close-up" diagnostic that is 975 units from its subject
 will read as an absence forever. When adding a diagnostic pose, derive its
-position from live state (centroid, nav node, camera) rather than hardcoding it.
+position from live state (centroid, nav node, camera) rather than hardcoding it
+— this is now a standing decision, D21, and the fix is work item **F2** in
+[`HANDOFF.md`](HANDOFF.md).
 
 ---
 
@@ -295,10 +306,16 @@ position from live state (centroid, nav node, camera) rather than hardcoding it.
 
 - **Measure before theorising.** Every bug above cost far less time to measure
   than to reason about.
+- **Run a control.** The culling theory died in one run at
+  `pedestrian:0/180` under both modes. A control is cheaper than an argument.
 - **Build the diagnostic before the fix**, when the symptom is visual.
 - **Compare against the reference frames** when the question is aesthetic. They
-  settled several "is this a bug or a choice?" arguments immediately.
+  settled several "is this a bug or a choice?" arguments immediately. Use
+  `tools/compare.mjs` rather than opening two images in sequence.
 - **Hard-fail the harness on shader errors.** Anything that lets a broken run
   report success will eventually be believed.
 - **Commit at a natural boundary**, with the reasoning in the message. Both
   commits here explain *why*, not just *what*.
+- **Correct the docs when measurement contradicts them**, even mid-task. A
+  document that asserts something false is a landmine for the next session, and
+  the `1481e47` claim that the crowd renders is exactly that.

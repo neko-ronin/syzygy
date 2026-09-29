@@ -10,46 +10,151 @@ session that followed. Commits: `27f3b66` (renderer bring-up), `1481e47`
 
 The audit session added `DECISIONS.md`, `GLOSSARY.md` and `tools/compare.mjs`,
 corrected the reference-video tracking, restored G-buffer back-face culling, and
-found the two open questions below. It changed no renderer behaviour on the
+found the six open work items below. It changed no renderer behaviour on the
 strength of an unverified theory.
 
 ---
 
-## Read this first: two open questions block the crowd work
+## Open work items — read this before starting
 
-Both were measured, not guessed. Do not start R1 without reading this section.
+Six proposed fixes, in dependency order. F1 and F2 are **measure-first**: neither
+may be closed by reading code and deciding which side looks right. Do them
+together, in one run. Everything downstream of the crowd is blocked until they
+are both settled.
 
-**1. The crowd's two visibility predicates disagree.** From a single frame at
-the `01b-crowd-closeup` pose:
+Nothing here has been implemented. Each item states the evidence, the proposed
+fix, and the check that proves it closed.
+
+### F1 — The crowd's two visibility predicates disagree
+
+**Evidence.** One frame at the `01b-crowd-closeup` pose:
 
 ```
-crowd: 250              // visibleCount, from Pass B   (crowd.ts:265-276)
-instancesCount: 0       // buildInstances()            (crowd.ts:794-841)
+crowd: 250              // visibleCount, Pass B        crowd.ts:265-276
+instancesCount: 0       // buildInstances()            crowd.ts:794-841
 ```
 
 Same guard (`f[o + F.active] < 0.5`), same radius test
 (`dx*dx + dz*dz > viewRadius*viewRadius`), same `cam`, same `update()`, and
-`viewRadius` is not modified between them. One of these is lying. **Do not
-resolve it by reading the code and picking a side** — print both counts plus raw
-per-agent state (`x`, `z`, `active`) for a handful of agents and find the agent
-where they diverge. The disagreement is the bug.
+`viewRadius` is not written between them. Both cannot be right.
 
-Note this contradicts the claim below that the crowd "renders, but too sparse".
-That claim rests on framing a known agent once, in the `1481e47` session. It has
-not been re-verified since. **Treat crowd rendering as unverified.**
+This also contradicts the `1481e47` claim that the crowd renders, which rested
+on framing one known agent once and has not been re-verified since.
+**Treat crowd rendering as unverified** until F1 closes.
 
-**2. The crowd diagnostic poses do not point at the crowd.** `01b-crowd-closeup`
-and `01c-street-crowd` are hardcoded at the world origin
-(`position: [0, 2.4, -40]`), while the crowd centroid measured at `(974, 46)` —
-~975 units away, outside `viewRadius: 190`. Those two poses have been reporting
-an empty street for a diagnostic reason, not a rendering one. Earlier sessions
-chased this as an entity-winding bug and then as G-buffer culling; both were
-wrong. When fixing the crowd, either move these poses onto the live centroid or
-derive them from it, and only then judge the picture.
+**Proposed fix.** Do not reason about which side is wrong. Add a diagnostic that
+prints, for the same frame:
 
-**Cheapest next step:** add a `--pose=crowd-live` that seeds the pose from
-`crowd.population()`, and a diagnostic that prints the per-agent state for the
-first ~8 agents within range. That answers question 1 in a single run.
+1. `visibleCount` and `instances.count` side by side.
+2. `viewRadius` read at three points — before `rebuildSlices`, before Pass B,
+   and inside `buildInstances` — to rule out a mid-frame write.
+3. Raw per-agent state for the first ~8 agents passing the guard: index, `x`,
+   `z`, `active`, and the computed `d2`.
+
+Then find the first agent counted by Pass B and dropped by `buildInstances` and
+compare its two distances. Candidate causes worth *checking against that
+evidence*, not assuming:
+
+- `d.b` (the instance write cursor) colliding with the field writes, so
+  `buildInstances` writes the TRS but `n` never advances.
+- The `if (n >= cap) break` guard at `crowd.ts:806` tripping early, since it is
+  placed *after* the distance test and compares against `capacity`, not the
+  number of eligible agents.
+- `buildInstances` running before the seeding arm of `rebuildSlices` has
+  refilled, reading a stale `active` state.
+
+**Closed when:** the two counts agree, or the divergence is localised to a named
+agent and a named line. If they agree, the bug was ordering or staleness and F1
+closes with a one-line reorder — not by deleting whichever counter disagreed.
+
+### F2 — The crowd diagnostic poses do not point at the crowd
+
+**Evidence.** `01b-crowd-closeup` and `01c-street-crowd` are hardcoded at the
+world origin (`position: [0, 2.4, -40]`, `capture.mjs`). The crowd centroid
+measured at `(974, 46)` — ~975 units away, outside `viewRadius: 190`. The
+"close-up" was never looking at the crowd, so both poses have reported an empty
+street for a *diagnostic* reason.
+
+Earlier sessions read that absence as an entity-winding bug, then as G-buffer
+culling. Both wrong. A control run settled it: `pedestrian:0/180` under *both*
+`cull: 'back'` and `cull: 'none'`.
+
+**Proposed fix.**
+
+- Add a `crowd-live` pose whose `position` is derived from
+  `crowd.population()` — centroid plus a street-aligned offset — rather than
+  hardcoded. `population()` already reports centroid and spread.
+- Compute it in the app, not in the harness, so `--eval` and the console see the
+  same value the renderer used.
+- Keep `01b`/`01c` as origin-anchored establishing shots, but rename them so
+  they no longer claim to be crowd diagnostics. A diagnostic that lies by
+  position is worse than no diagnostic.
+
+**Closed when:** a shot from the new pose contains visible pedestrians, *or*
+F1 shows the count is legitimately zero with the reason identified.
+
+### F3 — Delete `crowd.inView()`
+
+**Evidence.** `PITFALLS.md` §12: it reported 0 in the camera cone repeatedly,
+even with a dense crowd plainly in frame. It is still in the tree
+(`crowd.ts:326`, called from `main.ts:431`).
+
+**Proposed fix.** Delete it and its call site, plus the hardcoded
+`targetsW/1600, targetsH/900` arguments that only existed to feed it. Per §12, a
+diagnostic that has lied once does not get a second chance — and F1 is currently
+proving that counters in this file are not trustworthy, so a third opinion would
+only add noise. `pass A/B/C` counts replace it.
+
+**Closed when:** `inView` no longer appears in `shots/latest.json` stats.
+
+### F4 — Wire traffic to the instanced draw path
+
+**Evidence.** `TrafficSim` produces 207 vehicles and 64 lights on real rail
+lines; `main.ts:243` submits only pedestrians.
+
+**Proposed fix.** Build a traffic instance buffer in the same 24-float layout as
+the crowd (D18) — `TrafficSim` already has position, heading and kind — and
+extend the `pendingEntities` hook to carry a second set keyed `'tram'`,
+`'cablecar'`, etc. `Renderer.drawEntitySet` already works; this is wiring, not
+design. Rail-aligned vehicles must use the suspension's own transform, or trams
+will float above and sink below their cables.
+
+**Closed when:** the `03-tram-level` pose shows vehicles on the rails, with
+`entityDraws` reporting a non-zero count per kind.
+
+### F5 — Ground detail at eye height
+
+**Evidence.** Street-level frames are ~60% featureless grey slab. `bakeGround`
+emits kerb strips that are barely visible.
+
+**Proposed fix.** Lane markings, drain covers and kerb read as procedural
+synthesised detail in the existing facade shader rather than new geometry or new
+textures (D6) — the shader already knows street distance, so this is a
+synthesis job, not an asset job. Widen the kerb strip and raise its contrast
+first; it is one number.
+
+**Closed when:** a street-level pose shows kerbs catching light and reading as a
+kerb.
+
+### F6 — Warm boot, so a capture is seconds not minutes
+
+**Evidence.** The sequence is ~9 minutes, dominated by streaming: one chunk baked
+per frame under a 4 ms budget, ~60 frames before a shot means anything. Every
+other decision here is downstream of how cheaply you can look at the thing.
+
+**Proposed fix.** A `?seed=&chunks=N&warm=N` query parameter that resolves the
+seed, forces the first `N` chunks resident, and bakes them synchronously at boot
+before the first frame. `capture.mjs` then sets it, and a capture drops to
+seconds. This is also the cheapest way to make F1 cheap to iterate on, so
+consider doing it *before* F1 rather than after.
+
+**Closed when:** `node tools/capture.mjs --pose=<any>` returns in seconds and the
+image is indistinguishable from the settled version.
+
+---
+
+**Cheapest first move:** F6, then F1 and F2 together. F6 makes the F1 loop fast,
+and F1 + F2 together answer both crowd questions in a single run.
 
 ## The short version
 
@@ -138,7 +243,7 @@ Verified by rendering it, not by assuming it.
   blimp/balloon/cycle, wind-responsive, 0.04 ms/frame. **Not drawn.**
 - `CrowdSim` — SoA, 6000 agents, need-driven goals, spatial hash, view-space
   seeding, street placement. ~2 ms/frame. **Rendering unverified — see the two
-  open questions above.**
+  open work items above.**
 
 **Camera** (`src/camera/`)
 - 6-DOF inertial flight, auto-banking proportional to yaw rate and speed,
@@ -159,17 +264,17 @@ Verified by rendering it, not by assuming it.
 Ordered by how much it hurts the spectacle.
 
 **1. Street level is not inhabited.** The crowd is placed on real streets, but
-whether it renders at all is currently contradicted by our own counters (see
-open question 1), and the two poses meant to show it are pointed at empty ground
-(open question 2). ~1900 people spread across the streets within 160 m would be
-thin on any single avenue regardless, and the street deck is a featureless grey
-slab. This is the gap most visible against the reference frames.
+whether it renders at all is currently contradicted by our own counters (F1),
+and the two poses meant to show it are pointed at empty ground (F2). ~1900
+people spread across the streets within 160 m would be thin on any single avenue
+regardless, and the street deck is a featureless grey slab (F5). This is the gap
+most visible against the reference frames. Fixes: F1, F2, F4, F5.
 
 **2. Traffic is invisible.** `TrafficSim` produces vehicles and 64 lights, but
-only pedestrians are submitted through the instanced draw path. The fix is
-small: `Renderer.drawEntitySet` already exists and works; traffic needs its
-instances built and the `pendingEntities` hook extended. Trams and cable cars on
-the visible rail lines would transform the canyon shots immediately.
+only pedestrians are submitted through the instanced draw path. `Renderer
+.drawEntitySet` already exists and works; traffic needs its instances built and
+the `pendingEntities` hook extended. Trams and cable cars on the visible rail
+lines would transform the canyon shots immediately. Fix: F4.
 
 **3. Night is nearly black.** The night pose is a purple murk. A night city
 should be the *brightest* thing in the frame — the window emissive is written,
@@ -222,8 +327,14 @@ through the task tool also work. Prior work was split this way:
 
 ## If you only do one thing next
 
-Make street level read as inhabited. It is the clearest distance between the
-current output and the reference frames, and it needs three things: ground
-detail (markings, kerbs, clutter at eye height), a large crowd density increase
-with better distribution along the view axis, and traffic on screen. Those three
-together are the difference between "a city" and "a city that is alive".
+Take **F6**, then **F1 + F2** together.
+
+F6 makes a capture cost seconds instead of minutes, which is what makes the F1
+diagnostic loop cheap enough to run ten times. F1 and F2 together settle whether
+the crowd renders at all, and until they are settled no amount of density tuning
+is meaningful — you cannot tell a distribution problem from a rendering one, and
+two sessions have already misread it as a winding bug and then a culling bug.
+
+After that, F4 (traffic) and F5 (ground detail) are what turn "a city" into "a
+city that is alive", and they are the clearest distance between the current
+output and the reference frames.

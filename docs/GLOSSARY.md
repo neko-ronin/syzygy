@@ -90,8 +90,35 @@ satisfied at population scale rather than per agent.
 behaviour. Deterministic from the seed.
 
 **Population** — the set of currently-live agents. `population()` reports
-centroid, spread and min/max Y. *A useful sanity check: if `live` is high and
-`visible` is zero, something is wrong with placement, not rendering.*
+centroid, spread and min/max Y. *Sanity check: if `live` is high and the
+rendered instance count is zero, the fault is in placement or in the instance
+build, not in the shaders.* Note there are **two** such counts and they are not
+interchangeable — see below.
+
+**`visibleCount`** — how many agents passed the radius test in Pass B of
+`CrowdSim.update`. *Set on the CPU; says nothing about what was drawn.*
+
+**`instances.count`** — how many instance records `buildInstances()` actually
+wrote for the renderer to draw. This is the number that decides whether
+pedestrians appear.
+
+*These two were measured disagreeing in the same frame — 250 and 0 — from
+predicates that look identical. That is work item F1. Until it is closed, quote
+both, never either alone.*
+
+**Pass A / B / C** — the staggered phases of the crowd's per-frame spatial work:
+A builds the spatial hash, B counts and updates agents inside the radius, C
+rebuilds instance data. Each is staggered across `rebuildStride` frames to bound
+cost. `visibleCount` comes from B; `instances.count` comes from C.
+
+**`viewRadius`** — how far from the camera an agent is kept simulated and
+instantiated (`CrowdSim.viewRadius`, currently `lerp(80, 240, density)`). The
+`01b`/`01c` crowd poses sit ~975 units from the measured crowd centroid, well
+outside it — see D21 and work item F2.
+
+**`inView()`** — a *removed* diagnostic. It reported 0 agents in the camera cone
+repeatedly while a dense crowd was plainly in frame. Deleted per
+[`PITFALLS.md`](PITFALLS.md) §12; pending as work item F3. Do not reintroduce it.
 
 **Alternative transport** — the vehicle taxonomy, which contains **no cars**:
 tram, trolley, cablecar, funicular, zipline, blimp, balloon, cycle. This is a hard
@@ -135,10 +162,19 @@ is the "before" for the next change.
 
 **Reference** — the nine videos in `inpirations/dreamscape/`. The quality bar,
 not a mood board. When a question is aesthetic rather than correct, extract a
-frame and compare.
+frame and compare. Untracked in git (D22); they are on disk, ~670 MB.
+
+**Contact sheet** — the overview strip of a capture run, `_contact-sheet.png`.
+Generated only when ffmpeg is on `PATH`.
+
+**Comparison grid** — `node tools/compare.mjs`, columns
+`BASELINE | CURRENT | REFERENCE`, one row per pose. Replaces opening two images
+in sequence, which does not work because the first is gone by the time you look
+at the second.
 
 **Hard-fail** — the capture harness aborting on any GPU or WGSL error. Do not
-relax (D11).
+relax (D11). The same rule now applies to the comparison tool: it refuses to
+build a partial grid rather than emit one with a tile silently wrong.
 
 **Silent bug** — a fault that produces no error, no exception, and plausible
 statistics. Every bug in this project's history has been one. Assume the next one

@@ -40,26 +40,30 @@ living city of pedestrians and traffic"*
 The single clearest distance between current output and the reference. At 2.4 m
 looking down an avenue you see a bare grey slab.
 
-Three sub-problems, and the third is nearly free:
+Three sub-problems. Full fix proposals — evidence, steps, and the check that
+proves each closed — are in [`HANDOFF.md`](HANDOFF.md) as F5, F1/F2 and F4
+respectively. Do them in that order; the third is nearly free.
 
 1. **Ground detail.** No lane markings, no kerb read, no drain covers, no clutter
    at eye height. The `bakeGround` kerb strips exist but are barely visible.
    *Why it matters:* it is 60% of the pixels in a street-level shot, and it is
-   the cheapest large-area quality win available.
-2. **Crowd density and distribution.** **Blocked on an unresolved contradiction
-   first** — see the open questions at the top of
-   [`HANDOFF.md`](HANDOFF.md). The crowd's two visibility predicates report 250
-   and 0 in the same frame, and the two poses meant to show it are hardcoded at
-   the world origin while the crowd centroid sits ~975 units away. Until both are
-   settled, do not tune density: you cannot tell a distribution problem from a
-   rendering one. *Watch out:* raising the count without fixing distribution just
-   produces a clump — see `PITFALLS.md` §9.
+   the cheapest large-area quality win available. → **F5**
+2. **Crowd density and distribution.** **Blocked on F1 and F2 first.** The
+   crowd's two visibility predicates report 250 and 0 in the same frame, and the
+   two poses meant to show it are hardcoded at the world origin while the crowd
+   centroid sits ~975 units away. Until both are settled, do not tune density:
+   you cannot tell a distribution problem from a rendering one, and two
+   previous sessions misread this as a winding bug and then a culling bug.
+   *Watch out:* raising the count without fixing distribution just produces a
+   clump — see `PITFALLS.md` §9. → **F1, F2**
 3. **Traffic on screen.** `TrafficSim` already produces 207 vehicles on real rail
    lines. `Renderer.drawEntitySet` already works. This is wiring, not design.
+   → **F4**
 
 **Done when:** a street-level pose contains trams on the rails, cable cars above,
 and people on the pavements, at a density where the far end of the street is
-visibly busy.
+visibly busy — and that pose is derived from the crowd centroid, so the shot
+cannot be quietly framing empty ground (D21).
 
 ## R2 — Fix the night
 
@@ -78,6 +82,15 @@ internally consistent; it is simply aimed too dark.
 *Engineering note:* this is a cheap fix with a large payoff, and it is the only
 item that unlocks an entire visual register (lit windows, headlight cones, wet
 reflections) that the rest of the renderer already supports.
+
+*Proposed approach.* Because the rig is internally consistent and merely aimed
+too dark, treat it as an authoring pass over the `night` phase, not a bug hunt:
+raise the window-emissive multiplier and ambient floor, then pull exposure down
+to compensate so highlights keep their roll-off. Use the `--grab` harness flag to
+sweep phase parameters in one run rather than editing and re-shooting by hand,
+and judge with `node tools/compare.mjs --pose=night --ref <video>` against a
+reference night frame. *The verification that matters: night must become the
+brightest frame in the set, not merely a brighter purple murk.*
 
 ## R3 — Kill the aliasing
 
@@ -190,7 +203,9 @@ cheaply it can be looked at.
 
 Highest-leverage remaining work: a `?seed=&chunks=N&warm=N` parameter that bakes
 the whole view synchronously at boot, so a capture is a second rather than a
-minute. See [`PROCEDURES.md`](PROCEDURES.md).
+minute. **Do this before the crowd work** — it is F6 in
+[`HANDOFF.md`](HANDOFF.md), and it is what makes the F1 diagnostic loop cheap
+enough to run ten times instead of two. See [`PROCEDURES.md`](PROCEDURES.md).
 
 **Partly done.** `node tools/compare.mjs --latest --ref <video>` builds a
 baseline/current/reference grid in one shot, so "did this help?" no longer
@@ -201,9 +216,19 @@ requires holding two images in your head. It is documented in
 
 ## Ordering
 
+The `F` items in [`HANDOFF.md`](HANDOFF.md) are the executable form of the
+top three rows. Within R1 the order is not negotiable: F6, then F1+F2 together,
+then F4 and F5.
+
 ```
+F6 (warm boot)     ─┐  do first: makes the F1 loop cheap enough to run ten times
+F1 (crowd counts)  ─┤  measure-first, pair with F2, do not close by inspection
+F2 (crowd poses)   ─┘
+F3 (delete inView) ──  housekeeping, do while you are in crowd.ts
+F4 (traffic)       ─┐
+F5 (ground detail) ┘  the visible gap; independent of F1-F3
+
 R3 (aliasing)      ─┐  the base image has to be stable before polish means anything
-R1 (street level)  ─┤  the biggest visible gap
 R2 (night)         ─┘  cheap, unlocks a whole visual register
 
 R4 (perf)          ──  before the governor starts eating quality on weak hardware
@@ -211,8 +236,8 @@ R6 (atmosphere)    ──  the most recognisable missing element of the referenc
 R5 (destructible)  ──  explicitly requested, spectator-scale is enough
 R7 (water)         ──  cheap once R1 makes streets matter
 R9 (districts)     ──  polish
-R8 (WebGL 2)       ──  decision, not work
-R10 (iteration)    ──  continuous, do opportunistically
+R8 (WebGL 2)       ──  decision, not work (D1)
+R10 (iteration)    ──  partly done: compare.mjs landed, warm boot is F6
 ```
 
 ## What "spectacle" means here

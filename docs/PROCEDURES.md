@@ -182,6 +182,43 @@ The pattern, followed by citygen, traffic, crowd, camera and agent:
    uploads one contiguous instance block and issues the draw.
 4. **Wire the automation surface** so it can be inspected headlessly. This is not
    optional; it is how every bug in this project was found.
+5. **A diagnostic pose that derives its position from live state** (D21). If the
+   pose exists to frame a system, compute it from that system's centroid or nav
+   node — not from typed-in coordinates. See the checklist below.
+
+### Writing a diagnostic that cannot lie
+
+Every silent bug in this project was found by measurement, and several were
+*caused* by a diagnostic that pointed at the wrong thing. Before trusting a new
+diagnostic shot or counter, check all five:
+
+1. **Is the camera actually looking at the subject?** Print the camera position
+   and the subject's centroid in the same frame. Distance, not vibes. A pose
+   975 units from its subject reports an absence forever (D21, F2).
+2. **Cross-check two independent counters.** `visibleCount` and
+   `instances.count` are computed separately and were measured disagreeing
+   250 vs 0. When two paths compute the same predicate, print both — and if they
+   disagree, *that disagreement is the bug*. Do not delete the one that looks
+   wrong.
+3. **Print raw state, not just aggregates.** For a handful of agents, print
+   index, position, and the field that gates them. A count tells you that
+   something is wrong; per-agent state tells you where.
+4. **Run a control.** Change one variable, re-shoot the same pose, compare. This
+   is what killed the culling theory: `pedestrian:0/180` under *both* modes.
+5. **Delete a diagnostic the first time it lies.** `inView()` reported 0 while a
+   dense crowd was in frame, and was believed for several iterations. See §12.
+
+Two rules that follow, both learned the hard way:
+
+- **A command exiting 0 is not evidence its output is correct.** `compare.mjs`
+  emitted a valid PNG of the wrong thing. Check artifacts against a source you
+  know differs.
+- **Do not crop or clip the thing under test** to make a comparison convenient.
+  Crop the reference.
+
+**Note on `__selftest`:** step 2 above says a self-test prints `ALL PASS`. The
+world self-test does not — it prints a `VIOLATIONS` line, and that is the line
+to read. Do not go looking for an `ALL PASS` that is not there.
 
 ### Instance layout
 
