@@ -156,6 +156,7 @@ failed. Judge these separately; no single sheet is their bar.
 6. CHANGE one thing
 7. RE-CAPTURE the same pose, re-compare
 8. CHECK the city shot has not homogenised
+9. CLOSE the task with a review agent   §6 — mandatory, not optional
 ```
 
 Rules that matter, from experience in this project:
@@ -172,7 +173,67 @@ Rules that matter, from experience in this project:
 
 ---
 
-## 6. Agent roles
+## 6. Task close — the review gate
+
+**No task ends without a vision agent making a final judgement and returning
+`done` or `more work needed`.** Not "if there's time", not "as a self-check".
+The gate is the task's definition of finished.
+
+### Why a separate agent
+
+The implementer cannot close its own task. The agent that made the change has an
+incentive to read its own work as successful, and has the change in mind rather
+than the frame. This is not a hypothetical: in this project an agent looked at
+one reference frame, compared it against a shot of a different time of day, and
+reported a confident conclusion. A different agent with the sheet and the grid in
+front of it caught it in one exchange.
+
+**The reviewer must not be the implementer.** If only one agent is available,
+say so explicitly in the close-out rather than quietly self-reviewing.
+
+### What the reviewer does
+
+1. **Opens the section sheet**, then **the comparison grid**, then the `.txt`
+   sidecar. All three, in that order. A review that skips the reference is a
+   review of taste.
+2. **Opens the before frame as well as the after.** The question is "did this
+   help", which is only answerable against both.
+3. **Judges against the done-when** of the roadmap item, not against a general
+   impression. `ROADMAP.md` R11's done-when, for example, has two clauses and
+   the second one — that a wide shot still reads as a city of different places —
+   is the one that catches failure.
+4. **Runs the city-wide check** for any change touching a section. One section
+   can look correct while the city has quietly become one place.
+5. **Returns a decision and, if not done, the next single change.**
+
+### Required close-out
+
+```
+VERDICT:  done | more work needed
+EVIDENCE: references/<id>-sheet.jpg, shots/compare/<stamp>.png (+ .txt)
+JUDGED:   the specific thing this frames shows, in section vocabulary —
+          palette, value structure, silhouette, base/podium, cable density,
+          material read, atmospheric depth, human scale
+GAP:      the one specific thing still wrong, or "none"
+NEXT:     the single next change, or "none"
+CONFIRMED:<the done-when clauses that are actually met, quoted>
+```
+
+### The rules that make the verdict mean something
+
+- **"Looks good" is not a verdict.** It is the absence of one. A close-out that
+  does not name the specific thing it judged has not been done.
+- **`more work needed` is a normal, successful outcome.** It is what the gate is
+  for. Closing a task on a verdict you do not believe is the only real failure.
+- **The reviewer may reject a task that is technically complete.** The point of
+  the gate is that "the code works" and "the frame is right" are different
+  claims, and only the second one matters here.
+- **If the reviewer and implementer disagree, the reviewer wins until proven
+  otherwise.** When in doubt, look at the pixels again.
+
+---
+
+## 7. Agent roles
 
 Two roles, and they are different jobs. Both must do the visual part.
 
@@ -206,7 +267,7 @@ Two roles, and they are different jobs. Both must do the visual part.
 
 ---
 
-## 7. What is still missing
+## 8. What is still missing
 
 Honest inventory, so nobody mistakes absence for oversight:
 

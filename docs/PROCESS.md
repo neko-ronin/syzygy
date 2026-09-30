@@ -120,9 +120,14 @@ Do not commit on a false premise, and do not commit a change made on an
 unverified theory. It is fine — better — to commit a measurement and an open
 question instead of a speculative fix.
 
-## 9. Verify before reporting
+## 9. Verify before reporting, and let a reviewer close the work
 
-- Run the checks, and report their output. Do not summarise from memory.
+Run the checks, and report their output. Do not summarise from memory. For
+**visual** work the bar is higher than "the build is clean": a different agent
+must open the reference and the output, judge the frame, and return `done` or
+`more work needed`. Self-certifying visual work is the failure this project has
+already paid for once. See [`DESIGN.md`](DESIGN.md) §6.
+
 - **A subagent that returns an empty result did nothing.** `ls` the paths.
   Twice, a subagent reported work that was never written.
 - Confirm a cross-reference points at something that exists before committing it.

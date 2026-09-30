@@ -167,8 +167,20 @@ comparison**. Concretely, before reporting:
    judged against.
 
 An agent reporting "looks good" without having opened the sheet and the grid has
-reported an opinion, not a review. Roles are specified in
-[`DESIGN.md`](docs/DESIGN.md) §6.
+reported an opinion, not a review.
+
+### No task closes without a review agent
+
+**Every task ends with a vision agent returning `done` or `more work needed`.**
+The reviewer must not be the implementer — an agent grading its own work has the
+change in mind instead of the frame, and has already seen it as good.
+
+The reviewer opens the sheet, the grid and the sidecar, judges against the
+roadmap item's done-when, and returns the close-out in
+[`DESIGN.md`](docs/DESIGN.md) §6. "Looks good" is not a verdict; it is the
+absence of one. `more work needed` is a normal, successful outcome — closing on
+a verdict you do not believe is the actual failure. Roles are specified in
+[`DESIGN.md`](docs/DESIGN.md) §7.
 
 ## Commits
 
