@@ -5,14 +5,42 @@
 [`PITFALLS.md`](PITFALLS.md) before you touch the renderer, and
 [`DECISIONS.md`](DECISIONS.md) before you change the architecture.**
 
-State as of the end of the session that built the renderer, plus the audit
-session that followed. Commits: `27f3b66` (renderer bring-up), `1481e47`
-(crowd), `0e90072` (documentation set).
+## Where things stand
 
-The audit session added `DECISIONS.md`, `GLOSSARY.md` and `tools/compare.mjs`,
-corrected the reference-video tracking, restored G-buffer back-face culling, and
-found the six open work items below. It changed no renderer behaviour on the
-strength of an unverified theory.
+Two sessions of audit and design work sit on top of the build: `27f3b66`
+(renderer bring-up), `1481e47` (crowd), `0e90072` (documentation set), then
+`a893dbe` onward. The renderer and world are unchanged in behaviour except for
+the building-frame fix described below.
+
+**Three things a new session should know exist**, because they did not before:
+
+- **[`DESIGN.md`](DESIGN.md) is the art direction**, and it was missing entirely
+  until now. Districts existed as authored data with no recorded design intent.
+  The target finish is painterly-and-graphic, detailed at close focus;
+  "hyperreal" is *exaggerated and stylised*, not photoreal (D23).
+- **`references/` holds curated per-section reference sheets** and
+  `references/sections.json` is the machine-readable contract. `compare.mjs
+  --auto` judges each pose against the sheet for the section it belongs to. The
+  reference *videos* are not in git (D22) — a fresh clone gets the sheets only.
+- **[`DESIGN.md`](DESIGN.md) §6 is a mandatory review gate.** No task closes
+  without a second agent opening the reference and the output and returning
+  `done` or `more work needed`. The implementer may not self-certify.
+
+**One substantial render bug was found and fixed** — the bottom half of every
+building was never emitted, because the setback tier loop started at the
+building's *centre* rather than its base. Towers stood on plinths and ribs like
+stilts. Six faults in total, all the same root cause; see
+[`PITFALLS.md`](PITFALLS.md) §17. It survived several rounds of review because
+**no pose in the harness could frame ground contact** — which is the general
+lesson, and why `01a-building-base` now exists.
+
+Two open threads the last session did not close:
+
+- A review agent reported 3 pre-existing `tsc` errors in `src/render/gpuutil.ts`.
+  **Could not be reproduced** — `tsc --noEmit` is clean. Not investigated.
+- `package.json` no longer says "hyperreal" in its description (the human author
+  edited it), while `D23` and [`GLOSSARY.md`](GLOSSARY.md) still use the word and
+  define it. Consistent with redefining rather than removing; not reconciled.
 
 ---
 
@@ -216,6 +244,10 @@ Verified by rendering it, not by assuming it.
 
 **World generation** (`src/world/`)
 - Deterministic from a seed. Same seed, byte-identical city, across processes.
+- Buildings are solid from the ground up. This was broken until the last session
+  — see [`PITFALLS.md`](PITFALLS.md) §17 — and is worth re-checking after any
+  change to `pushBuilding`, because six of the faults shared one origin and two
+  more were found downstream of the main fix.
 - A street field of warped grids, meandering arteries and three deliberate
   spines (canal, market, rail). Building lots are dropped where they do not foul
   a carriageway, so canyons are emergent rather than authored.
