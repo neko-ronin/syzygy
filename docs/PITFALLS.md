@@ -237,12 +237,27 @@ the stats line is noise.
   `Content-Length` framing. `tools/lsp-check.mjs` now drives a real handshake.
 - **A subagent returning an empty result did nothing.** Twice. `ls` the paths
   before believing the report.
-- **A tool that reports success may have done nothing at all.**
-  `git filter-repo --path 'inpirations/**/*.mov'` — `**` as a `--path` rather
-  than `--path-glob` — printed "Completely finished", rewrote nothing, and left
-  every `.mov` blob reachable. `.git` barely moved. The tell was the *speed*:
-  0.07s for 700MB. **Verify by checking a known object is gone**, not by the
-  exit status. The rewrite had to be redone.
+- **A tool that reports success may have done nothing at all.** Twice, both in
+  this project, both caught only by checking the *effect*:
+  - `git filter-repo --path 'inpirations/**/*.mov'` — `**` as a `--path` rather
+    than `--path-glob` — printed "Completely finished", rewrote nothing, and left
+    every `.mov` blob reachable. The tell was the *speed*: 0.07s for 700MB.
+  - **`.gitignore` containing `inpirations/**/*.mov` matched nothing at all** on
+    git 2.54 (Apple Git-157). Verified in a scratch repo: `git add -A` staged
+    all nine 670MB videos. The bare pattern `*.mov` works. This one was worse,
+    because the entry had been *committed* with a comment explaining the benefit
+    it did not deliver, and it survived a history rewrite and a `git rm --cached`
+    that masked the fact that the ignore itself was inert. The .git now hit
+    720MB from staging before it was caught.
+  **Verify by checking the effect on a known file** — `git check-ignore -v <path>`
+  for ignores, and a known-absent object for rewrites — not by the exit status,
+  and not by the comment beside it.
+- **A shell wrapper can report things that are not true.** The `rtk` prefix
+  returned "No such file or directory" for a directory that existed, and
+  `git ls-files | grep -c` returned 0 for files that were in the tree. It also
+  silently swallowed commands when `$PATH` had been trimmed. When a result
+  contradicts another result, re-run it with plain `/usr/bin/git` and plain
+  `ls` before believing either.
 
 ## 14. A ffmpeg graph that drops half its inputs still exits 0
 
