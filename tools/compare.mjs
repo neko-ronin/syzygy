@@ -14,7 +14,7 @@
  *                     directory is not in git (D22); nothing is committed
  *                     there, so this column appears only if you populate it
  *   Column 2  CURRENT    the run you just made
- *   Column 3  REFERENCE  a frame extracted from inpirations/dreamscape/*.mov
+ *   Column 3  REFERENCE  a frame extracted from inspirations/dreamscape/*.mov
  *
  *   With no shots/baseline/, the grid is CURRENT | REFERENCE. Weaker, not
  *   broken: the reference is the column that actually answers the question.
@@ -40,7 +40,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const SHOTS = join(ROOT, 'shots');
-const REFS = join(ROOT, 'inpirations', 'dreamscape');
+const REFS = join(ROOT, 'inspirations', 'dreamscape');
 const OUT = join(SHOTS, 'compare');
 const MANIFEST = join(ROOT, 'references', 'sections.json');
 

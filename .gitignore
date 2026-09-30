@@ -9,9 +9,10 @@ dist/
 # from a fresh clone -- copy them from a working checkout before comparing against
 # them, or `tools/compare.mjs --ref` will not find its source.
 #
-# The pattern is a bare `*.mov`, NOT `inpirations/**/*.mov`. The latter looks
+# The pattern is a bare `*.mov`, NOT `inspirations/**/*.mov`. The latter looks
 # equivalent and does nothing: verified on git 2.54 (Apple Git-157), it matches
 # nothing and `git add -A` stages all nine videos. Tested in a scratch repo.
+# A bare glob is also why this line needs no edit when the directory is renamed.
 *.mov
 
 # Iteration output. Screenshots are evidence, not source. Every run churns these,

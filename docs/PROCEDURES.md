@@ -80,7 +80,7 @@ against.
 | Flag | Effect |
 | --- | --- |
 | `--latest` | Use the most recent `shots/<timestamp>/` as CURRENT |
-| `--ref <name>[@<sec>]` | Extract a frame from `inpirations/dreamscape/<name>.mov` (default 10 s, past the title cards), cached in `shots/reference/` |
+| `--ref <name>[@<sec>]` | Extract a frame from `inspirations/dreamscape/<name>.mov` (default 10 s, past the title cards), cached in `shots/reference/` |
 | `--pose=<substr>` | Restrict rows, as in the capture harness |
 | `--width=<px>` | Tile width, default 520 |
 | *(bare paths)* | An explicit left-to-right strip instead of `--latest` |

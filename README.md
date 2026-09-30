@@ -66,7 +66,7 @@ failure signal, not a dark scene.
 
 ## The reference
 
-`inpirations/dreamscape/*.mov` are the quality bar, not a mood board. When a
+`inspirations/dreamscape/*.mov` are the quality bar, not a mood board. When a
 question is aesthetic rather than correct, extract a frame and compare. That
 distinction settled several arguments during bring-up that reading the code could
 not.
@@ -87,7 +87,7 @@ node tools/compare.mjs --latest --ref dreamscape-05@12
 ```
 
 Everything under `shots/` is ignored — screenshots are evidence, not source
-(D22). Nothing under `inpirations/` is tracked either. A fresh clone has
+(D22). Nothing under `inspirations/` is tracked either. A fresh clone has
 neither, so copy the videos from a working checkout before `--ref` will work.
 
 ## Shape of the thing

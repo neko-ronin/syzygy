@@ -95,7 +95,7 @@ node tools/compare.mjs --latest --auto      # each pose vs its OWN section
 
 `compare.mjs` builds a `BASELINE | CURRENT | REFERENCE` grid — one row per
 pose. **Use it instead of opening two images in sequence**; the first is gone by
-the time you look at the second. The reference videos in `inpirations/` are the
+the time you look at the second. The reference videos in `inspirations/` are the
 quality bar, and they are the arbiter of any "is this good enough" question.
 
 Prefer **`--auto`**, which judges each pose against the reference sheet for the

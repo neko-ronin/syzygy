@@ -239,10 +239,11 @@ the stats line is noise.
   before believing the report.
 - **A tool that reports success may have done nothing at all.** Twice, both in
   this project, both caught only by checking the *effect*:
-  - `git filter-repo --path 'inpirations/**/*.mov'` — `**` as a `--path` rather
+  - `git filter-repo --path 'inspirations/**/*.mov'` (the directory was
+    misspelled `inpirations/` at the time) — `**` as a `--path` rather
     than `--path-glob` — printed "Completely finished", rewrote nothing, and left
     every `.mov` blob reachable. The tell was the *speed*: 0.07s for 700MB.
-  - **`.gitignore` containing `inpirations/**/*.mov` matched nothing at all** on
+  - **`.gitignore` containing `inspirations/**/*.mov` matched nothing at all** on
     git 2.54 (Apple Git-157). Verified in a scratch repo: `git add -A` staged
     all nine 670MB videos. The bare pattern `*.mov` works. This one was worse,
     because the entry had been *committed* with a comment explaining the benefit

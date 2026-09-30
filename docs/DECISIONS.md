@@ -369,8 +369,13 @@ the subject are co-located *before* touching the renderer.
 
 ## D22 — Reference media and screenshots are not stored in git
 
-**Decision.** `inpirations/**/*.mov` (~670 MB) and all of `shots/` are
-untracked, gitignored, **and purged from history**. `.git` is 1.3 MB.
+**Decision.** The nine `.mov` files in `inspirations/dreamscape/` (~670 MB) and
+all of `shots/` are untracked, gitignored, **and purged from history**. `.git` is
+1.3 MB.
+
+*The directory was `inpirations/` — misspelled — at the time of the purge. It has
+since been renamed to `inspirations/`; the commands quoted below are the ones
+actually run, and retain the old spelling for the record.*
 
 **Why.** The videos are the quality bar, not source. They live on disk; every
 session has them; committing 670 MB of binary buys nothing. The untracking
@@ -397,7 +402,7 @@ Three consequences, all accepted deliberately:
   absent — a weaker comparison, not a broken one. Re-capture if a committed
   baseline is ever wanted again.
 
-**A note on doing this again.** `git filter-repo --path 'inpirations/**/*.mov'`
+**A note on doing this again.** `git filter-repo --path 'inspirations/**/*.mov'`
 — with `**`, as a `--path` argument rather than `--path-glob` — reports success,
 rewrites nothing, and prints a cheerful "Completely finished". The first attempt
 did exactly that, and `.git` barely moved. **Verify a rewrite by checking a

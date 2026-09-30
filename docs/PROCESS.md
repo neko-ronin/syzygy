@@ -138,7 +138,7 @@ surpasses the reference video, and drop screenshots every iteration. Those are
 constraints, not suggestions. If a change starts adding objectives, four-wheeled
 vehicles, or a completion condition, it is wrong.
 
-The reference material in `inpirations/` is the quality bar, not a mood board.
+The reference material in `inspirations/` is the quality bar, not a mood board.
 Any "is this good enough" judgement gets settled against a frame from it, with
 `node tools/compare.mjs` — not against imagination.
 

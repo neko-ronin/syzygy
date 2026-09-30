@@ -97,12 +97,17 @@ framing is "a genuine second renderer", not "a compatibility shim".
 
 ## Reference material
 
-The inspiration folder is **`inpirations/`** (misspelled in the repository; it is
-not a typo this project introduced — do not "fix" it without asking, git history
-will be confusing). It is on disk but **not tracked in git**: the nine `.mov`
-files are ~670 MB of reference material rather than source (D22). A fresh clone
-does not include them, so copy them from a working checkout before comparing.
-It holds:
+The inspiration folder is **`inspirations/`**. The brief spells it that way; the
+repository carried a misspelling (`inpirations/`) for most of the project, and
+it was corrected on explicit instruction. The brief's own line above is
+reproduced verbatim and still shows the old spelling.
+
+The `.mov` files are on disk but **not tracked in git**: ~670 MB of reference
+material rather than source (D22). A fresh clone does not include them, so copy
+them from a working checkout before comparing. The eight stills under
+`metropolis/`, `inhabitants/`, `vehicles/` and `world-items/` *are* tracked, and
+the curated per-section sheets in `references/` are the compressed form of the
+whole set. It holds:
 
 - `dreamscape/` — nine `.mov` files, the actual quality bar. Extract frames with
   ffmpeg; they are the reference for density, palette, and atmosphere.

@@ -14,11 +14,11 @@ Status key: **done** · **partial** · **todo** · **decision**
 
 ## Reading the quality bar
 
-The nine `.mov` files in `inpirations/dreamscape/` are the bar. Extract frames
+The nine `.mov` files in `inspirations/dreamscape/` are the bar. Extract frames
 before any aesthetic judgement:
 
 ```bash
-ffmpeg -i inpirations/dreamscape/dreamscape-01.mov -vf "fps=1/6,scale=420:-1" /tmp/f%02d.jpg
+ffmpeg -i inspirations/dreamscape/dreamscape-01.mov -vf "fps=1/6,scale=420:-1" /tmp/f%02d.jpg
 ```
 
 Three things those frames demand that the current build does not yet deliver:

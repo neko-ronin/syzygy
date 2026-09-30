@@ -163,7 +163,7 @@ grid. *No longer committed* (D22); `shots/` is ignored entirely, so the
 `shots/baseline/` yourself. The comparison degrades to `CURRENT | REFERENCE`,
 which is weaker but not broken.
 
-**Reference** — the nine videos in `inpirations/dreamscape/`. The quality bar,
+**Reference** — the nine videos in `inspirations/dreamscape/`. The quality bar,
 not a mood board. When a question is aesthetic rather than correct, extract a
 frame and compare. ~670 MB, on disk, and **not in git** (D22) — a fresh clone
 has none of them.
