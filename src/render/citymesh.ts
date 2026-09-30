@@ -279,8 +279,14 @@ function pushBoxShell(
   bld.pushQuad(a3, b3, c3, d3, color, 0.34, { doubleSided: false });
   const a4 = P(-hx, y0, -hz), b4 = P(-hx, y0, hz), c4 = P(-hx, y1, hz), d4 = P(-hx, y1, -hz);
   bld.pushQuad(a4, b4, c4, d4, color, 0.34, { doubleSided: false });
-  // Top and bottom.
-  if (y1 > 0) {
+  // Top cap.
+  //
+  // The guard used to be `y1 > 0`, which meant "above the building's centre"
+  // back when local y=0 was the centre. Local y=0 is now the BASE, so that test
+  // silently changed meaning: with tiers=3 the first tier's top lands at exactly
+  // y=0 and the strict `>` dropped its cap. The box always has a top; the only
+  // reason to skip it is a degenerate zero-height box.
+  if (y1 > y0) {
     bld.pushQuad(P(-hx, y1, hz), P(-hx, y1, -hz), P(hx, y1, -hz), P(hx, y1, hz), color, 0.2, { doubleSided: false });
   }
 }
@@ -704,9 +710,16 @@ export function bakeChunk(chunk: CityChunk, lod: number, seed: number): BakedChu
     pushBuilding(solid, b, dp, rng, lod);
     // Rooftop marker lights — a scatter of them turns the night skyline into
     // a constellation rather than a black cutout.
+    //
+    // The roof is position[1] + halfExtents[1]. This used to read
+    // `+ halfExtents[1] * 2 + 2`, which is the CENTRE-relative error that
+    // 6e2b5af fixed everywhere else: it put the light a full half-height above
+    // the roof, up to +302m on the tallest buildings, so the "rooftop"
+    // constellation floated in mid-air over the tallest towers. Nobody caught it
+    // because nothing measured light positions.
     if (lod < 1 && rng.next() < 0.4) {
       lights.push({
-        pos: [b.position[0], b.position[1] + b.halfExtents[1] * 2 + 2, b.position[2]],
+        pos: [b.position[0], b.position[1] + b.halfExtents[1] + 2, b.position[2]],
         radius: 26, color: [1.0, 0.35, 0.22], intensity: 1.6,
       });
     }

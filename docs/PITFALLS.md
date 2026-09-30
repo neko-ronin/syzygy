@@ -322,6 +322,63 @@ position from live state (centroid, nav node, camera) rather than hardcoding it
 — this is now a standing decision, D21, and the fix is work item **F2** in
 [`HANDOFF.md`](HANDOFF.md).
 
+## 17. Half the building was never built: centre-relative vs base-relative
+
+**Symptom:** "sky rises look like they're on stilts — they don't look like real
+building structures." A plinth, a gap with hairline ribs in it, then the tower
+mass starting in mid-air.
+
+**Cause.** `b.position[1]` is a building's **centre**. The local→world mapping
+maps local `y` straight onto it, so local `y = 0` is the middle of the tower. The
+setback tier loop started at `y0 = 0`, so the shell began at mid-height and the
+entire lower half of every building in the city was never emitted.
+
+**This was five bugs wearing one coat**, all in the same function or its caller:
+
+| where | fault |
+| --- | --- |
+| tier loop | shell started at the centre — bottom half missing everywhere |
+| rib pilasters | ran base→centre, i.e. pilasters in the void where the shell belonged |
+| tier arithmetic | intermediate tiers used `totalH/tiers`, last used `top - position[1]` (half height) — 3-tier towers overshot their own roof by 112m then emitted a negative-height crown |
+| lean normaliser | divided about the centre, so every tower bowed outward at the bottom and inward at the top instead of rising straight and tilting |
+| rooftop marker light | `position[1] + halfExtents[1] * 2 + 2` — a full half-height above the roof, +302m on the tallest buildings |
+| top-cap guard | `if (y1 > 0)` meant "above the centre"; once `y = 0` became the base, the same expression silently changed meaning and dropped a cap |
+
+**Rule:** when a value can be read as centre-relative or base-relative, name it
+once and never re-derive it. `yBase = -halfExtents[1]; yRoof = +halfExtents[1]`
+at the top of the function, and every vertical dimension written against those,
+would have prevented all six. Mixing `position[1]` and `halfExtents[1]` in
+different frames is the smell.
+
+**Why it survived review:** **no pose in the capture harness could see it.** Every
+pose was aerial or angled upward. A defect visible in no screenshot is a defect
+that receives no review. A ground-contact pose now exists (`01a-building-base`),
+derived from live generator state — and the first version of it did not work
+either, so *the pose that catches this class of bug is itself subject to it.*
+
+## 18. A counter that moved is not evidence of the cause
+
+**Symptom:** after the stilts fix, scene triangles read 4.63M → 5.13M, and the
+commit message claimed that was "consistent with the missing geometry now being
+emitted."
+
+**It was not.** A review agent baked 49 chunks at identical seed and LOD, old
+versus new: 3,408,278 vs 3,407,928 triangles — **−350, or −0.01%**. The fix
+*moves* geometry; it does not add any. The scene-level figure rose because
+frustum culling and streaming admitted a different set of chunks, which has
+nothing to do with the fix.
+
+**Rule:** before reading a counter as support for a change, ask whether that
+counter *could* distinguish the change. Then reproduce it at fixed seed and
+fixed LOD, where the only variable is the code. A scene-level aggregate moves
+for a dozen reasons; only a controlled bake isolates the cause.
+
+This is [`PROCESS.md`](PROCESS.md) rule 3 — success is not evidence of
+correctness — and it was committed by an agent that had itself written that
+rule. The evidence that actually established the fix was a **frame with a
+control**: same pose, same seed, `citymesh.ts` reverted, and the stilts
+reproduced on demand. Take the control, not the counter.
+
 ---
 
 ## Working norms that held up
