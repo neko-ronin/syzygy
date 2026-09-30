@@ -179,6 +179,12 @@ guess.**
 
 ## R9 — Districts that read as places
 
+**Superseded in scope by [`DESIGN.md`](DESIGN.md) + R11.** The section↔district
+mapping, the per-section reference sheets and the palette doctrine all live in
+the design document now. What follows is the original framing, kept because the
+roadmap is history as well as plan.
+
+
 **Status: partial** · **Priority: low** · *Vision: "large sections of the city
 to have differing styles and colors like a real city"*
 
@@ -249,3 +255,38 @@ marginally passes; the night shot does not; the street-level shots do not.
 
 When choosing between two ways to spend an afternoon, prefer the one that makes
 a *frame* better.
+
+---
+
+## R11 — Build the four sections (D24)
+
+**Status: todo** · **Priority: highest** · *Vision: "large sections of the city
+have differing styles and colors like a real city"*
+
+Full direction in [`DESIGN.md`](DESIGN.md); machine-readable definitions in
+[`references/sections.json`](../references/sections.json). This entry is only
+the ordering and the done-when, so the roadmap is not a second source of truth.
+
+**Build order: B → A → D → C.**
+
+1. **B cold-industrial** — `glass-foxholes`, `rust-hangars`, `canal-district`.
+   Reskin: desaturate to steel blue, restrict warm to emissive points, and
+   **invert the cable-density relationship** so ropeways run between the tall
+   districts (see `DESIGN.md` §4 — it is currently backwards).
+2. **A saturated-graphic** — `neon-arcology`, `lantern-bazaar`. Palette and
+   saturation only. Watch homogenisation: this is the section most likely to
+   spread.
+3. **D verdant-solarpunk** — `verdant-canyon`, `botanical-dome`. Mostly present
+   already. **Blocked on two phantoms**: the water mesh is discarded at
+   `renderer.ts:400` and `godRays` is read by no shader. Both are load-bearing
+   for this section.
+4. **C fire-lit** — **not a reskin.** No district is a ruin. Needs new grammar
+   (soot, collapse, ember emissive, smoke) and has no design yet.
+
+**Done when:** a pose in each section holds up against its own sheet at close
+focus, **and** `wide-skyline` still reads as a city of visibly different places.
+The second condition is the one that catches failure — sections can each look
+correct alone while the city has quietly become one place.
+
+**Per section, also add a close-focus capture pose.** The doctrine requires
+detail at 3 m and no such pose exists for any section yet.

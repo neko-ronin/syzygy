@@ -414,3 +414,55 @@ Decisions this project has deliberately *not* made. Do not resolve one in passin
 - **WebGL 2 backend.** Settled as *WebGPU only* (D1); the brief asked for both,
   and the cost of the second backend is weeks. Revisit only if the brief's
   intent changes.
+
+---
+
+## D23 — "Hyperreal" means exaggerated and stylised, not photoreal
+
+**Decision.** The target finish is **painterly and graphic overall, detailed at
+close focus**. Realistic materials are correct and retained; they read as
+painterly through value grouping, atmosphere, depth of field and a single
+dominant light. PBR is the substrate, not the aesthetic.
+
+**Why.** The brief says "visually hyperrealistic city simulation syled with
+surreal proportions", and separately that quality should reach "near or surpasses
+**the videos**". Read together, and confirmed by the human author of the brief:
+"hyperreal" means *exaggerated and stylised*. It cannot mean photoreal, because
+the same sentence asks for surreal proportions, and the reference material is
+painted. Read as photoreal, the clause contradicts itself.
+
+**Consequence that matters:** the renderer keeps its physically-based shading and
+its filmic post chain. Nothing is thrown away. What changes is the budget —
+detail has to survive a 3 m inspection, the eye must read large shapes and colour
+relationships first, and silhouette legibility is the test for every frame.
+
+**If you think this is wrong:** open `references/D-verdant-sheet.jpg` and
+`solarpunk-metropolis-01.jpg`. They are painted, and they are the doctrine.
+
+---
+
+## D24 — The design workflow is: per-section reference sheets, compared per pose
+
+**Decision.** The city is four **sections** (A saturated-graphic, B
+cold-industrial, C fire-lit, D verdant-solarpunk), derived from six of the nine
+reference videos. Each section has a curated contact sheet in `references/`, a
+pose→section map, and its own done-when. `tools/compare.mjs --auto` judges each
+pose against the sheet for the section it belongs to.
+
+**Why.** A single reference frame collapses four distinct places into one look,
+and the brief requires that "large sections of the city have differing styles and
+colors". Worse, a single frame invites a category error: a night frame was
+compared against a daylight shot, and the conclusion drawn was wrong. Per-section
+comparison makes both failures structurally hard.
+
+The reference videos are not in git (D22), so the sheets and
+`references/sections.json` are what a fresh clone actually receives. That is the
+point of committing them: the design guidance has to survive the clone.
+
+**Cost, stated plainly.** 3.8 MB of committed images, against a project that
+purged 929 MB of reference material. The distinction is curation: four small
+sheets an agent can read are design documentation, not bulk binary.
+
+**The check that catches failure:** a *section* shot must hold up against its own
+sheet, and a *wide* shot must still read as a city of visibly different places.
+Optimising only the first is how a city quietly becomes one place.

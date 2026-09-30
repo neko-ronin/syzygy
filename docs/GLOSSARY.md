@@ -174,7 +174,27 @@ Generated only when ffmpeg is on `PATH`.
 **Comparison grid** — `node tools/compare.mjs`, columns
 `BASELINE | CURRENT | REFERENCE`, one row per pose. Replaces opening two images
 in sequence, which does not work because the first is gone by the time you look
-at the second.
+at the second. With `--auto` the reference column is the *section sheet* that
+pose belongs to, rather than one frame applied to every row.
+
+**Section** — one of the four places the city is divided into, each with its own
+reference sheet, palette doctrine and form grammar: A saturated-graphic, B
+cold-industrial, C fire-lit, D verdant-solarpunk. Defined in
+`references/sections.json`, described in [`DESIGN.md`](DESIGN.md). *A section is
+not a district* — a district is generator data; a section is an art direction
+that several districts can serve.
+
+**Reference sheet** — `references/<id>-sheet.jpg`, a contact sheet of frames
+from one section's source video. **The image an agent opens before judging
+anything.** Not optional context.
+
+**Target finish** — painterly and graphic overall, detailed at close focus.
+"Hyperreal" in the brief means exaggerated and stylised, not photoreal (D23).
+
+**Homogenisation** — the failure mode where every section drifts toward the same
+look and the city stops reading as a city of different places. It is only
+visible in a *wide* shot, never in a section shot, which is why the design
+workflow requires both checks.
 
 **Hard-fail** — the capture harness aborting on any GPU or WGSL error. Do not
 relax (D11). The same rule now applies to the comparison tool: it refuses to

@@ -58,7 +58,7 @@ subsystems are covered, and which are a name with nothing behind it — see
 
 | Clause from the prompt | What it demands | Where it lives |
 | --- | --- | --- |
-| "visually hyperrealistic" | Photographic materials, light transport, and finish | `src/render/`, `src/shaders/` |
+| "visually hyperrealistic" | **Exaggerated and stylised**, not photoreal — the brief also asks for "surreal proportions" and holds the videos as the bar. Painterly overall, detailed at close focus (D23, [`DESIGN.md`](DESIGN.md)) | `src/render/`, `src/shaders/`, [`DESIGN.md`](DESIGN.md) |
 | "surreal proportions" | A city that is *architecturally* impossible but reads as a real one | `src/world/citygen.ts` |
 | "dreamlike camera distortion" | A lens model, not a filter stack | `common.wgsl` + `post.wgsl`, driven by `Lens` in `state.ts` |
 | "depth, vertigo and scale" | Tilt-shift miniature, roll, speed-coupled FOV, canyon fog | `post.wgsl`, `camera.ts`, `applyFog` |
@@ -67,7 +67,7 @@ subsystems are covered, and which are a name with nothing behind it — see
 | "no cars" — rail cars, trolleys, ziplines, blimps, hot air balloons | A closed set of vehicle kinds; nothing on four wheels | `VehicleKind` in `traffic.ts` |
 | "free floating camera to playstation controls and keyboard" | 6-DOF flight, gamepad first-class | `src/camera/` |
 | "solar punk beautiful colorings" | A palette doctrine, not a mood | `src/world/districts.ts` |
-| "large sections differing styles and colors" | Districts that are spatially coherent | `districtAt` / `districtField` |
+| "large sections differing styles and colors" | Four **sections**, each with its own reference sheet, and a *city-wide check* that they have not merged (D24) | `districtAt` / `districtField`, [`DESIGN.md`](DESIGN.md), [`references/sections.json`](../references/sections.json) |
 | "atmospheric lighting and atmosphere effects are **very** important" | Called out twice in the prompt. This is the highest-value target. | `lighting.wgsl`, `common.wgsl` |
 | "use performance tricks" | LOD, instancing, streaming, clustered lights — all present in kind | `renderer.ts` |
 | "structures should be able to transform into a destructible form" | Collapse/debris capability | **Not implemented.** Roadmap R5. `structure-collapse` is a registered event and LLM tool with no renderer behind it — see [`COVERAGE.md`](COVERAGE.md) |

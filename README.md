@@ -49,6 +49,8 @@ Working on it as an agent or a contributor? Read
 | [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | Vocabulary, so the next session and the next agent talk about the same things |
 | [`docs/COVERAGE.md`](docs/COVERAGE.md) | Living map from the original build checklist to where each item is covered — and what is a `PHANTOM` |
 | [`docs/PROCESS.md`](docs/PROCESS.md) | Ten working rules, each one bought with a real bug |
+| [`docs/DESIGN.md`](docs/DESIGN.md) | The art direction: painterly target finish, the four sections, district mapping, agent roles |
+| [`references/`](references/) | Curated per-section reference sheets — **the images to open before judging anything** |
 
 ## Seeing it
 

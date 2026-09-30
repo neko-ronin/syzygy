@@ -1,0 +1,79 @@
+{
+  "$comment": "The design workflow's single source of truth. Both tools/compare.mjs and any agent doing design work read this. Adding a section means: add the frames under references/sections/<id>/, add a contact sheet references/<id>-sheet.jpg, and add an entry here. The videos themselves are NOT in git (D22) - this manifest plus the sheets is what survives a fresh clone.",
+  "targetFinish": "painterly-and-graphic",
+  "targetFinishNote": "Overall read is painterly and graphic, but detail must hold up at close focus, the way games and animated feature films do it. Realistic materials are correct and desirable; they read as painterly through atmosphere, depth of field, lighting falloff and value grouping. 'Hyperreal' in the brief means exaggerated and stylised, not photoreal. See docs/DESIGN.md.",
+
+  "sections": {
+    "A": {
+      "name": "saturated-graphic",
+      "sheet": "references/A-saturated-sheet.jpg",
+      "videos": ["01", "05"],
+      "doctrineFrames": [],
+      "intent": "High-chroma, hard-edged colour blocking with a dominant warm/cool split. Flat-ish shading, strong silhouette language, poster composition. The eye should read shape and colour before detail.",
+      "palette": "Complementary pairs pushed apart: deep violet or teal against hot orange or red. Windows and signage are emissive colour, not lit surfaces.",
+      "formGrammar": "Flat-topped towers, funicular tracks climbing between them, aerial cable cars, walkways strung across canyon at many levels.",
+      "districts": ["neon-arcology", "lantern-bazaar"],
+      "camera": "Mid-altitude, looking along or up a canyon. Cable cars and walkways in the near field.",
+      "risks": "This is the easiest section to collapse into 'the rest of the city'. If the whole city adopts its palette the brief's 'differing styles' clause is lost."
+    },
+    "B": {
+      "name": "cold-industrial",
+      "sheet": "references/B-cold-industrial-sheet.jpg",
+      "videos": ["02", "04"],
+      "doctrineFrames": [],
+      "intent": "The most common register in the reference set and the first to build. Near-monochrome steel-blue, heavy atmospheric fog, silhouetted mass. Warmth appears only as small emissive window and lamp points.",
+      "palette": "Desaturated steel blue and grey-green across every large surface. Warmth restricted almost entirely to emissive windows, lamps and vehicle interiors. Value range carries the image, not hue.",
+      "formGrammar": "Lean-tall megastructures with tight canyons, exposed scaffolding and cable tangles, catwalks, aerial ropeways. Snow in the 04 register, on roofs and walkways.",
+      "districts": ["glass-foxholes", "rust-hangars", "canal-district"],
+      "camera": "Mid-altitude, often looking down into fog. Ropeway lines cutting the frame diagonally.",
+      "risks": "Risk reading as a dark scene rather than a lit one. It needs atmospheric depth and emissive accents to work, and we currently have neither (R2 night, R6 volumetrics)."
+    },
+    "C": {
+      "name": "fire-lit",
+      "sheet": "references/C-fire-lit-sheet.jpg",
+      "videos": ["03"],
+      "doctrineFrames": [],
+      "intent": "Warm-dominant, burning, vertically chaotic. Smoke, embers and haze lit from below. Nothing else in the reference set is warm-dominant, which is what makes it legible as its own place.",
+      "palette": "Amber and ember orange against cold blue shadow. Fire is the key light and it comes from inside the canyon.",
+      "formGrammar": "Dense irregular vertical clutter, cable tangles, hanging structures, collapsed silhouettes, billowing smoke between buildings.",
+      "districts": ["terracotta-tiers"],
+      "camera": "Close into the canyon, smoke filling the depth.",
+      "risks": "HIGHEST RISK IN THE SET. No existing district is actually a ruin. 'Reskinning' terracotta-tiers will not produce this - it needs new grammar (soot, collapse, ember emissive). Treat as new design, not a reskin."
+    },
+    "D": {
+      "name": "verdant-solarpunk",
+      "sheet": "references/D-verdant-sheet.jpg",
+      "videos": ["09"],
+      "doctrineFrames": [
+        "inspirations/metropolis/solarpunk-metropolis-01.jpg",
+        "inspirations/metropolis/solarpunk-metropolis-02.jpg"
+      ],
+      "intent": "The brief's own doctrine - 'lean toward solar punk beautiful colorings'. Warm daylight, heavy planting, timber and brass, rooftop gardens, water. These two stills are the only colour doctrine in the repository and had never been opened by any session before the design pass.",
+      "palette": "White and cream concrete, warm timber, terracotta and rust roofs, dense green planting, cool blue distance. Warm interior shop light against cool daylight shadow.",
+      "formGrammar": "Stacked terraces with deep planted balconies, timber skybridges at several levels, water in the canyon (canals, waterfalls), dense vine curtains and flower boxes, rooftop gardens.",
+      "districts": ["verdant-canyon", "botanical-dome", "canal-district"],
+      "camera": "Inside the canyon at storey height, looking along it. Mid-altitude for the 09 register.",
+      "risks": "Our water mesh is built and discarded (COVERAGE.md phantom), and sunbeam volumetrics are a phantom too. Both are load-bearing here."
+    }
+  },
+
+  "$poseComment": "Maps a capture pose to the section it should be compared against. compare.mjs --auto uses this. The wide shots are the city-wide check: they must be judged against ALL sections at once, because homogenisation only shows up in a frame that contains several of them.",
+  "poses": {
+    "wide-skyline": "ALL",
+    "aerial-top": "ALL",
+    "low-vertigo": "ALL",
+    "canyon-up": "B",
+    "street-crowd": "B",
+    "crowd-closeup": "B",
+    "tram-level": "B",
+    "canal-level": "D",
+    "sunset-gorge": "A",
+    "night-lanterns": "A"
+  },
+
+  "checks": {
+    "$comment": "The two-sided check. Optimising only the section shots is how a city quietly becomes one place.",
+    "section": "A section shot must hold up against its own sheet. Detail at close focus; painterly read at distance.",
+    "city": "A wide or aerial shot must still read as a city of visibly different places. If every section has drifted toward one another, this check fails even when each section shot looks good on its own."
+  }
+}

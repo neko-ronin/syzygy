@@ -8,7 +8,11 @@ dist/
 # instead of ~930MB. The files themselves live on disk and are not recoverable
 # from a fresh clone -- copy them from a working checkout before comparing against
 # them, or `tools/compare.mjs --ref` will not find its source.
-inpirations/**/*.mov
+#
+# The pattern is a bare `*.mov`, NOT `inpirations/**/*.mov`. The latter looks
+# equivalent and does nothing: verified on git 2.54 (Apple Git-157), it matches
+# nothing and `git add -A` stages all nine videos. Tested in a scratch repo.
+*.mov
 
 # Iteration output. Screenshots are evidence, not source. Every run churns these,
 # and a 10-pose sequence is ~25MB, so history grew ~210MB of PNGs before this was

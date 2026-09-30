@@ -21,6 +21,11 @@ violation of one of them.
 3. docs/COVERAGE.md         what is missing  ← including 5 phantoms
 ```
 
+**Doing any visual or design work? Read [`docs/DESIGN.md`](docs/DESIGN.md) and
+open the section's reference image** in `references/`. Do not judge a frame from
+memory or from another section's reference — steering this project by one image
+has already happened once, and it cost a session.
+
 Then pick work from `docs/ROADMAP.md`. Everything below is for when you know
 which document answers your question.
 
@@ -31,6 +36,8 @@ which document answers your question.
 | Document | What it is | Read it when |
 | --- | --- | --- |
 | [`PROCESS.md`](docs/PROCESS.md) | Ten working rules. Measure, run controls, check artifacts, confirm your diagnostic points at its subject | **Before you change anything.** Start every session here |
+| [`DESIGN.md`](docs/DESIGN.md) | **The art direction.** Target finish, the four sections, district mapping, and the two agent roles | **Before any visual or design work.** It was missing and the gap cost a session |
+| [`sections.json`](references/sections.json) | The machine-readable design contract: sections, pose→section map, checks. Read by `compare.mjs --auto` | When tooling needs it, or you are changing the section definitions |
 | [`README.md`](README.md) | Human-facing overview: what it is, how to run it, how to verify it | For someone new to the project who will not be editing it |
 | [`HANDOFF.md`](docs/HANDOFF.md) | Current state. Work items F1–F6, what works, what does not, and the two open questions blocking the crowd | First, to learn where the project actually is. Re-read before handing off |
 | [`COVERAGE.md`](docs/COVERAGE.md) | Living map from the original build checklist to where each item is covered. Marks `PHANTOM`s | When you need to know what is **missing** rather than what to do next. Read it before adding a feature |
@@ -83,12 +90,21 @@ a broken test; that is the line to read.
 node tools/capture.mjs --pose=canyon        # one shot
 node tools/capture.mjs --sequence           # 10 poses, ~9 min
 node tools/compare.mjs --latest --ref dreamscape-05@12
+node tools/compare.mjs --latest --auto      # each pose vs its OWN section
 ```
 
 `compare.mjs` builds a `BASELINE | CURRENT | REFERENCE` grid — one row per
 pose. **Use it instead of opening two images in sequence**; the first is gone by
 the time you look at the second. The reference videos in `inpirations/` are the
 quality bar, and they are the arbiter of any "is this good enough" question.
+
+Prefer **`--auto`**, which judges each pose against the reference sheet for the
+section it belongs to. `--ref` applies one frame to every row, which is how a
+night frame ends up being compared to a daylight shot.
+
+**The curated reference images are in `references/` and are in git.** One
+contact sheet per section (`references/<id>-sheet.jpg`) plus the individual
+frames. Open the sheet before judging anything visual.
 
 Two hard rules: the capture harness **always uses the Vite dev server, never
 `preview`** (a stale build produces screenshots that look valid and are wrong),
@@ -138,6 +154,21 @@ camera+input, weather+traffic, agent+harness — so parallel agents do not colli
 
 **A subagent that returns an empty result did nothing.** `ls` the paths before
 believing the report. Twice, a subagent claimed work that was never written.
+
+### Visual work is not optional context
+
+Any agent doing design or visual review **must open the images and run the
+comparison**. Concretely, before reporting:
+
+1. Read `references/<section>-sheet.jpg` — the image, not its filename.
+2. `node tools/capture.mjs --pose=<substr>` for the section you touched.
+3. `node tools/compare.mjs --latest --auto` and read the resulting grid.
+4. Open the grid, and the `.txt` sidecar, to see which section each row was
+   judged against.
+
+An agent reporting "looks good" without having opened the sheet and the grid has
+reported an opinion, not a review. Roles are specified in
+[`DESIGN.md`](docs/DESIGN.md) §6.
 
 ## Commits
 

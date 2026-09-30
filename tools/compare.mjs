@@ -35,19 +35,43 @@
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const SHOTS = join(ROOT, 'shots');
 const REFS = join(ROOT, 'inpirations', 'dreamscape');
 const OUT = join(SHOTS, 'compare');
+const MANIFEST = join(ROOT, 'references', 'sections.json');
+
+/**
+ * The design manifest. It is the single source of truth for which section a
+ * pose belongs to and which curated sheet that section is judged against. It
+ * lives in the repo because the videos do not (D22) - this file plus the
+ * contact sheets is what a fresh clone actually gets.
+ */
+function manifest() {
+  if (!existsSync(MANIFEST)) {
+    console.error(`missing ${MANIFEST} - run from a checkout with references/ present.`);
+    process.exit(1);
+  }
+  return JSON.parse(readFileSync(MANIFEST, 'utf8'));
+}
 
 const argv = process.argv.slice(2);
 const has = (f) => argv.includes(f);
-const val = (f) => { const i = argv.indexOf(f); return i >= 0 ? argv[i + 1] : null; };
+// Accept both `--flag value` and `--flag=value`. The equals form previously
+// returned null silently, so `--section=B` looked like no flag at all.
+const val = (f) => {
+  const eq = argv.find((a) => a.startsWith(`${f}=`));
+  if (eq !== undefined) return eq.slice(f.length + 1);
+  const i = argv.indexOf(f);
+  return i >= 0 ? (argv[i + 1] ?? null) : null;
+};
 const files = argv.filter((a) => !a.startsWith('--') && a.endsWith('.png'));
 const refSpec = val('--ref');
+const sectionArg = val('--section');
+const auto = has('--auto');
 const wantLatest = has('--latest');
 const width = Number(val('--width') ?? 520);
 const H = Math.round(width * 0.5625);
@@ -127,13 +151,48 @@ async function main() {
   const baseDir = join(SHOTS, 'baseline');
   const refPath = refSpec ? await referenceFrame(refSpec) : null;
 
+  // How a row picks its reference. Three modes, in precedence order:
+  //   --ref <video>     a single frame, every row. Legacy; prone to the
+  //                     category error of comparing a night shot to a day one.
+  //   --section=<id>    one curated sheet for every row, e.g. --section=B
+  //   --auto            each row is compared against the sheet for the section
+  //                     that pose belongs to, per references/sections.json
+  let m = null;
+  if (!refPath && (sectionArg || auto)) {
+    m = manifest();
+    if (sectionArg && !m.sections[sectionArg]) {
+      console.error(`no such section "${sectionArg}". Have: ${Object.keys(m.sections).join(', ')}`);
+      process.exit(1);
+    }
+  }
+
+  /** The reference image for one pose: null means this row has no reference. */
+  const refFor = (pose) => {
+    if (refPath) return refPath;
+    if (!m) return null;
+    if (sectionArg) {
+      const sheet = m.sections[sectionArg].sheet;
+      return existsSync(join(ROOT, sheet)) ? join(ROOT, sheet) : null;
+    }
+    // --auto: match the longest pose key that appears in the filename
+    let best = null;
+    for (const [key, id] of Object.entries(m.poses)) {
+      if (pose.includes(key) && (!best || key.length > best.len)) best = { key, id };
+    }
+    if (!best || best.id === 'ALL') return null;
+    const sheet = m.sections[best.id]?.sheet;
+    return sheet && existsSync(join(ROOT, sheet)) ? join(ROOT, sheet) : null;
+  };
+
   // Which columns exist. REFERENCE is always last so the bar is always on the
   // right, where the eye ends up.
   const hasBaseline = existsSync(baseDir) && readdirSync(baseDir).some((f) => f.endsWith('.png'));
   const cols = [];
   if (hasBaseline) cols.push('BASELINE');
   if (currentDir) cols.push('CURRENT');
-  if (refPath) cols.push('REFERENCE');
+  // m is set when --section/--auto supplied a per-row reference, so a
+  // REFERENCE column exists even though there is no single refPath.
+  if (refPath || m) cols.push('REFERENCE');
 
   if (cols.length < 2) {
     console.error('need at least two sources to compare.');
@@ -148,9 +207,29 @@ async function main() {
   const currentNames = poseSet(currentDir, only);
   const baseNames = existsSync(baseDir) ? poseSet(baseDir, only) : [];
   const paired = currentNames.filter((n) => baseNames.includes(n));
-  const poses = (hasBaseline ? (paired.length ? paired : currentNames) : currentNames)
+  let poses = (hasBaseline ? (paired.length ? paired : currentNames) : currentNames)
     .filter((n) => only.length === 0 || only.some((o) => n.includes(o)))
     .sort();
+
+  // In --auto mode every row must resolve a reference, or the grid has ragged
+  // columns. The city-wide poses (wide-skyline, aerial-top, low-vertigo) are
+  // mapped to ALL: they are the check that several sections have not merged,
+  // and no single sheet is the right bar for them. Drop them here and say so,
+  // rather than emitting a grid with a silently missing column.
+  if (auto && m && !refPath) {
+    const keep = [], dropped = [];
+    for (const pose of poses) (refFor(pose) ? keep : dropped).push(pose);
+    if (dropped.length) {
+      console.error('');
+      console.error('  --auto skipped these poses: they have no single section to compare against.');
+      for (const d of dropped) console.error(`    ${d}`);
+      console.error('  Judge those separately: a wide shot is the check that the sections have not');
+      console.error('  all merged into one look, and no single sheet is the bar for it.');
+      console.error('');
+    }
+    poses.length = 0;
+    poses.push(...keep);
+  }
 
   if (!poses.length) {
     console.error('no matching poses found.');
@@ -170,11 +249,21 @@ async function main() {
       let p = null;
       if (col === 'BASELINE') p = join(baseDir, pose);
       else if (col === 'CURRENT') p = join(currentDir, pose);
-      else if (col === 'REFERENCE') p = refPath;
+      else if (col === 'REFERENCE') p = refFor(pose);
       // A row missing a cell leaves its label undefined. ffmpeg does not always
       // reject that — it can emit a plausible-looking PNG with a tile silently
       // filled from the wrong input. Fail here instead.
-      if (!p || !existsSync(p)) { missing.push(`${row + 1} ${col} ${pose}`); return; }
+      if (!p || !existsSync(p)) {
+        // In --auto mode a pose may legitimately have no section reference
+        // (the ALL wide shots, or an unmapped pose). That is a real gap in the
+        // manifest, so report it rather than silently dropping the column.
+        if (col === 'REFERENCE' && m && !refPath) {
+          console.error(`note: no section reference for "${pose}" - row will have no reference column.`);
+          return;
+        }
+        missing.push(`${row + 1} ${col} ${pose}`);
+        return;
+      }
       const idx = inputIndex++;
       inputs.push('-i', p);
       // The reference video is portrait and our shots are 16:9. Crop the
@@ -187,7 +276,14 @@ async function main() {
         : `[${idx}:v]scale=${width}:${H}:force_original_aspect_ratio=decrease,` +
           `pad=${width}:${H}:(ow-iw)/2:(oh-ih)/2:color=black[r${row}c${c}]`;
       graph.push(tile);
-      legend.push(`row ${row + 1} col ${cols.indexOf(col) + 1}  ${col.padEnd(9)} ${pose}`);
+      let note = '';
+      if (col === 'REFERENCE' && m) {
+        const id = sectionArg
+          ? sectionArg
+          : (Object.entries(m.poses).find(([k]) => pose.includes(k)) ?? [])[1];
+        if (id) note = `  [section ${id} ${m.sections[id]?.name ?? ''}]`;
+      }
+      legend.push(`row ${row + 1} col ${cols.indexOf(col) + 1}  ${col.padEnd(9)} ${pose}${note}`);
     });
   });
 
