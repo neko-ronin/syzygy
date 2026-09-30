@@ -154,7 +154,17 @@ function pushBuilding(
   bld: MeshBuilder, b: BuildingInstance, dp: DistrictProfile, rng: Rng, lod: number,
 ): void {
   const [hx, , hz] = b.halfExtents;
-  const top = b.position[1] + b.halfExtents[1];
+  // Local Y is measured from the building's BASE, not its centre.
+  //
+  // b.position[1] is the centre, and P() maps ly straight onto it, so local
+  // y = 0 is the middle of the tower. The tier loop used to start there, which
+  // meant the bottom half of every building was never emitted and the only
+  // things standing below the tower were the plinth skirt and a few rib
+  // pilasters — a building on stilts. Every vertical dimension below is now
+  // written against yBase..yRoof so the shell meets the ground.
+  const yBase = -b.halfExtents[1];
+  const yRoof = b.halfExtents[1];
+  const height = yRoof - yBase;
   const lean = b.lean;
   const yaw = b.rotationY;
   const pal = dp.palette;
@@ -163,8 +173,11 @@ function pushBuilding(
 
   // Local → world for a point in the building's own frame.
   const P = (lx: number, ly: number, lz: number): Vec3 => {
-    // Lean is a shear proportional to height, so the whole stack tilts.
-    const t = ly / Math.max(b.halfExtents[1] * 2, 1);
+    // Lean is a shear proportional to height above the BASE, so the tower
+    // rises straight out of the ground and tilts as it climbs. Normalising
+    // against the centre instead made every tower bow outwards at the bottom
+    // and inwards at the top, which is not what leaning means.
+    const t = (ly - yBase) / Math.max(height, 1);
     const c = Math.cos(yaw), s = Math.sin(yaw);
     const px = lx + lean[0] * t * b.halfExtents[1] * 2;
     const pz = lz + lean[2] * t * b.halfExtents[1] * 2;
@@ -174,14 +187,22 @@ function pushBuilding(
   const mat = dp.wallMat;
   const rough = mat === MAT.METAL ? METAL_ROUGH : mat === MAT.BRICK ? STONE + 0.1 : STONE;
 
-  // --- stacked setbacks: the tower narrows in 2-4 steps toward the crown.
+  // --- stacked setbacks: the tower narrows in 1-3 steps toward the crown.
+  //
+  // Tier boundaries are fractions of the FULL height measured from the base and
+  // must be monotonic and land exactly on yRoof. The old arithmetic mixed a
+  // totalH-scaled intermediate step with a `top - position[1]` (= half height)
+  // last tier, so a 3-tier tower overshot its own roof and then emitted a
+  // negative-height crown.
   const tiers = 1 + (rng.bool(0.72) ? 1 : 0) + (rng.bool(0.35) ? 1 : 0);
-  let y0 = 0;
+  const TIER_SPLIT: Record<number, number[]> = { 1: [1], 2: [0.62, 1], 3: [0.5, 0.78, 1] };
+  const split = TIER_SPLIT[tiers] ?? [1];
+  let y0 = yBase;
   let tx = hx, tz = hz;
-  const totalH = b.halfExtents[1] * 2;
+  const totalH = height;
   for (let t = 0; t < tiers; t++) {
     const isLast = t === tiers - 1;
-    const y1 = isLast ? top - b.position[1] : (totalH / tiers) * (t + 1) * 0.78 + y0;
+    const y1 = isLast ? yRoof : yBase + height * split[t];
     const shrink = isLast ? 0.72 + rng.next() * 0.16 : 0.80 + rng.next() * 0.15;
     const nx = t === 0 ? tx : tx * shrink;
     const nz = t === 0 ? tz : tz * shrink;
@@ -202,7 +223,7 @@ function pushBuilding(
   // --- plinth: the first 8m is a different material, like a real base course.
   if (lod < 2) {
     const plinthH = Math.min(7.5, totalH * 0.25);
-    pushBoxShell(bld, P, hx + 0.28, hz + 0.28, -b.halfExtents[1], -b.halfExtents[1] + plinthH,
+    pushBoxShell(bld, P, hx + 0.28, hz + 0.28, yBase, yBase + plinthH,
       pal.secondary, MAT.DIFFUSE, STONE + 0.15, seed + 7, 0, yaw);
   }
 
@@ -211,14 +232,14 @@ function pushBuilding(
   //     its vertical rhythm as the light sweeps across it.
   if (lod < 2) {
     const ribW = 0.22;
-    const runH = top - b.position[1] - 4;
+    const runH = height - 6;
     if (runH >= 6) {
       const count = Math.max(2, Math.round(hx / 4.2));
       for (let i = 0; i < count; i++) {
         const f = count === 1 ? 0.5 : i / (count - 1);
         const lx = (f - 0.5) * 2 * (hx - 0.4);
         for (const sz of [1, -1]) {
-          pushRibZ(bld, P, lx, sz * (hz + 0.10), -b.halfExtents[1] + 3, runH, ribW,
+          pushRibZ(bld, P, lx, sz * (hz + 0.10), yBase + 3, runH, ribW,
             pal.trim, seed + i);
         }
       }
@@ -227,7 +248,7 @@ function pushBuilding(
         const f = countZ === 1 ? 0.5 : i / (countZ - 1);
         const lz = (f - 0.5) * 2 * (hz - 0.4);
         for (const sx of [1, -1]) {
-          pushRibX(bld, P, sx * (hx + 0.10), lz, -b.halfExtents[1] + 3, runH, ribW,
+          pushRibX(bld, P, sx * (hx + 0.10), lz, yBase + 3, runH, ribW,
             pal.trim, seed + i + 20);
         }
       }
@@ -235,7 +256,7 @@ function pushBuilding(
   }
 
   // --- crown: whatever tops this district off.
-  pushCrown(bld, P, tx, tz, top - b.position[1], dp, rng, lod);
+  pushCrown(bld, P, tx, tz, yRoof, dp, rng, lod);
 }
 
 const NO_FACES = 0;

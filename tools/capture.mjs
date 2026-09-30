@@ -74,6 +74,18 @@ const POSES = [
     settle: 30,
   },
   {
+    // Ground-contact check. Every other pose is aerial or looking upward, so
+    // none of them can show whether a building actually meets the ground --
+    // which is how a tier loop that started at the building's centre survived
+    // several reviews. This one sits at facade height in a populated chunk.
+    name: '01a-building-base',
+    label: 'street-level facade base — do buildings meet the ground?',
+    position: [-1400, 7, -1340], lookAt: [-1352, 9, -1400], fov: 1.15, roll: 0,
+    weather: { sky: 'clear', haze: 0.16 },
+    lens: { tiltShift: 0, focusWidth: 1, bokeh: 0, chroma: 0, grain: 0, saturation: 1.1, vignette: 0.15 },
+    settle: 40,
+  },
+  {
     name: '01b-crowd-closeup',
     label: 'street-level crowd close-up — are pedestrians actually drawn?',
     position: [0, 2.4, -40], lookAt: [30, 1.2, -180], fov: 0.95, roll: 0,
