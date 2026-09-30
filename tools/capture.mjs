@@ -80,7 +80,7 @@ const POSES = [
     // several reviews. This one sits at facade height in a populated chunk.
     name: '01a-building-base',
     label: 'street-level facade base — do buildings meet the ground?',
-    position: [-1400, 7, -1340], lookAt: [-1352, 9, -1400], fov: 1.15, roll: 0,
+    position: [1833, 6, 1760], lookAt: [1740, 26, 1742], fov: 1.15, roll: 0,
     weather: { sky: 'clear', haze: 0.16 },
     lens: { tiltShift: 0, focusWidth: 1, bokeh: 0, chroma: 0, grain: 0, saturation: 1.1, vignette: 0.15 },
     settle: 40,

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "A dreamscape city simulation — WebGPU/WebGL2, hyperreal with surreal proportion",
+  "description": "A dreamscape city simulation — WebGPU/WebGL2, surreal proportion",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
