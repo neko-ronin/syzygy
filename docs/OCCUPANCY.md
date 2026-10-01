@@ -282,3 +282,39 @@ Not the pipeline. Specifically:
    inactive at that point.
 3. The `snapToStreet` drag (§2 above) is a separate, smaller defect and can be
    fixed independently once the population question is settled.
+
+
+## The night capture (round 9, owed measurement)
+
+`node tools/capture.mjs --pose=night-lanterns --quality high` at the market,
+served bundle verified against disk first. Two facts, and the second is the
+useful one:
+
+```
+lights: 0
+lightDelivery: { produced: 48, delivered: 0, binned: 0, culledByDay: true, cap: 3072 }
+entityTriangles: 74800    entityDrawCalls: 0
+```
+
+**`culledByDay: true` at a pose named `night-lanterns`.** All 48 produced lights
+are discarded by a day test at a night pose, so the aisle lighting landed in
+`84d0d64` is not reaching the frame the night measurement has to be taken in.
+This is developer 1's boundary (`lightDelivery` is emitted by the renderer), and
+it is the same class as the `arrayLength` bug: a wire reports one thing and means
+another.
+
+`entityTriangles: 74800` with `entityDrawCalls: 0` is the same shape — triangles
+counted, no call issued.
+
+### Why the contrast number is not banked
+
+`python3 tools/figure_contrast.py shots/2026-10-01T10-07-57.png` reports
+**best 2.43:1** against the 2.5:1 threshold, up from 1.28:1. **It is not
+evidence.** The frame has `lights: 0`, so it is not a lit-aisle frame, and the
+tool's documented limitation applies exactly: with no figures in it, it returns
+the brightest lit building edge. A number taken on an unlit frame against a
+lit-aisle target is the 1.28 -> 1.30 mistake again in a new coat.
+
+The threshold is close, which is worth knowing, but the honest state is that the
+night crowd contrast **has not been measured** and cannot be until `culledByDay`
+stops being true at a night pose.
