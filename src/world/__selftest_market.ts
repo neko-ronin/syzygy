@@ -18,9 +18,9 @@ import { groundGrammarFor, type GroundBakeCtx, type StreetFrame } from './ground
 import { bakeMarketDetail } from '../render/marketbake';
 import { bakeChunk } from '../render/citymesh';
 import {
-  CLOTH_EVERY_STRING, COOKING_EVERY, GAP_MAX_M, GAP_MIN_M, LANTERN_LIGHT_INTENSITY,
+  CLOTH_EVERY_STRING, MODULE_FORMS, COOKING_EVERY, GAP_MAX_M, GAP_MIN_M, LANTERN_LIGHT_INTENSITY,
   LANTERN_LIGHT_RADIUS, MARKET_LOD_GONE, MAX_MARKET_LIGHTS_PER_CHUNK,
-  PITCH_MAX, PITCH_MIN, PITCH_NOISE_SCALE, RIDGE_MAX, RUN_MAX_M, RUN_MIN_M,
+  PITCH_MAX, PITCH_MIN, PITCH_NOISE_SCALE, RIDGE_MAX, RUN_FATIGUE, RUN_MAX_M, RUN_MIN_M,
   SAG_ACROSS, SAG_ALONG, SIGN_EVERY, STALL_SEPARATION, STRING_ANCHOR_MAX,
   marketCatenary, marketGrammarFor, type MarketQuery, type MarketStall,
 } from './marketgrammar';
@@ -120,7 +120,13 @@ for (const c of marketChunks) {
   // grammar can emit is one stall per PITCH_MAX per kerb, and the tightest is
   // one per PITCH_MIN. Both sides are counted, so the band doubles.
   const dens = s.metres > 0 ? s.stalls / s.metres : 0;
-  if (s.metres > 0 && dens < 2 / (PITCH_MAX + STALL_SEPARATION) * 0.55) {
+  // Derived, not tuned. Two sides, one stall per slot, a forced fatigue gap every
+  // RUN_FATIGUE slots, and the scheduled gap machine's duty cycle of
+  // RUN_MIN_M of stall to GAP_MAX_M of quiet — then half of that as tolerance for
+  // facade rejections and short chunks.
+  const slot = PITCH_MAX + STALL_SEPARATION;
+  const floorDensity = 2 / slot / (1 + 1 / RUN_FATIGUE) * (RUN_MIN_M / (RUN_MIN_M + GAP_MAX_M)) * 0.5;
+  if (s.metres > 0 && dens < floorDensity) {
     fail(`chunk ${c.cx},${c.cz}: ${dens.toFixed(2)} stalls/m over ${s.metres.toFixed(0)} m — sparser than the loosest row the constants allow`);
   }
   if (dens > 2 / (PITCH_MIN + STALL_SEPARATION) * 0.85) {
@@ -194,11 +200,13 @@ const pMax = Math.max(...allStalls.map((s) => s.pitch));
 // written when every stall was a pitched tarpaulin and they caught real faults;
 // what has changed is the vocabulary, not the intent.
 let noOverhang = 0, wrongSide = 0, sunk = 0, negative = 0, tooTall = 0, roofless = 0;
+const tallBy = new Map<string, number>();
 for (const s of allStalls) {
-  if (s.module !== 'lean-to' && Math.abs(s.front) >= half) noOverhang++;
+  // `lean-to` is wall-tied and `bare` is a pitch stall; neither overhangs.
+  if (s.module !== 'lean-to' && s.module !== 'bare' && Math.abs(s.front) >= half) noOverhang++;
   if (Math.sign(s.back) !== Math.sign(s.front) || Math.abs(s.back) <= Math.abs(s.front)) wrongSide++;
   if (!s.hasCloth) roofless++;
-  else if (s.eave < 1.9 || s.ridge <= s.eave) tooTall++;
+  else if (s.eave < 1.9 || s.ridge <= s.eave) { tooTall++; tallBy.set(s.module, (tallBy.get(s.module) ?? 0) + 1); }
   if (s.eave < 0) negative++;
 }
 for (const c of marketChunks) {
@@ -291,6 +299,43 @@ if (clothModules.size < 3) fail(`${clothModules.size} modules in the first 24 st
 if (longestRun > 8) fail(`longest gapless run is ${longestRun} stalls`);
 if (fatigueGaps === 0) fail('the run-fatigue gap never fired');
 
+// The pass criterion is about *silhouette*, and it is checked on adjacent pairs
+// rather than on runs of four, which is strictly stronger.
+// Within a chunk only: across a chunk seam the generator never saw the two
+// stalls together, so holding it to the rule there would be asserting something
+// the code does not promise.
+let adjacentSame = 0;
+for (const c of marketChunks) {
+  const side = marketGrammarFor(queryFor(c)).stalls
+    .filter((s) => s.side > 0).sort((a, b) => a.along - b.along);
+  for (let i = 1; i < side.length; i++) {
+    if (Math.abs(side[i].along - side[i - 1].along) > side[i].pitch * 2.2) continue;
+    if (MODULE_FORMS[side[i - 1].module].silhouette === MODULE_FORMS[side[i].module].silhouette) adjacentSame++;
+  }
+}
+const classes = [...new Set(variety.map((s) => MODULE_FORMS[s.module].silhouette))];
+
+// Roof-edge angle between neighbours: the vision agent estimated 5-10 degrees
+// between adjacent projected edges and called that "not apparent at a glance".
+const angles: number[] = [];
+for (let i = 1; i < kerb.length; i++) {
+  const a = kerb[i - 1], b = kerb[i];
+  if (Math.abs(b.along - a.along) > a.pitch * 2.2) continue;
+  const ang = (s: typeof a): number => {
+    const run = Math.max(0.2, Math.abs(s.ridge - s.eave));
+    return Math.atan2(run, Math.max(0.2, Math.abs(s.back - s.front))) * 180 / Math.PI;
+  };
+  angles.push(Math.abs(ang(a) - ang(b)));
+}
+angles.sort((x, y) => x - y);
+const medianAngle = angles.length ? angles[Math.floor(angles.length / 2)] : 0;
+console.log(`  silhouette classes    ${classes.length} (${classes.join(', ')})`);
+console.log(`  adjacent same class   ${adjacentSame} pairs within a chunk (must be 0)`);
+console.log(`  neighbour roof angle  median ${medianAngle.toFixed(1)} degrees, p90 ${(angles[Math.floor(angles.length * 0.9)] ?? 0).toFixed(1)} degrees`);
+
+if (classes.length < 5) fail(`${classes.length} silhouette classes: the vocabulary is not varied`);
+if (adjacentSame > 0) fail(`${adjacentSame} adjacent stall pairs share a silhouette class — that is the fence`);
+
 console.log(`\ninvariants over ${allStalls.length} stalls in ${marketChunks.length} chunks`);
 console.log(`  pitch                ${pMin.toFixed(2)} .. ${pMax.toFixed(2)} m`);
 console.log(`  gap slots            ${(100 * gapFrac).toFixed(1)}% of ${any.stats.slots > 0 ? marketChunks.reduce((a, c) => a + marketGrammarFor(queryFor(c)).stats.slots, 0) : 0} slots`);
@@ -298,7 +343,7 @@ console.log(`  kerbs                +1 ${sides[0]} stalls, -1 ${sides[1]} stalls
 console.log(`  canopy not overhanging the kerb line   ${noOverhang} (lean-to exempt by design)`);
 console.log(`  clothless modules                    ${roofless} of ${allStalls.length} (frame + bare, by design)`);
 console.log(`  stall straddling both kerbs / inverted  ${wrongSide}`);
-console.log(`  eave below 1.9 m or ridge <= eave       ${tooTall}`);
+console.log(`  eave below 1.9 m or ridge <= eave       ${tooTall} (${[...tallBy.entries()].map(([k, v]) => `${k} ${v}`).join(' ')})`);
 console.log(`  roof samples inside a building footprint ${sunk}`);
 console.log(`  canopy modules       ${panels3} three-panel / ${panels5} five-panel, ${poles} on poles / ${wallTied} wall-tied`);
 console.log(`  sign silhouettes      ${signPanels} panels / ${signBands} bands   (${totSigns} total, 1 in ${SIGN_EVERY} stalls)`);

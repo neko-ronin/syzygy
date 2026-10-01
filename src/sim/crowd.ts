@@ -35,6 +35,12 @@ const MAX_DT = 1 / 15;
  * a continuous ribbon of people, which is a different and equally wrong read.
  */
 const GROUP_SIZE = 6;
+/**
+ * How many distinct anchors group centres cluster around, spread through the
+ * view depth. Fewer anchors means denser knots and longer empty stretches
+ * between them, which is the "gaps between groups" the review asked for.
+ */
+const GROUP_ANCHORS = 18;
 /** Metres a group centre is pushed past the kerb line, onto the footway. */
 const FOOTWAY_SETBACK = 1.9;
 /**
@@ -640,7 +646,15 @@ export class CrowdSim {
       const s = sampleStreetPlan(this.plan, nx, nz, this.streetOut);
       const nxx = -s.tz, nzz = s.tx;
       const lat = (nx - s.px) * nxx + (nz - s.pz) * nzz;
-      const d = f[o + F.lateral] - lat;
+      // Hold the *band*, not a point. A constant offset pins every agent to one
+      // lateral line, which is what the hold was for and also what collapsed
+      // their screen separation: measured mean nearest-neighbour 1.67 px, below
+      // the 2 px threshold in docs/LEGIBILITY_TARGETS.md. Two incommensurate
+      // sines per agent give each one its own wander so the band is populated
+      // without anyone standing still.
+      const wob = Math.sin(this.wanderClock * 0.31 + f[o + F.seed] * 17.3) * 0.9
+        + Math.sin(this.wanderClock * 0.11 + f[o + F.seed] * 41.7) * 0.6;
+      const d = f[o + F.lateral] + wob - lat;
       nx += nxx * d;
       nz += nzz * d;
     }
@@ -838,7 +852,8 @@ export class CrowdSim {
 
   /** Returns false when this agent's group slot is deliberately empty. */
   private seedAgent(i: number, cam: Vec3, fwd: Vec3 = [0, 0, -1]): boolean {
-    // Returns false when this seat is outside its group's size and is left
+    // Returns false only when the caller has no room for this agent; group
+    // seeding itself always seats the agent, so gaps come from group spacing.
     // empty, which is where the gaps between groups come from.
     const f = this.f;
     const o = i * F.LOCAL;
@@ -874,18 +889,25 @@ export class CrowdSim {
     // slot leaves daylight where the next group starts.
     const g = (i / GROUP_SIZE) | 0;
     const rg = this.rng.fork(0x9e37 + g);
-    // Group *scale*: small groups are tight knots and a zero group is a gap, both
-    // of which the review's design hypothesis asks for. This used to refuse to
-    // seat an agent instead, which looked right and was not: refusing 22% of
-    // seeds starved `liveCount`, the rebuild balances refusals against
-    // retirements, and the population settled at 1336 against a target of 2550 —
-    // a 48% loss of the city to buy a gap. Varying the group's size gets the
-    // same read and costs nothing.
-    const gSize = rg.int(0, GROUP_SIZE);
-    const d = Math.sqrt(rg.next()) * this.viewRadius;
-    // Spread across the view cone; `lateral` widens with distance so the density
-    // stays roughly uniform in screen space.
-    const lateral = (rg.next() * 2 - 1) * d * 0.75;
+    // Group *centres* cluster around a small set of anchors spread through the
+    // view, so the street carries readable knots with daylight between them
+    // rather than one continuous band.
+    //
+    // Two earlier attempts got this wrong and both were caught by measuring.
+    // Refusing to seat 22% of agents starved `liveCount` to 1336 against a target
+    // of 2550. Shrinking groups to vary their size was worse: a size-1 group put
+    // all six members at `rr = 0`, the *same point*, and measured nearest-neighbour
+    // distance p50 collapsed to 0.03 m — the clump failure in a new costume.
+    // Gaps belong between groups, never inside one.
+    const band = this.viewRadius / GROUP_ANCHORS;
+    const aIdx = rg.int(0, GROUP_ANCHORS - 1);
+    const d = Math.max(2, (aIdx + 0.5) * band + rg.jitter(band * 0.5));
+    // Narrow across the view, not wide. Measured before this: agents spread
+    // +/-0.3*viewRadius landed a median of 35 m from the street centreline with
+    // 1203 of 2506 beyond 36 m — the crowd was on four parallel streets and the
+    // street in frame read empty. A 26-36 m carriageway plus its footways is
+    // about 0.15 of the view radius wide.
+    const lateral = rg.jitter(this.viewRadius * 0.15);
     const sx = cam[0] + ux * d + vx * lateral;
     const sz = cam[2] + uz * d + vz * lateral;
     const placed = this.snapToStreet(sx, sz);
@@ -908,10 +930,8 @@ export class CrowdSim {
     // Seats beyond this group's size fall back onto the group centre itself, so
     // a small group is a tight knot and a zero group is an empty patch of
     // pavement with nobody on it.
-    const seat = Math.min(i - g * GROUP_SIZE, gSize - 1);
-    if (seat < 0) { f[o + F.active] = 0; return false; }
     const a2 = rm.next() * Math.PI * 2;
-    const rr = gSize <= 1 ? 0 : Math.sqrt(rm.next()) * GROUP_RADIUS;
+    const rr = Math.sqrt(rm.next()) * GROUP_RADIUS;
     const x = cx + Math.cos(a2) * rr;
     const z = cz + Math.sin(a2) * rr;
     // Face along the street rather than a random direction — a crowd walking

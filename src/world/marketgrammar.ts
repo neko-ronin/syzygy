@@ -40,7 +40,7 @@
  * convention that survives right up until a sign board ends up under the road.
  */
 
-import { clamp, lerp, makeRng, fbm2, type Vec3 } from '../core/math';
+import { clamp, lerp, makeRng, fbm2, type Rng, type Vec3 } from '../core/math';
 import { GROUND_Y } from './citygen';
 import type { CityChunk, CityPlan, RoadKind } from './citygen';
 import {
@@ -302,18 +302,29 @@ export interface ModuleForm {
   frame: 'poles' | 'wall-tied';
   /** Share of the fleet, weights. */
   weight: number;
+  /**
+   * Silhouette class — what a viewer sees at normal image size.
+   *
+   * `docs/LEGIBILITY_TARGETS.md`: "neighbouring projected roof-edge angles differ
+   * by roughly 5-10°, estimated, and different roof types are not apparent at a
+   * glance"; and "recolouring an otherwise identical roof does not count as a
+   * typology break". So the unit of variation is this, not the module name: two
+   * different modules in the same class still read as the same stall, and two
+   * modules in different classes read as different stalls however similar their
+   * dimensions.
+   */
+  silhouette: 'pitched' | 'steep' | 'flat' | 'tall' | 'open' | 'none';
 }
 
 export const MODULE_FORMS: Record<MarketModule, ModuleForm> = {
-  tarpaulin: { eave: [2.25, 2.60], ridge: [2.85, 3.40], flat: false, overhang: [1.1, 2.3], depth: [1.7, 2.7], cloth: true, frame: 'poles', weight: 40 },
-  'lean-to': { eave: [2.00, 2.35], ridge: [3.30, 4.00], flat: false, overhang: [0.0, 0.4], depth: [1.9, 2.8], cloth: true, frame: 'wall-tied', weight: 18 },
-  flat: { eave: [2.45, 2.85], ridge: [2.55, 2.95], flat: true, overhang: [0.9, 1.9], depth: [1.6, 2.4], cloth: true, frame: 'poles', weight: 14 },
-  double: { eave: [4.40, 5.60], ridge: [4.60, 5.80], flat: false, overhang: [1.4, 2.6], depth: [2.2, 3.0], cloth: true, frame: 'wall-tied', weight: 10 },
-  frame: { eave: [2.60, 3.10], ridge: [2.70, 3.20], flat: true, overhang: [0.6, 1.4], depth: [1.7, 2.4], cloth: false, frame: 'poles', weight: 9 },
-  bare: { eave: [0, 0], ridge: [0, 0], flat: true, overhang: [0, 0], depth: [1.4, 2.0], cloth: false, frame: 'poles', weight: 9 },
+  tarpaulin: { silhouette: 'pitched', eave: [2.25, 2.60], ridge: [2.85, 3.40], flat: false, overhang: [1.1, 2.3], depth: [1.7, 2.7], cloth: true, frame: 'poles', weight: 40 },
+  'lean-to': { silhouette: 'steep', eave: [2.00, 2.35], ridge: [3.30, 4.00], flat: false, overhang: [0.0, 0.4], depth: [1.9, 2.8], cloth: true, frame: 'wall-tied', weight: 18 },
+  flat: { silhouette: 'flat', eave: [2.45, 2.85], ridge: [2.55, 2.95], flat: true, overhang: [0.9, 1.9], depth: [1.6, 2.4], cloth: true, frame: 'poles', weight: 14 },
+  double: { silhouette: 'tall', eave: [4.40, 5.60], ridge: [4.60, 5.80], flat: false, overhang: [1.4, 2.6], depth: [2.2, 3.0], cloth: true, frame: 'wall-tied', weight: 10 },
+  frame: { silhouette: 'open', eave: [2.60, 3.10], ridge: [2.70, 3.20], flat: true, overhang: [0.6, 1.4], depth: [1.7, 2.4], cloth: false, frame: 'poles', weight: 9 },
+  bare: { silhouette: 'none', eave: [0, 0], ridge: [0, 0], flat: true, overhang: [0, 0], depth: [1.4, 2.0], cloth: false, frame: 'poles', weight: 9 },
 };
 
-const MODULE_TOTAL_WEIGHT = MODULE_FORMS.tarpaulin.weight + MODULE_FORMS['lean-to'].weight
   + MODULE_FORMS.flat.weight + MODULE_FORMS.double.weight + MODULE_FORMS.frame.weight
   + MODULE_FORMS.bare.weight;
 
@@ -323,7 +334,7 @@ const MODULE_TOTAL_WEIGHT = MODULE_FORMS.tarpaulin.weight + MODULE_FORMS['lean-t
  * Measured longest gapless run before this: 15 stalls. A kerb read as a fence at
  * 15; the target is 6, which leaves a rhythm of run, run, gap.
  */
-export const RUN_FATIGUE = 6;
+export const RUN_FATIGUE = 3;
 
 /**
  * A crate, a sack, a box. Cheap geometry, and cheap geometry is what makes a
@@ -557,12 +568,31 @@ export interface MarketQuery {
  * hash is over the stall's own identity, so the sequence of modules along a run
  * is a permutation rather than a trend.
  */
-function pickModule(u: number): MarketModule {
+
+/**
+ * Pick a module whose *silhouette* differs from the one before it on this kerb.
+ *
+ * The pass criterion is "no more than three consecutive near-identical
+ * canopy/counter modules. Every fourth module must visibly change roof
+ * silhouette". Enforcing it on adjacent pairs is strictly stronger than the
+ * criterion and costs one retry, because the alternative — an independent draw
+ * per stall — puts two of the same class next to each other often enough to
+ * read as a comb, which is what the gate measured.
+ *
+ * Four draws: with six classes, the chance all four collide with one forbidden
+ * class is 1 in 1296 for a uniform draw, so this never realistically falls
+ * through to the exclusion.
+ */
+function pickModuleAvoiding(r: Rng, prev: string | null): MarketModule {
   const order: MarketModule[] = ['tarpaulin', 'lean-to', 'flat', 'double', 'frame', 'bare'];
+  let total = 0;
+  for (const m of order) if (prev === null || MODULE_FORMS[m].silhouette !== prev) total += MODULE_FORMS[m].weight;
   let acc = 0;
+  const u = r.next() * total;
   for (const m of order) {
+    if (prev !== null && MODULE_FORMS[m].silhouette === prev) continue;
     acc += MODULE_FORMS[m].weight;
-    if (u * MODULE_TOTAL_WEIGHT < acc) return m;
+    if (u < acc) return m;
   }
   return 'tarpaulin';
 }
@@ -762,6 +792,8 @@ export function marketGrammarFor(q: MarketQuery): MarketDesc {
     let gapLeft = 0;
     // Stalls placed back to back on this kerb since the last gap.
     let consecutive = 0;
+    // Silhouette of the previous stall on this kerb, so neighbours can differ.
+    let lastSilhouette: string | null = null;
 
     let a = range[0];
     while (a <= range[1]) {
@@ -810,8 +842,22 @@ export function marketGrammarFor(q: MarketQuery): MarketDesc {
         const h = spineHit(spine, p[0], p[1], scratchHit);
         const nx = -h.tz, nz = h.tx;
         const pitch = step - STALL_SEPARATION;
-        const module = pickModule(r.next());
+        const module = pickModuleAvoiding(r, lastSilhouette);
+        lastSilhouette = MODULE_FORMS[module].silhouette;
         const form = MODULE_FORMS[module];
+        // A flat roof's ridge is derived from its eave rather than drawn
+        // independently: the two bands overlap, so an independent draw could
+        // put the ridge *below* the eave and build a roof that slopes the wrong
+        // way. Measured 68 such stalls before this.
+        const eaveY = GROUND_Y + r.range(form.eave[0], form.eave[1]);
+        // The ridge is floored above the eave for *every* module, not just the
+        // flat ones: `double`'s bands overlap too (eave to 5.6, ridge from 4.6),
+        // so an independent draw put the ridge under the eave on 50 stalls and
+        // built roofs that slope the wrong way.
+        const rise = form.flat ? r.range(0.05, 0.3) : r.range(0.25, 0.9);
+        const ridgeY = Math.max(
+          GROUND_Y + r.range(form.ridge[0], form.ridge[1]), eaveY + rise,
+        );
         const front = side * (half - r.range(form.overhang[0], form.overhang[1]));
         const reach = half + DEPTH_MAX + pitch * 0.5 + FACADE_CLEARANCE;
 
@@ -839,8 +885,8 @@ export function marketGrammarFor(q: MarketQuery): MarketDesc {
             back: side * back,
             counter: side * (half + 0.35),
             pitch,
-            eave: GROUND_Y + r.range(form.eave[0], form.eave[1]),
-            ridge: GROUND_Y + r.range(form.ridge[0], form.ridge[1]),
+            eave: eaveY,
+            ridge: ridgeY,
             module,
             flatRoof: form.flat,
             hasCloth: form.cloth,
