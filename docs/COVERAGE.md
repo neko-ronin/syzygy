@@ -116,6 +116,56 @@ roadmap; fold it into the next pass over that function.
 
 ---
 
+## Ground surface (F5)
+
+Street-level work. Added as its own section because the interesting failure here
+was not "not built" — it was **built, and wrong in a way that rendered
+plausibly**, which is the class of fault this map exists to catch.
+
+| Subsystem | What exists | What is missing |
+| --- | --- | --- |
+| District ground colour | `DistrictPalette.ground`, the 6th hex arg of `pal()`, since the first commit. Wired at `groundgrammar.ts` `groundGrammarFor` → `bandAlbedo` → `bakeGroundDetail` / `pushGroundDeck` | Was **read by nothing** until F5. Eleven authored ground colours had never reached a pixel |
+| Ground grammar | `src/world/groundgrammar.ts`: 9 pavement families, 6 kerb styles, 6 marking styles, 11 district entries + road-kind sharpening, `CLUTTER_KINDS`, `streetFrameAt` | — |
+| Kerbs / footways / paint | `src/render/groundbake.ts`, baked per chunk into the chunk's solid builder from `sampleStreetPlan`. Measured: **+8897 tris/chunk (+11.3%), kerb p50 0.01m / p90 1.00m from the carriageway edge** | The lod tiers are correct but **inert**: `renderer.ts:618` calls `bakeChunk(chunk, 0, seed)` unconditionally |
+| Per-pixel surface | `groundSurface()` in `gbuffer.wgsl`: family-specific grain, slab joints, cobble worley, plank lines, board-formed bands, chequer plate, kerb faces, worn paint | **World-axis lattice only.** The GPU cannot build a street-aligned frame — the street field is CPU-only by design — so paving runs on world X/Z with a per-cell hash rotation |
+| Street furniture | 20 `CLUTTER_KINDS` emitted by `pushClutterItem` with correct street-facing yaw. **182 placed of 182 wanted, 7923 tris/chunk** | Needs `PropKind` members for the new vocabulary — out of `CLUTTER_KINDS` the emitter has no route into `pushProp`'s kit |
+| `PropKind.Zipline` / `.Cable` | Real geometry now (`citymesh.ts` `pushProp`). Measured 60 and 34 tris | Both were in the enum with `PROP_SIZE` entries, never emitted, and **no case in `pushProp`** — they silently rendered as the 0.3-scale metal cube |
+
+### Still a PHANTOM after F5
+
+| Subsystem | What exists | What is missing |
+| --- | --- | --- |
+| `MeshOpts.emissive` | A per-vertex emissive mask, written by `MeshBuilder.vert`, uploaded at vertex offset 44 | **`gbuffer.wgsl` never reads it.** `vs` computes `o.emis = v.params.z * v.tint.a` — `v.emissive` is unused. Every glowing lantern, sign and lamp in chunk geometry emits nothing. One-word fix in `vs`, not made: out of scope for this change |
+| `BakedChunk.seed` | Computed in `bakeChunk`, documented as "a stable per-chunk tint seed so the fragment stage can vary its detail" | Never reaches the shader. `uploadMesh` allocates `GpuMesh.ib` per chunk and nothing ever binds it; `drawChunks` sets `identityInst` once for all chunks |
+| `i.uv` | `float32x2` at vertex offset 24 | **Garbage.** `uploadMesh` reads the uv array with a 3-float stride (`v3 = i * 3`) when it is written 2 floats per vertex. Nothing reads it; nothing should |
+
+### The measurement that had to be taken first
+
+`sampleStreetPlan` **is not a distance field.** For the grid and alley families
+it evaluates the domain warp `warpAt(x, z)` at the *query point*, so `out.dist`
+is the distance to a line whose position depends on where you asked from, with a
+warp gradient of roughly 1.5 m per metre. Consequences, all measured:
+
+- A perpendicular offset of `width/2` does not land at distance `width/2`. That
+  is why the kerb edge is **found** (one field query per segment) rather than
+  computed.
+- `makeBuilding`'s setbacks are computed from a `clearance` that is not a
+  distance, so buildings sit further back from a carriageway than their
+  footprints suggest. **Not fixed** — `citygen.ts` is out of scope for F5, and it
+  is the highest-value follow-up this work found.
+
+### Also true, and still true
+
+`HANDOFF.md` records that a review agent reported 3 `tsc` errors in
+`gpuutil.ts` that "could not be reproduced". **They reproduce, and the reason is
+that the documented check does not use the project's own compiler:**
+`npx tsc` resolves to a globally installed **TypeScript 7.0.2** at
+`/opt/homebrew/bin/tsc`, which is stricter about `readonly` arrays in overload
+resolution. `./node_modules/.bin/tsc` — the project's pinned **5.9.3** — is
+clean. Neither agent was wrong; they ran different compilers.
+
+---
+
 ## Adding rows
 
 The three phantoms above were all found by asking "what did the plan include,

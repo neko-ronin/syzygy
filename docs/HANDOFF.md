@@ -37,7 +37,13 @@ lesson, and why `01a-building-base` now exists.
 Two open threads the last session did not close:
 
 - A review agent reported 3 pre-existing `tsc` errors in `src/render/gpuutil.ts`.
-  **Could not be reproduced** — `tsc --noEmit` is clean. Not investigated.
+  **They reproduce, and neither agent was wrong: they ran different compilers.**
+  `npx tsc` resolves to a globally installed TypeScript **7.0.2** at
+  `/opt/homebrew/bin/tsc`, which is stricter about `readonly` arrays in overload
+  resolution; the project's own pinned **5.9.3** at `./node_modules/.bin/tsc` is
+  clean. The documented check `npx tsc --noEmit` is therefore **not pinned** and
+  its result depends on what is installed globally. Use `./node_modules/.bin/tsc`
+  --noEmit for a stable answer.
 - `package.json` no longer says "hyperreal" in its description (the human author
   edited it), while `D23` and [`GLOSSARY.md`](GLOSSARY.md) still use the word and
   define it. Consistent with redefining rather than removing; not reconciled.
@@ -151,19 +157,97 @@ will float above and sink below their cables.
 **Closed when:** the `03-tram-level` pose shows vehicles on the rails, with
 `entityDraws` reporting a non-zero count per kind.
 
-### F5 — Ground detail at eye height
+### F5 — Ground detail at eye height — **CLOSED, measured**
 
-**Evidence.** Street-level frames are ~60% featureless grey slab. `bakeGround`
-emits kerb strips that are barely visible.
+**Was:** Street-level frames ~60% featureless grey slab. `bakeGround` emitted
+kerb strips that were barely visible and, worse, were not on the streets — 1.2m
+boxes on a jittered 48m **world-axis** grid, with no relationship to
+`sampleStreetPlan`, so a "kerb" ran through the middle of blocks and none of them
+followed a carriageway. `DistrictPalette.ground`, the colour that has existed in
+`districts.ts` since the first commit, was read by nothing at all.
 
-**Proposed fix.** Lane markings, drain covers and kerb read as procedural
-synthesised detail in the existing facade shader rather than new geometry or new
-textures (D6) — the shader already knows street distance, so this is a
-synthesis job, not an asset job. Widen the kerb strip and raise its contrast
-first; it is one number.
+**Now.** Three layers, and the split between them is forced by one fact: the
+street field lives only on the CPU, and re-deriving ~90 lines of warped noise in
+WGSL is exactly the way this project gets silent bugs. So *where the street is*
+is decided at bake time, and *what the surface is made of* is synthesised per
+pixel.
+
+- `src/world/groundgrammar.ts` — 9 pavement families, 6 kerb styles, 6 marking
+  styles, 11 district entries plus road-kind sharpening, `CLUTTER_KINDS`,
+  `streetFrameAt`. Pure data and pure functions; no WGSL, no GPU types.
+- `src/render/groundbake.ts` — per chunk: kerb face, kerb top, footway band,
+  road paint, and street furniture, emitted into the chunk's solid builder so it
+  streams and culls with the buildings.
+- `groundSurface()` in `gbuffer.wgsl` — grain, slab joints, cobble worley, plank
+  lines, board-formed bands, chequer plate, kerb faces, worn paint.
+
+**Measured, same 12 chunks, before and after, best of 4:**
+
+| | tris/chunk | min | p50 | max | ms/chunk |
+| --- | --- | --- | --- | --- | --- |
+| before (F5 baseline) | 78,485 | 53,228 | 83,820 | 88,518 | 12.3 |
+| + kerbs, footways, paint | 87,382 (+11.3%) | 62,754 | 92,170 | 98,498 | 27.0 |
+| + street furniture | 95,439 (+21.6% total) | 71,374 | 99,982 | 109,690 | 29.8 |
+
+Per chunk the ground work is 16,819 triangles: 8,897 kerb/footway/paint plus
+182 pieces of furniture (of 182 wanted, 7,923 tris, 17.3 lamps). `CLUTTER_TRIS`
+and `TRACE_STEP` are the two dials if this needs to be cheaper.
+
+**Kerb accuracy, measured not asserted:** pooled over 12 chunks the kerb sits
+**p50 0.01m / p90 1.00m** from the carriageway edge that the same street field
+reports at the kerb's own position. `__selftest.ts` prints the percentiles and
+fails above p50 0.5m / p90 2.5m, so a regression is a red line rather than a
+slightly wrong frame.
+
+**Five silent bugs were found by measuring, not by reading.** All are written up
+in the commits; the two worth carrying forward:
+
+- The lateral normal read `t.p[i*5+4]`, which is the **width**, not `tx`. Every
+  kerb landed tens of metres from its road and the emitted geometry spanned
+  2.3km instead of 256m. Nothing threw; the triangle count looked plausible.
+- The pavement family has to reach the fragment stage through `color.rgb`,
+  because the vertex format is full and chunk geometry has no per-draw
+  `matId`. The first two encodings decoded **29/66** and **36/66** of the
+  (district, road kind) pairs correctly. The working one banded the albedo into a
+  per-family (saturation, value) window *after* road-kind sharpening: **66/66**,
+  with all 10 bands uniquely nearest to themselves.
 
 **Closed when:** a street-level pose shows kerbs catching light and reading as a
-kerb.
+kerb, with painted lines on the carriageway. **See the capture below.**
+
+### F5b — The street field is not a distance field (new, from F5)
+
+`sampleStreetPlan` evaluates the domain warp `warpAt(x, z)` at the **query
+point**, so for the grid and alley families `out.dist` is the distance to a line
+whose position depends on where you asked from, with a warp gradient of roughly
+1.5 m per metre. A perpendicular offset of `width/2` does not land at distance
+`width/2`.
+
+**This matters beyond the kerbs:** `makeBuilding` derives every building's
+setback from that `clearance`, so buildings stand further back from a carriageway
+than their footprints suggest — and `__selftest.ts` reports "carriageway
+10.83..47.09m wide" from the *nominal* parameter, not the apparent one. A true
+signed distance (evaluate the warp at the line, not at the query) would fix lot
+placement, the kerb edge, and probably the canyon widths at once.
+
+**Not attempted** — `citygen.ts` was out of scope for F5, and a change to how
+every building is placed is not a change to make inside a ground-detail task.
+**Closed when:** the kerb edge stops needing a field query per segment.
+
+### F5c — `MeshOpts.emissive` is a PHANTOM (new, from F5)
+
+`MeshBuilder` writes a per-vertex emissive mask, `uploadMesh` puts it at vertex
+offset 44, `VSIn` declares it at `@location(4)` — and `gbuffer.wgsl`'s vertex
+shader computes `o.emis = v.params.z * v.tint.a`, never reading `v.emissive`.
+
+**Every glowing lantern, sign and lamp head in chunk geometry emits nothing.**
+Entities are unaffected (they set emissive per instance). The fix is one token in
+`vs`: `max(v.emissive, v.params.z * v.tint.a)`. It is not in F5 because F5 was not
+allowed to touch `vs`, and because turning on an emissive channel changes the
+look of the whole night city and wants its own comparison run.
+
+**Closed when:** `01d`-equivalent night pose shows lantern and sign light, and
+the emissive channel is in the G-buffer.
 
 ### F6 — Warm boot, so a capture is seconds not minutes
 

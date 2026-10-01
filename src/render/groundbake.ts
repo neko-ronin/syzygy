@@ -30,8 +30,10 @@ import {
 import {
   groundGrammarFor, type GroundBakeCtx, type GroundGrammar, type StreetFrame,
 } from '../world/groundgrammar';
-import { MeshBuilder } from '../world/geometry';
+import { FACE_ALL, FACE_NY, FACE_PY, MeshBuilder } from '../world/geometry';
 import { bakeMarketDetail } from './marketbake';
+import { CLUTTER_KINDS } from '../world/groundgrammar';
+import { districtStyle } from '../world/districts';
 
 // ---------------------------------------------------------------- constants
 
@@ -175,6 +177,8 @@ export interface GroundLight {
 export interface GroundBakeResult {
   /** Carriageway centrelines that contributed geometry. */
   roads: number;
+  /** Furniture the grammar asked for, and how many the triangle budget allowed. */
+  clutter: ClutterTally;
   /** Metres of carriageway edge emitted. */
   edgeMetres: number;
   /** Triangles emitted. Read back from the builder, never predicted. */
@@ -194,7 +198,13 @@ export function bakeGroundDetail(
   bld: MeshBuilder, chunk: CityChunk, plan: CityPlan, lod: number, rng: Rng,
   lights: GroundLight[],
 ): GroundBakeResult {
-  const res: GroundBakeResult = { roads: 0, edgeMetres: 0, triangles: 0, fieldMs: 0 };
+  // Ceiling on ground-contributed lights so a dense market chunk cannot eat the
+  // whole clustered-light budget that the buildings already draw from.
+  const maxLights = 24;
+  const res: GroundBakeResult = {
+    roads: 0, edgeMetres: 0, triangles: 0, fieldMs: 0,
+    clutter: { placed: 0, wanted: 0, tris: 0, lamps: 0 },
+  };
   if (lod > 1) return res;
 
   const size = chunk.boundsMax[0] - chunk.boundsMin[0];
@@ -261,7 +271,7 @@ export function bakeGroundDetail(
 
     clipToChunk(trace, minX, minZ, maxX, maxZ);
     if (trace.to - trace.from < 1) continue;
-    emitTrace(bld, chunk, plan, trace, lod, rng, lights, footwayCells, minX, minZ, size, res);
+    emitTrace(bld, chunk, plan, trace, lod, rng, lights, footwayCells, minX, minZ, size, res, maxLights);
     res.roads++;
   }
 
@@ -320,11 +330,174 @@ function edgeOffset(
   return Math.min(maxR, Math.max(0.1, hint - s.clearance));
 }
 
+// ---------------------------------------------------------------- clutter
+
+/**
+ * Hard ceiling on furniture per chunk, in triangles.
+ *
+ * Not a taste decision — a budget decision, arrived at by measurement. A chunk
+ * already carries ~87k triangles; the kerbs and footways added ~9k. Street
+ * furniture at `clutterDensity` items per 100m over the ~6.1km of footway a
+ * chunk contains works out to 180 items at a mid-density district and 980 in
+ * the market spine, which at 30..200 triangles each is 24k..78k — more than the
+ * whole rest of the chunk. So furniture is placed in street order until the
+ * budget is gone — as a uniform throttle rather than a cut-off, see the comment
+ * at the placement site — and `clutterPlaced` / `clutterWanted` are reported so
+ * the shortfall is visible rather than silent.
+ */
+const CLUTTER_TRIS = 9000;
+
+/** Prop-local point -> world, yawing the item to face the carriageway. */
+type Placer = (x: number, y: number, z: number) => Vec3;
+
+/** Build a placer that puts local +Z toward `face` and local +Y at `y`. */
+const placer = (x: number, y: number, z: number, faceX: number, faceZ: number): Placer => {
+  const a = Math.atan2(faceX, faceZ);
+  const c = Math.cos(a), s = Math.sin(a);
+  return (lx: number, ly: number, lz: number): Vec3 => [x + lx * c + lz * s, y + ly, z - lx * s + lz * c];
+};
+
+const METAL: Vec3 = [0.16, 0.17, 0.18];
+const DARK: Vec3 = [0.055, 0.058, 0.062];
+const TIMBER: Vec3 = [0.26, 0.17, 0.10];
+const LEAF: Vec3 = [0.075, 0.21, 0.055];
+
+export interface ClutterTally {
+  placed: number;
+  wanted: number;
+  tris: number;
+  lamps: number;
+}
+
+/**
+ * One piece of street furniture.
+ *
+ * Every shape here is authored for a low triangle count on purpose: a bollard is
+ * 6 sides and a cap, a drain cover is a single quad. The silhouette and the
+ * colour carry the read at the distances these are actually seen, and a street
+ * with 300 objects on it has to pay for all of them.
+ */
+function pushClutterItem(
+  bld: MeshBuilder, kind: string, P: Placer, pal: ClutterPalette, rng: Rng, tally: ClutterTally,
+): void {
+  const before = bld.indexCount;
+  switch (kind) {
+    case 'bollard':
+      bld.pushCylinder(P(0, 0, 0), P(0, 0.95, 0), 0.075, 6, pal.kerb, { capEnds: true });
+      break;
+    case 'drain-cover':
+    case 'puddle-grate':
+      // Flat in the carriageway plane. A dark recessed quad with a bar or two
+      // across it reads as a gully at every distance that matters.
+      bld.pushQuad(P(-0.28, 0.012, -0.28), P(0.28, 0.012, -0.28), P(0.28, 0.012, 0.28), P(-0.28, 0.012, 0.28), DARK, 1, { normals: UP4 });
+      for (let i = -1; i <= 1; i++) {
+        bld.pushQuad(
+          P(-0.24, 0.02, i * 0.12), P(0.24, 0.02, i * 0.12), P(0.24, 0.02, i * 0.12 + 0.05), P(-0.24, 0.02, i * 0.12 + 0.05),
+          METAL, 1, { normals: UP4 },
+        );
+      }
+      break;
+    case 'manhole':
+      bld.pushCylinder(P(0, 0.008, 0), P(0, 0.03, 0), 0.33, 8, pal.kerb, { capEnds: true });
+      break;
+    case 'bench':
+      bld.pushBox(P(0, 0.44, 0), [0.9, 0.05, 0.24], TIMBER, { faces: FACE_PY | FACE_NY, rotationY: 0 });
+      bld.pushBox(P(0, 0.68, -0.22), [0.9, 0.22, 0.04], TIMBER, { faces: FACE_ALL });
+      for (const sx of [-0.78, 0.78]) bld.pushBox(P(sx, 0.22, 0), [0.05, 0.22, 0.22], METAL, { faces: FACE_ALL });
+      break;
+    case 'bin':
+      bld.pushCylinder(P(0, 0, 0), P(0, 0.78, 0), 0.26, 7, pal.metal, { capEnds: false });
+      bld.pushCylinder(P(0, 0.78, 0), P(0, 0.86, 0), 0.29, 7, pal.metal, { radiusTop: 0.2, capEnds: true });
+      break;
+    case 'planter':
+      bld.pushBox(P(0, 0.22, 0), [0.42, 0.22, 0.42], pal.kerb, { faces: FACE_ALL });
+      bld.pushSphere(P(0, 0.62, 0), 0.4, 6, 3, LEAF);
+      break;
+    case 'potted-palm':
+      bld.pushCylinder(P(0, 0, 0), P(0, 0.4, 0), 0.3, 7, pal.trim, { capEnds: true });
+      bld.pushCylinder(P(0, 0.4, 0), P(0, 1.5, 0), 0.08, 5, TIMBER);
+      for (let i = 0; i < 3; i++) {
+        const a = (i / 3) * Math.PI * 2;
+        bld.pushSphere(P(Math.cos(a) * 0.34, 1.62, Math.sin(a) * 0.34), 0.38, 5, 3, LEAF);
+      }
+      break;
+    case 'lamp-post':
+      bld.pushCylinder(P(0, 0, 0), P(0, 4.6, 0), 0.085, 5, pal.metal, { capEnds: false });
+      bld.pushBox(P(0, 4.72, 0.3), [0.10, 0.07, 0.42], pal.metal, { faces: FACE_ALL });
+      bld.pushBox(P(0, 4.6, 0.56), [0.20, 0.06, 0.26], [1.0, 0.86, 0.62], { faces: FACE_ALL, emissive: 3.0 });
+      tally.lamps++;
+      break;
+    case 'hydrant':
+      bld.pushCylinder(P(0, 0, 0), P(0, 0.62, 0), 0.14, 6, pal.accent, { capEnds: true });
+      bld.pushCylinder(P(0, 0.62, 0), P(0, 0.74, 0), 0.1, 6, pal.accent, { radiusTop: 0.04, capEnds: true });
+      break;
+    case 'bike-rack':
+      for (let i = 0; i < 3; i++) {
+        bld.pushTubeAlongPath(
+          [P(-0.7, 0, -0.3 + i * 0.3), P(-0.7, 0.62, -0.3 + i * 0.3), P(0.7, 0.62, -0.3 + i * 0.3), P(0.7, 0, -0.3 + i * 0.3)],
+          0.03, 4, pal.metal, { capEnds: false },
+        );
+      }
+      break;
+    case 'crate-stack':
+      for (let i = 0; i < 3; i++) {
+        bld.pushBox(P(rng.jitter(0.1), 0.2 + i * 0.4, rng.jitter(0.1)), [0.32, 0.2, 0.28], TIMBER, { faces: FACE_ALL, rotationY: rng.jitter(0.4) });
+      }
+      break;
+    case 'spool':
+    case 'cable-spool':
+      bld.pushCylinder(P(0, 0, -0.3), P(0, 0, 0.3), 0.55, 8, TIMBER, { capEnds: true });
+      bld.pushCylinder(P(0, 0, -0.32), P(0, 0, -0.26), 0.78, 8, TIMBER, { capEnds: true });
+      bld.pushCylinder(P(0, 0, 0.26), P(0, 0, 0.32), 0.78, 8, TIMBER, { capEnds: true });
+      break;
+    case 'postbox':
+      bld.pushBox(P(0, 0.6, 0), [0.24, 0.6, 0.18], pal.accent, { faces: FACE_ALL });
+      bld.pushBox(P(0, 1.22, 0), [0.26, 0.04, 0.2], pal.accent, { faces: FACE_ALL });
+      break;
+    case 'newspaper-box':
+      bld.pushBox(P(0, 0.28, 0), [0.22, 0.28, 0.18], pal.accent, { faces: FACE_ALL });
+      for (const sx of [-0.16, 0.16]) bld.pushBox(P(sx, 0.06, 0), [0.03, 0.06, 0.03], METAL, { faces: FACE_ALL });
+      break;
+    case 'kiosk':
+      bld.pushBox(P(0, 1.1, 0), [1.1, 1.1, 0.8], pal.trim, { faces: FACE_ALL });
+      bld.pushQuad(P(-1.2, 1.85, -0.6), P(1.2, 1.85, -0.6), P(1.2, 1.6, 0.7), P(-1.2, 1.6, 0.7), pal.accent, 1, { doubleSided: true });
+      bld.pushBox(P(0, 0.5, 0.42), [0.9, 0.5, 0.04], pal.metal, { faces: FACE_ALL });
+      break;
+    case 'phone-box':
+      bld.pushBox(P(0, 1.1, 0), [0.42, 1.1, 0.34], pal.accent, { faces: FACE_ALL });
+      break;
+    case 'sandbag':
+      for (let i = 0; i < 3; i++) {
+        bld.pushBox(P(0, 0.11 + i * 0.2, 0), [0.34, 0.1, 0.2], pal.kerb, { faces: FACE_ALL, rotationY: i * 0.3 });
+      }
+      break;
+    case 'sandwich-board':
+      for (const s of [-1, 1]) {
+        bld.pushQuad(P(-0.3, 0.9, s * 0.1), P(0.3, 0.9, s * 0.1), P(0.3, 0, s * 0.34), P(-0.3, 0, s * 0.34), DARK, 1, { doubleSided: true });
+      }
+      break;
+    default:
+      // An authored kind with no emitter yet is a loud, visible cube rather than
+      // a silent one — see the same reasoning in `pushProp`.
+      bld.pushBox(P(0, 0.3, 0), [0.3, 0.3, 0.3], pal.metal, { faces: FACE_ALL });
+      break;
+  }
+  tally.tris += (bld.indexCount - before) / 3;
+}
+
+/** District colours a piece of furniture is allowed to use. */
+export interface ClutterPalette {
+  kerb: Vec3;
+  trim: Vec3;
+  metal: Vec3;
+  accent: Vec3;
+}
+
 /** Emit kerb, kerb top, footway band and paint for one traced carriageway. */
 function emitTrace(
   bld: MeshBuilder, chunk: CityChunk, plan: CityPlan, t: Trace, lod: number, rng: Rng,
   lights: GroundLight[], footwayCells: Set<number>,
-  minX: number, minZ: number, size: number, res: GroundBakeResult,
+  minX: number, minZ: number, size: number, res: GroundBakeResult, maxLights: number,
 ): void {
   const maxX = minX + size, maxZ = minZ + size;
   const last = t.to;
@@ -334,6 +507,8 @@ function emitTrace(
   // for a single field query — see `edgeOffset`.
   const off = [0, 0];
   let offSet = false;
+  // Distance walked along the footway since the last item, per side.
+  const gapWalk = [0, 0];
 
   for (let i = t.from; i < last - 1; i++) {
     if (!segInside(t, i, minX, minZ, maxX, maxZ)) continue;
@@ -433,6 +608,47 @@ function emitTrace(
           [a1x + anx * side * fw, yHi, a1z + anz * side * fw],
           grammar.albedo, 1, { normals: UP4 },
         );
+
+        // --- street furniture, placed on the footway out of the grammar.
+        const si2 = side > 0 ? 0 : 1;
+        if (grammar.clutter.length > 0 && grammar.clutterDensity > 0 && lod < 1) {
+          const want = grammar.clutterDensity / 100;      // items per metre
+          // Budget as a proportional THROTTLE, not a cut-off. Stopping dead at
+          // the limit gives every item to the first streets walked and none to
+          // the rest of the chunk, which reads as one furnished street and
+          // several deserted ones — worse than uniformly sparser. Widening the
+          // spacing in proportion to what has already been spent thins every
+          // street in the chunk by the same factor and converges on the budget.
+          //
+          // An integer skip counter (skip 1 in N opportunities) was tried first
+          // and over-damped badly: it converged on 4747 triangles of a 9000
+          // budget, because each extra skip made the next one likelier. Spacing
+          // is the right control variable, not a counter.
+          const throttle = Math.max(1, res.clutter.tris / (CLUTTER_TRIS * 0.55));
+          gapWalk[si2] += along;
+          if (gapWalk[si2] >= throttle / want) {
+            gapWalk[si2] = 0;
+res.clutter.wanted++;
+            {
+              const d = grammar.clutter[Math.floor(rng.next() * grammar.clutter.length) % grammar.clutter.length];
+              const inX = KERB_W + 0.3 + rng.next() * Math.max(0.1, fw - 0.9);
+              const px = (axE2 + bxE2) * 0.5 + anx * side * inX;
+              const pz = (azE2 + bzE2) * 0.5 + anz * side * inX;
+              // Face the carriageway: local +Z points at the road.
+              const P = placer(px, yHi, pz, -anx * side, -anz * side);
+              const style = districtStyle(t.districtId);
+              const pal = style.palette;
+              pushClutterItem(bld, CLUTTER_KINDS[d], P, {
+                kerb: grammar.kerbAlbedo, trim: pal.trim, metal: pal.metal, accent: style.accentColor,
+              }, rng, res.clutter);
+              res.clutter.placed++;
+              // A lamp that emits no light is a PHANTOM: the light is the point.
+              if (CLUTTER_KINDS[d] === 'lamp-post' && lights.length < maxLights) {
+                lights.push({ pos: [px, yHi + 4.6, pz], radius: 13, color: [1.0, 0.72, 0.42], intensity: 2.6 });
+              }
+            }
+          }
+        }
       }
     }
 
@@ -452,7 +668,6 @@ function emitTrace(
     };
     bakeMarketDetail(bld, ctx);
   }
-  void lights;
 }
 
 /**

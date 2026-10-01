@@ -626,6 +626,38 @@ function pushProp(
       );
       break;
     }
+    case PropKind.Zipline: {
+      // A zipline is a span with a rider cable and a haul rope, not a box. It
+      // fell through to the default below and rendered as a 0.3-scale metal cube
+      // hanging in the air, which is what "silently wrong" looks like: a
+      // plausible small dark box, and nothing anywhere reported it.
+      const w = 12.0 * s;
+      bld.pushTubeAlongPath(
+        [P(-w, 0, 0), P(0, -1.1 * s, 0), P(w, 0, 0)], 0.045 * s, 4, [0.42, 0.38, 0.16], { capEnds: false },
+      );
+      bld.pushTubeAlongPath(
+        [P(-w, -0.9 * s, 0.18), P(0, -2.0 * s, 0.18), P(w, -0.9 * s, 0.18)], 0.03 * s, 3, [0.30, 0.27, 0.12], { capEnds: false },
+      );
+      for (const sx of [-1, 1]) {
+        bld.pushCylinder(P(sx * w, -0.5 * s, 0), P(sx * w, 1.1 * s, 0), 0.07 * s, 4, tint(pal.metal, 0.8), { capEnds: true });
+      }
+      break;
+    }
+    case PropKind.Cable: {
+      // A short overhead cable with a couple of droppers.
+      const w = 6.0 * s;
+      bld.pushTubeAlongPath(
+        [P(-w, 0, 0), P(0, -0.42 * s, 0), P(w, 0, 0)], 0.055 * s, 4, [0.10, 0.10, 0.11], { capEnds: false },
+      );
+      const n = Math.max(2, Math.round(w / 1.5));
+      for (let i = 1; i < n; i++) {
+        const t = i / n;
+        const x = (t - 0.5) * 2 * w;
+        const y = -0.42 * s * (1 - (t - 0.5) * (t - 0.5) * 4) * 4 * t * (1 - t) * 2.5;
+        bld.pushTubeAlongPath([P(x, y, 0), P(x, y - 0.5 * s, 0)], 0.022 * s, 3, [0.10, 0.10, 0.11]);
+      }
+      break;
+    }
     default: {
       bld.pushBox(P(0, 0, 0), [0.3 * s, 0.3 * s, 0.3 * s], tint(pal.metal, 0.9), { faces: ALL_FACES });
     }
