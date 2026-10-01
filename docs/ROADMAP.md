@@ -67,30 +67,53 @@ cannot be quietly framing empty ground (D21).
 
 ## R2 — Fix the night
 
-**Status: todo** · **Priority: high** · *Vision: "atmostpheric lighting and
-atmostphere effects are vey important"*
+**Status: in progress — the authoring pass is done and it is NOT the fix.**
+Night measured **6.21 mean luma** before, **~11.4** after (noon measures
+**125.75**). Night is still not the brightest frame in the set, and there is
+still no warm pool on the aisle. Full measurements, controls and the dominant
+cause: **[`docs/NIGHT_REPORT.md`](NIGHT_REPORT.md)**. · **Priority: high** ·
+*Vision: "atmostpheric lighting and atmostphere effects are vey important"*
 
 Night is currently a purple murk. It should be the **brightest** frame in the
 set — that inversion is what makes a night city read.
 
 The pieces exist: window emissive is synthesised, lanterns and signs are baked
 with emissive masks, the light binner runs, `WeatherDirector` has a `night` phase.
-What is wrong is the *authoring* — ambient, exposure, bloom and the emissive
-multiplier for that phase. The weather self-test shows the phase rig is
-internally consistent; it is simply aimed too dark.
 
-*Engineering note:* this is a cheap fix with a large payoff, and it is the only
-item that unlocks an entire visual register (lit windows, headlight cones, wet
-reflections) that the rest of the renderer already supports.
+> **The original diagnosis below was wrong, and is kept because it is the kind of
+> wrong this project keeps making.** It said the rig was "internally consistent
+> and merely aimed too dark" and proposed raising "the window-emissive
+> multiplier". Measured: that multiplier does not exist — `windowGlow` is read
+> by nothing outside its own self-test — and the dominant cause is that
+> **`marketGrammarFor` emits 365 lights and 0 of them reach `BakedChunk.lights`**,
+> because `bakeMarketDetail` returns `void` and `bakeGroundDetail` has no market
+> light sink. The lanterns glow and cast nothing. Ambient ×3 moves the aisle
+> 3.56 → 3.95; exposure ×3 moves it 3.56 → 5.68; **`aisleWarmPixelPct` stays 0.00
+> in every configuration**, because there is no warm light at the aisle to
+> reveal. Multiplying a floor does not invert a ratio.
 
-*Proposed approach.* Because the rig is internally consistent and merely aimed
-too dark, treat it as an authoring pass over the `night` phase, not a bug hunt:
-raise the window-emissive multiplier and ambient floor, then pull exposure down
-to compensate so highlights keep their roll-off. Use the `--grab` harness flag to
-sweep phase parameters in one run rather than editing and re-shooting by hand,
-and judge with `node tools/compare.mjs --pose=night --ref <video>` against a
-reference night frame. *The verification that matters: night must become the
-brightest frame in the set, not merely a brighter purple murk.*
+**Done so far:** night `ambientIntensity` 0.22 → 0.66, `exposure` 1.28 → 1.60
+(both measured, both inside the self-test's bounds, `sim` self-test still ALL
+PASS); daylight verified unaffected from the same camera.
+
+**Next, in order:**
+
+1. **Push the market lights into the buffer.** One loop at the
+   `bakeMarketDetail` call site in `groundbake.ts`, exactly as
+   `marketbake.ts`'s own header specifies. This is the gap. Not a shader change.
+2. **Reconcile the duplicate `PHASE_LOOK` in `src/agent/tools.ts`** (lines
+   315-322). The conductor's `set_time` and the renderer read different night
+   rows today (`ambientIntensity` 0.35 vs 0.22 before this change). Two sources
+   disagreeing is `PROCESS.md` rule 6; one of them is currently a trap.
+3. **Decide the window-emissive question properly** — either wire a real
+   multiplier through to the shader or delete `windowGlow`. A phantom named
+   exactly like a control will keep being tuned by people who believe it works.
+4. **Then re-judge.** The inversion may well arrive from the lights rather than
+   from the phase table, in which case the authoring pass above was still worth
+   doing but is not what makes the frame.
+
+*Verification that matters, unchanged:* night must become the brightest frame in
+the set, not merely a brighter purple murk. It is not there yet.
 
 ## R3 — Kill the aliasing
 
