@@ -790,3 +790,64 @@ grain is temporal and well-distributed, and the banding is not its lattice.
 Not diagnosed. The candidate left is the half-res aux chain (DOF, bloom mips)
 upsampled through `linSamp` into a 16-bit-ish gradient, which bands in 8-bit
 output — untested.
+
+---
+
+## 4h. Correction to 4g, and the real cause: N·L, not intensity
+
+**4g's "15.5× ambient" was a bad comparison and is withdrawn.** I divided a
+warm-dominant pool (red-heavy, `[1, 0.72, 0.26]`) by the *green* ambient channel,
+which understates the contrast and flatters the diagnosis in the wrong direction.
+`__selftest_market.ts` already does this correctly — it compares red pool to red
+ambient — and computes **74×**, passing its own `>= 10×` guard. The selftest was
+right and my one-off number was wrong.
+
+Against the *measured* ambient (`skyIrradiance [0.00933, 0.01404, 0.04782]`) the
+red-pool/red-ambient ratio at the deck is **~25×**. The pool is strong. The
+selftest was never lying about the deck.
+
+### The split the reviewer reported IS the diagnosis
+
+> night — *"a forest of blue slabs over a warm orange ground wash… No readable
+> stalls, no crowd"*
+
+**The ground wash is visible and the stalls are not.** That is not a magnitude
+problem; it is a surface-orientation problem, and it is arithmetic:
+
+One lantern, `r=15`, `I=3`, hanging `drop = 6.3 m`, albedo 0.10, measured sky:
+
+| surface | N·L | pool (linear) | through exposure 1.60 + ACES |
+| --- | --- | --- | --- |
+| deck beneath the lamp, normal +Y | 1.000 | `[0.0208, 0.0150, 0.0054]` | **42 / 31 / 10** |
+| crate top face 1 m off-axis | 0.987 | `[0.0218, 0.0157, 0.0057]` | 44 / 32 / 10 |
+| **stall side panel, 2 m back, normal horizontal** | **0.353** | `[0.0091, 0.0066, 0.0024]` | **19 / 13 / 3** |
+| ambient only, any surface | — | `[0.0009, 0.0014, 0.0048]` | 1 / 2 / 9 |
+
+**Vertical surfaces receive 2.28× less light than the deck they stand on**, and
+because that lands at byte 19 through a filmic curve, the separation between "warm"
+and "cool" halves from **32 bytes on the deck to 16 on the stall face**.
+
+The lantern is hung at 6.3 m for a street 15 m wide. That is a correct choice for
+a roadway and the wrong one for a market whose readable geometry — crates, stall
+flanks, tarpaulin returns, canopy frames — is 1–2 m tall and packed close together.
+Almost all of the light lands on the deck *between* the stalls and almost none on
+their faces, so the frame reads as a lit floor with dark slabs standing on it.
+
+### Why raising `I` does not fix it
+
+Intensity scales both surfaces identically, so it preserves the 2.28× ratio and
+lifts the stall face from byte 19 to whatever the deck reaches. That brightens the
+wash and the slabs together — the reviewer already called the ground "a warm
+orange ground wash", which is the symptom getting worse, not the fix. **This is why
+4g's recommendation to raise radius and intensity was wrong, and why it is
+withdrawn rather than left standing.**
+
+The lever that changes the *ratio* is the drop height: at 6.3 m a horizontal
+normal sees the lamp at `cos⁻¹(2/5.66)`. Halving the drop roughly doubles N·L on
+the vertical faces while leaving the deck at 1.0.
+
+**Not changed here.** `LANTERN_LIGHT_RADIUS`, `LANTERN_LIGHT_INTENSITY` and the
+cord/drop geometry all live in `src/world/marketgrammar.ts`, which this agent does
+not own, and lowering the cords changes the skyline silhouette of the district —
+which is a decision about the look, not a bug fix. It needs the owner and a frame
+to judge, and this agent is out of capture budget.
