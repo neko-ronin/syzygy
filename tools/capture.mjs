@@ -26,7 +26,14 @@ const GLOBAL_TIMEOUT_MS = Number(process.env.SYZYGY_TIMEOUT || 120_000);
 // ---------------------------------------------------------------- cli
 
 function parseArgs(argv) {
-  const opts = { sequence: false, poses: [], debug: 0, debugseq: false, grab: null, query: '', quality: '', eval: null, dev: false, timeout: GLOBAL_TIMEOUT_MS, keepOpen: false };
+  const opts = {
+    sequence: false, poses: [], debug: 0, debugseq: false, grab: null, query: '', quality: '', eval: null,
+    dev: false, timeout: GLOBAL_TIMEOUT_MS, keepOpen: false,
+    // `chunks` is the boot warm (`?chunks=N`): how many chunks to force resident
+    // before the first presented frame. `poseChunks` is the post-pose warm, which
+    // is the one that bakes at the LOD the capture camera will actually see.
+    chunks: 64, warmTicks: 400, poseChunks: 96,
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--sequence' || a === '-s') opts.sequence = true;
@@ -36,6 +43,9 @@ function parseArgs(argv) {
     else if (a === '--debugseq') opts.debugseq = true;
     else if (a.startsWith('--grab=')) opts.grab = a.slice(7);
     else if (a.startsWith('--query=')) opts.query = a.slice(8);
+    else if (a.startsWith('--chunks=')) opts.chunks = Math.max(0, Number(a.slice(9)) | 0);
+    else if (a.startsWith('--pose-chunks=')) opts.poseChunks = Math.max(0, Number(a.slice(14)) | 0);
+    else if (a === '--no-warm') { opts.chunks = 0; opts.poseChunks = 0; }
     else if (a === '--keep-open') opts.keepOpen = true;
     else if (a === '--quality' || a === '-q') opts.quality = argv[++i] ?? '';
     else if (a === '--eval' || a === '-e') opts.eval = argv[++i] ?? null;
@@ -50,20 +60,45 @@ function parseArgs(argv) {
 }
 
 const HELP = `
-syzygy capture harness
+ syzygy capture harness
 
   node tools/capture.mjs                       capture one shot
-  node tools/capture.mjs --sequence            capture the 8 curated poses
+  node tools/capture.mjs --sequence            capture the curated poses
   node tools/capture.mjs --quality high        set quality tier (low|med|high)
   node tools/capture.mjs --eval "expr"         run a JS expression, print JSON
-  node tools/capture.mjs --pose=canyon           only shoot poses whose name contains 'canyon'
+  node tools/capture.mjs --pose=canyon          only shoot poses whose name contains 'canyon'
   node tools/capture.mjs --dev                 use ` + '`vite dev`' + ` instead of preview
   node tools/capture.mjs --timeout 180         global budget in seconds (default 120)
+
+  node tools/capture.mjs --no-warm             stream the world instead of baking it
+                                             (the cold path, for A/B against a warm run)
+  node tools/capture.mjs --chunks=64           chunks to bake before the first frame (?chunks=)
+  node tools/capture.mjs --pose-chunks=96      chunks to bake after setPose, at the pose's LOD
+
+  Diagnostic poses (01d/01e/01f) take their position from live world state via
+  the app's \`pose()\`; \`--eval "__syzygy.pose('street-crowd')"\` prints the exact
+  numbers the renderer used.
 `;
 
 // ---------------------------------------------------------------- poses
 
-/** Curated camera poses. `name` is used for the file name and the index. */
+/**
+ * Curated camera poses. `name` is used for the file name and the index.
+ *
+ * A pose either carries literal `position`/`lookAt` — an establishing shot of a
+ * known place — or a `derive` key, which asks the app where to stand based on
+ * live state at capture time (D21). Diagnostic shots use `derive`. The literal
+ * ones are for places where a fixed coordinate is the subject.
+ *
+ * A diagnostic that is anchored to a literal and claims to be about something
+ * else is worse than no diagnostic: it reports faithfully and in perfect detail,
+ * and what it reports is about empty ground. `01b-crowd-closeup` stood at the
+ * world origin while the city and crowd are near (990, 25); two sessions read
+ * that empty street as a winding bug and then a culling bug. The three poses
+ * that did it were renamed rather than deleted — the shots are still worth
+ * having, they just are not what their names said — and the diagnostics were
+ * rebuilt on `derive`.
+ */
 const POSES = [
   {
     name: '01-wide-skyline',
@@ -74,32 +109,65 @@ const POSES = [
     settle: 30,
   },
   {
-    // Ground-contact check. Every other pose is aerial or looking upward, so
-    // none of them can show whether a building actually meets the ground --
-    // which is how a tier loop that started at the building's centre survived
-    // several reviews. This one sits at facade height in a populated chunk.
-    name: '01a-building-base',
-    label: 'street-level facade base — do buildings meet the ground?',
+    // NOT a ground-contact check any more. This stands at (1833, 6, 1760),
+    // about 1.2 km from the dense districts and inside a block with no
+    // carriageway near it, so it cannot show whether a building meets the
+    // ground. The check that can is `01f-facade-base`, which derives its
+    // position from live state and stands on a real footway.
+    name: '01a-lot-interior',
+    label: 'block interior ~1.2km from the dense districts — establishing only, NOT a ground-contact check',
     position: [1833, 6, 1760], lookAt: [1740, 26, 1742], fov: 1.15, roll: 0,
     weather: { sky: 'clear', haze: 0.16 },
     lens: { tiltShift: 0, focusWidth: 1, bokeh: 0, chroma: 0, grain: 0, saturation: 1.1, vignette: 0.15 },
     settle: 40,
   },
   {
-    name: '01b-crowd-closeup',
-    label: 'street-level crowd close-up — are pedestrians actually drawn?',
+    // Was `01b-crowd-closeup` at [0, 2.4, -40]. An arterial does pass near the
+    // origin, so this is a real street — it is simply a street a kilometre from
+    // where the city is thick, and it was never a crowd close-up. The crowd
+    // close-up is `01e-crowd-closeup`, which derives from the live centroid.
+    name: '01b-origin-field',
+    label: 'world origin, ~1km from the dense districts — establishing only, NOT a crowd close-up',
     position: [0, 2.4, -40], lookAt: [30, 1.2, -180], fov: 0.95, roll: 0,
     weather: { sky: 'clear', haze: 0.2, godRays: 0.4 },
     lens: { tiltShift: 0, focusWidth: 1, bokeh: 0, chroma: 0.05, grain: 0, saturation: 1.1, vignette: 0.2 },
     settle: 40,
   },
   {
-    name: '01c-street-crowd',
-    label: 'street level looking down an avenue — crowd density check',
+    // Was `01c-street-crowd` at [0, 4.5, -30], same fault as 01b. The street
+    // diagnostic is `01d-street-crowd`.
+    name: '01c-origin-avenue',
+    label: 'world origin arterial — establishing only, NOT a crowd-density check',
     position: [0, 4.5, -30], lookAt: [6, 2, -300], fov: 0.9, roll: 0,
     weather: { sky: 'clear', haze: 0.15, godRays: 0.3 },
     lens: { tiltShift: 0, focusWidth: 1, bokeh: 0, chroma: 0, grain: 0, saturation: 1.1, vignette: 0.15 },
     settle: 45,
+  },
+  {
+    // ---- derived: the position is computed inside the app, from live state,
+    // ---- at capture time. Nothing here is typed in.
+    name: '01d-street-crowd',
+    label: 'street level on the carriageway nearest the live crowd centroid, 2.4m on the footway, looking along the tangent — do pedestrians appear where the crowd actually is?',
+    derive: 'street-crowd',
+    weather: { sky: 'clear', haze: 0.15 },
+    lens: { tiltShift: 0, focusWidth: 1, bokeh: 0, chroma: 0, grain: 0, saturation: 1.1, vignette: 0.15 },
+    settle: 40,
+  },
+  {
+    name: '01e-crowd-closeup',
+    label: 'street level aimed at the live crowd centroid — are pedestrians actually drawn, and drawn at the right place?',
+    derive: 'crowd-closeup',
+    weather: { sky: 'clear', haze: 0.2 },
+    lens: { tiltShift: 0, focusWidth: 1, bokeh: 0, chroma: 0.05, grain: 0, saturation: 1.1, vignette: 0.2 },
+    settle: 40,
+  },
+  {
+    name: '01f-facade-base',
+    label: 'facade height on a derived footway, aimed across the street and up — do buildings meet the ground?',
+    derive: 'facade-base',
+    weather: { sky: 'clear', haze: 0.16 },
+    lens: { tiltShift: 0, focusWidth: 1, bokeh: 0, chroma: 0, grain: 0, saturation: 1.1, vignette: 0.15 },
+    settle: 40,
   },
   {
     name: '02-canyon-up',
@@ -110,8 +178,13 @@ const POSES = [
     settle: 24,
   },
   {
+    // Name kept because `references/sections.json` maps `tram-level` to a
+    // section and `--auto` matches on it; renaming would silently drop that.
+    // Label corrected: it stands at the world origin, ~1km from the dense
+    // districts, so it is a tram-height look at a quiet arterial and not a
+    // statement about the city at its busiest.
     name: '03-tram-level',
-    label: 'street level, tram perspective',
+    label: 'tram height at the world origin — establishing only, NOT a street-activity check',
     position: [0, 2.2, -60], lookAt: [40, 4, -260], fov: 0.95, roll: -0.05,
     weather: { haze: 0.3, wetness: 0.3 },
     lens: { tiltShift: 0.72, bokeh: 0.7, focusWidth: 0.2, fov: 0.95 },
@@ -307,7 +380,7 @@ async function callApp(page, method, ...args) {
   }, { method, args });
 }
 
-/** Drive the app forward a fixed number of frames, falling back to rAF waits. */
+/** Drive the app forward a fixed number of *presented* frames. */
 async function settle(page, frames) {
   // Wait for the streaming city to populate first: a shot taken on frame 1 is
   // of an empty world and tells you nothing about the render.
@@ -322,17 +395,67 @@ async function settle(page, frames) {
     }
   }).catch(() => {});
 
-  const stepped = await callApp(page, 'step', frames);
-  if (stepped.ok) return;
-  // No `step()`: wait for real frames so animated content has advanced.
-  await page.evaluate(async (n) => {
+  // Pace these through rAF rather than through `__syzygy.step()`.
+  //
+  // This is the single largest cost in a capture run and it was invisible,
+  // because both paths "advance N frames" and both return successfully.
+  // `step()` calls `tick()` N times back to back: each one encodes and submits
+  // a frame in ~20ms and returns immediately, because `queue.submit` does not
+  // wait for the GPU. N frames of GPU work are therefore queued in a few tens
+  // of milliseconds, and the next thing that blocks — `captureRGBA`, which has
+  // to `mapAsync` the readback — pays for the whole backlog.
+  //
+  // Measured on this machine, replaying the 11-pose sequence: the synchronous
+  // step cost 274–1160 ms per pose and the capture that followed it cost
+  // 1319 ms on pose 1 rising to 15204 ms on pose 11, totalling 104 s of a run
+  // whose streaming work was 1.6 s. Streaming was never the cost. The unbounded
+  // submit queue was.
+  //
+  // rAF paces at presentation, so the GPU is never handed more work than it can
+  // retire, and the capture waits for at most the frame in flight.
+  const advanced = await page.evaluate(async (n) => {
     const g = window.__syzygy;
     const start = g?.frameCount ?? 0;
-    const deadline = Date.now() + Math.max(600, n * 40);
+    // Generous: a presented frame is ~33ms here, and warm chunks are already
+    // resident by this point so none of these are expensive.
+    const deadline = Date.now() + Math.max(2500, n * 150);
     while (Date.now() < deadline && (g?.frameCount ?? 0) < start + n) {
       await new Promise((r) => requestAnimationFrame(r));
     }
-  }, frames).catch(() => {});
+    return (g?.frameCount ?? 0) - start;
+  }, frames).catch(() => -1);
+
+  // rAF genuinely not advancing (page not painting): fall back to synchronous
+  // ticks, and say so rather than quietly capturing a world that never ticked.
+  if (advanced < Math.min(4, frames)) {
+    const stepped = await callApp(page, 'step', frames);
+    if (stepped.ok) return { paced: false, advanced: frames };
+  }
+  return { paced: true, advanced };
+}
+
+/**
+ * Bake the chunks the capture needs, synchronously, from the pose's camera.
+ *
+ * Order matters and it is the whole trick. `?chunks=` warms at boot, which is
+ * right for "load the app and see a city" — but a chunk's LOD is derived from
+ * the *live camera position*, so a boot warm bakes detail levels for the spawn
+ * camera and then re-bakes them the moment the capture pose is set. Warming
+ * here, after `setPose`, bakes each chunk at the level it will actually be
+ * viewed at: `01d-street-crowd` gets the near ring at LOD 0 rather than the
+ * boot camera's ring. Baking at the wrong level is not a slow capture, it is a
+ * plausible-looking low-detail image — the exact failure this repository keeps
+ * paying for, and the reason the warm is the app's own loop and not a second
+ * bake path in the harness.
+ */
+async function warmPose(page, chunks, maxTicks) {
+  if (chunks <= 0) return null;
+  const r = await callApp(page, 'warm', chunks, maxTicks);
+  if (!r.ok) {
+    if (r.skipped) return null;
+    throw new Error(`warm: ${r.error}`);
+  }
+  return r.value;
 }
 
 /** Screenshot, preferring an in-page canvas capture when available. */
@@ -402,8 +525,17 @@ async function main() {
     page.on('pageerror', (e) => pageErrors.push(String(e?.message || e).split('\n')[0]));
     page.on('console', (m) => { if (m.type() === 'error' && pageErrors.length < 6) pageErrors.push(m.text().split('\n')[0]); });
 
-    await page.goto(BASE + '/' + (opts.query ? `?seed=0x5e7a17&${opts.query}` : ''), { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    // `?chunks=N&warm=M` — resolve the seed and force the first N chunks
+    // resident, baked synchronously before the first presented frame.
+    const q = [`seed=0x5e7a17`];
+    if (opts.chunks > 0) { q.push(`chunks=${opts.chunks}`); q.push(`warm=${opts.warmTicks}`); }
+    if (opts.query) q.push(opts.query);
+    await page.goto(`${BASE}/?${q.join('&')}`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     await waitForApp(page, opts.timeout);
+    const bootStats = await page.evaluate(() => (typeof window.__syzygy?.stats === 'function' ? window.__syzygy.stats() : null)).catch(() => null);
+    if (bootStats?.warm) {
+      say(`  boot warm ${bootStats.warm.residentChunks}/${bootStats.warm.target} chunks in ${bootStats.warm.ms}ms (${bootStats.warm.ticks} ticks, stopped: ${bootStats.warm.stopped})`);
+    }
     say(`  app       ready (frameCount=${await page.evaluate(() => window.__syzygy?.frameCount ?? 0)})`);
 
     if (opts.quality) {
@@ -424,7 +556,8 @@ async function main() {
       mkdirSync(join(SHOTS, runStamp), { recursive: true });
       const [name, over] = opts.grab.split(':');
       const pose = POSES.find((p) => p.name.includes(name)) ?? POSES[0];
-      await callApp(page, 'setPose', pose).catch(() => {});
+      await callApp(page, 'setPose', { ...pose, name: pose.name }).catch((e) => say(`    ! setPose: ${e.message}`));
+      await warmPose(page, opts.poseChunks, opts.warmTicks);
       await settle(page, pose.settle ?? 30);
       for (const variant of over.split('|')) {
         const [k, patch] = variant.split('=');
@@ -470,7 +603,8 @@ async function main() {
         // One pose, every debug view, one run — strictly comparable, and it
         // rules out "the textures were empty that time" as an explanation.
         const pose = wanted[0];
-        await callApp(page, 'setPose', pose).catch(() => {});
+        await callApp(page, 'setPose', { ...pose, name: pose.name }).catch((e) => say(`    ! setPose: ${e.message}`));
+        await warmPose(page, opts.poseChunks, opts.warmTicks);
         await settle(page, pose.settle ?? 30);
         for (const mode of [0, 1, 2, 3, 4, 5]) {
           await callApp(page, 'setDebug', mode).catch(() => {});
@@ -498,20 +632,52 @@ async function main() {
           if (pose.lens) await callApp(page, 'setLens', pose.lens);
           if (pose.time) await callApp(page, 'setTime', pose.time);
 
+          // A derived pose carries no coordinates: the app computes them from
+          // live state and hands back the same numbers the renderer will use.
           const pr = await callApp(page, 'setPose', {
-            position: pose.position, lookAt: pose.lookAt, fov: pose.fov, roll: pose.roll, name: pose.name,
+            position: pose.position, lookAt: pose.lookAt, fov: pose.fov, roll: pose.roll,
+            derive: pose.derive, name: pose.name,
           });
           if (!pr.ok) throw new Error(pr.skipped ? pr.reason : `setPose: ${pr.error}`);
 
-          await settle(page, pose.settle ?? 24);
+          // Warm AFTER the pose is set. A chunk's LOD comes from the live camera
+          // position, so warming before would bake the wrong detail levels and
+          // leave the capture quietly low-detail.
+          const warm = await warmPose(page, opts.poseChunks, opts.warmTicks);
+          const warmMs = warm ? warm.ms : 0;
+
+          const settled = await settle(page, pose.settle ?? 24);
           const file = join(dir, `${pose.name}.png`);
           const ok = await shoot(page, file);
           if (!ok) throw new Error('screenshot produced no file');
 
           if (opts.debug) await callApp(page, 'setDebug', opts.debug).catch(() => {});
           const stats = await page.evaluate(() => (typeof window.__syzygy?.stats === 'function' ? window.__syzygy.stats() : null)).catch(() => null);
-          results.push({ name: pose.name, label: pose.label, file: `shots/${runStamp}/${pose.name}.png`, ms: Date.now() - at, stats });
-          say(`    ✓ ${pose.name.padEnd(18)} ${String(Date.now() - at).padStart(5)}ms  ${pose.label}`);
+          // Print the counter next to the shot. "Looks fine" and "twelve
+          // pedestrians were submitted" are different claims, and only one of
+          // them is checkable from the console.
+          const ped = stats?.entityDraws?.find((d) => d.startsWith('pedestrian:')) ?? 'pedestrian:?';
+          results.push({
+            name: pose.name, label: pose.label, file: `shots/${runStamp}/${pose.name}.png`,
+            ms: Date.now() - at, warmMs, stats,
+          });
+          say(`    ✓ ${pose.name.padEnd(18)} ${String(Date.now() - at).padStart(5)}ms` +
+            `${warm ? ` (warm ${warm.ms}ms ${warm.residentChunks}/${warm.target} ${warm.stopped})` : ''}` +
+            `${settled.paced ? '' : ' [UNPACED]'}  ${ped}`);
+          if (stats?.derivedPose?.ok) {
+            const d = stats.derivedPose.source;
+            say(`      └ standing at ${d.carriageway.kind} ${d.carriageway.width}m wide, ` +
+              `${d.footwayOffset}m off the centreline, ${d.distanceToCrowd}m from the crowd centroid ` +
+              `(${d.population.cx}, ${d.population.cz}) n=${d.population.n}`);
+            // Rule 4 as a mechanical check, not a habit. A crowd diagnostic whose
+            // camera ended up far from the crowd is a diagnostic that lies by
+            // position, which is how `01b-crowd-closeup` spent two sessions.
+            if (/crowd/.test(pose.name) && d.distanceToCrowd > 60) {
+              const m = `!! ${pose.name}: camera is ${d.distanceToCrowd}m from the crowd centroid — too far to be a crowd diagnostic`;
+              say(`      ${m}`);
+              notes.push(m);
+            }
+          }
         } catch (err) {
           failed = true;
           results.push({ name: pose.name, label: pose.label, error: String(err?.message || err) });
@@ -527,6 +693,7 @@ async function main() {
     } else {
       // ---- single shot
       const file = join(SHOTS, `${runStamp}.png`);
+      await warmPose(page, opts.poseChunks, opts.warmTicks);
       await settle(page, 45);
       const ok = await shoot(page, file);
       if (!ok) throw new CaptureError('screenshot produced no file');

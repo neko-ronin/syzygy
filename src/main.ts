@@ -20,6 +20,7 @@ import { ConductorUI, toast } from './agent/ui';
 import { CrowdSim } from './sim/crowd';
 import { TrafficSim } from './sim/traffic';
 import { WeatherDirector } from './sim/weather';
+import { derivePose, type DerivedPoseId, type DerivedPoseResult } from './world/diagnosticposes';
 
 // ---------------------------------------------------------------- dom
 
@@ -59,6 +60,43 @@ const fatal = (err: unknown): void => {
   dom.bootBar.style.background = '#ff8a7a';
 };
 
+// ---------------------------------------------------------------- boot params
+
+/** What a warm bake did, and why it stopped. Reported so a partial warm is visible. */
+export interface WarmReport {
+  /** Chunks asked for. */
+  target: number;
+  ticks: number;
+  ms: number;
+  /** Which loop exit fired. `target` is the only one that means the world is full. */
+  stopped: 'target' | 'tick-cap' | 'ms-cap' | 'no-progress';
+  residentChunks: number;
+  visibleChunks: number;
+  rebakePending: number;
+  lodHistogram: number[];
+  triangles: number;
+  tier: string;
+}
+
+/**
+ * URL parameters the harness sets. These are measurement instructions, not
+ * preferences: they change what is resident and when, so a capture taken with
+ * them is not the same capture as one taken without.
+ *
+ *   seed    — world seed
+ *   chunks  — bake at least this many chunks resident, synchronously, at boot
+ *   warm    — iteration cap for that bake (it stops early when there is nothing
+ *             left to do, so this is a ceiling rather than a duration)
+ */
+const BOOT = (() => {
+  const q = new URLSearchParams(location.search);
+  const int = (k: string, d: number): number => {
+    const v = Number.parseInt(q.get(k) ?? '', 10);
+    return Number.isFinite(v) ? v : d;
+  };
+  return { seed: int('seed', 0x5e7a17) | 0, chunks: int('chunks', 0), warm: int('warm', 0) };
+})();
+
 // ---------------------------------------------------------------- main
 
 class App {
@@ -85,11 +123,13 @@ class App {
   private screenshotRequested = false;
   private qualityOverride: QualityTier | null = null;
   private qualityHold = 0;
+  /** The last pose derived from live state, so `stats()` can report where it is standing. */
+  private derivedPose: DerivedPoseResult | null = null;
   ready = false;
   frameCount = 0;
 
   async start(): Promise<void> {
-    const seed = Number(new URLSearchParams(location.search).get('seed') ?? 0x5e7a17) | 0;
+    const seed = BOOT.seed;
 
     setBoot(0.08, 'requesting a gpu');
     await GPUContext.create(dom.canvas);
@@ -130,6 +170,15 @@ class App {
     this.ready = true;
     this.running = true;
     this.last = performance.now();
+
+    // `?chunks=N` — fill the world before the first presented frame. This sits
+    // after `running = true` and before the rAF subscription so `tick()` can be
+    // called synchronously and nothing is on screen yet to stutter.
+    if (BOOT.chunks > 0) {
+      setBoot(0.94, `warming ${BOOT.chunks} chunks`);
+      this.lastWarm = this.warmChunks(BOOT.chunks, BOOT.warm > 0 ? BOOT.warm : 400);
+    }
+
     requestAnimationFrame(this.tick);
 
     setTimeout(() => {
@@ -137,6 +186,87 @@ class App {
       dom.titlecard.classList.add('show');
       setTimeout(() => dom.titlecard.classList.remove('show'), 5200);
     }, 260);
+  }
+
+  // ---------------------------------------------------------------- warm bake
+
+  /**
+   * Synchronous streaming warm-up (F6 / R10).
+   *
+   * `streamChunks` bakes under a hard 4 ms budget per frame, which is the right
+   * trade *while a frame is on screen* — a ~30 ms LOD-0 bake inside a 16 ms
+   * budget is a dropped frame. At boot there is no frame on screen, so the
+   * budget protects nothing; it only turns "fill the view" into "fill the view
+   * over the next sixty frames". Running the loop synchronously is the whole
+   * trick, and it is what takes a capture from minutes to seconds.
+   *
+   * It is deliberately the *same* loop and not a second, faster bake path.
+   * That is what keeps warm boot honest: `streamChunks` derives each chunk's
+   * LOD from the live camera position on every tick, so a chunk is baked at the
+   * detail level it would actually be viewed at. A warm path that baked
+   * everything at LOD 0 would be quicker still and would produce a high-detail
+   * image of a distant view — which looks valid and is wrong, which is the
+   * failure class this repository keeps paying for. It also means the detail
+   * level is only correct once the camera has been moved to the capture pose,
+   * so the harness warms *after* `setPose`, not before.
+   *
+   * Stopping conditions, all of them explicit: the residency target is met and
+   * no re-bakes are queued; the tick cap; the wall-clock cap; or the loop has
+   * stopped making progress, which means there is nothing left in range to
+   * bake. Whichever fired is reported, because a warm that quietly gave up is
+   * a capture of a half-loaded world that still looks like a picture.
+   */
+  warmChunks(target = 96, maxTicks = 400, maxMs = 90_000): WarmReport {
+    const t0 = performance.now();
+    this.last = t0;
+    let ticks = 0;
+    let last = -1;
+    let stall = 0;
+    let stopped: WarmReport['stopped'] = 'tick-cap';
+    for (; ticks < maxTicks; ticks++) {
+      this.tick(performance.now());
+      const s = this.renderer.stats;
+      if (s.residentChunks >= target && s.rebakePending === 0) { stopped = 'target'; break; }
+      if (performance.now() - t0 > maxMs) { stopped = 'ms-cap'; break; }
+      // "No progress" means no new chunks *and* nothing left to re-bake. Without
+      // the rebake clause a warm stops the moment residency plateaus while LODs
+      // are still wrong for the camera, and reports `no-progress` as though the
+      // world were settled — which is exactly the state that makes a capture
+      // quietly low-detail.
+      if (s.residentChunks === last && s.rebakePending === 0) { if (++stall >= 8) { stopped = 'no-progress'; break; } }
+      else { stall = 0; last = s.residentChunks; }
+    }
+    const s = this.renderer.stats;
+    const report: WarmReport = {
+      target, ticks, ms: Math.round(performance.now() - t0), stopped,
+      residentChunks: s.residentChunks, visibleChunks: s.visibleChunks,
+      rebakePending: s.rebakePending, lodHistogram: s.lodHistogram.slice(),
+      triangles: s.triangles, tier: s.tier,
+    };
+    this.lastWarm = report;
+    return report;
+  }
+  lastWarm: WarmReport | null = null;
+
+  // ---------------------------------------------------------------- derived poses
+
+  /**
+   * Derive a diagnostic pose from live state, right now (D21).
+   *
+   * One source for `--eval`, the console and `setPose`: the harness asks for the
+   * numbers here and hands the same numbers back to `setPose`, so what the
+   * console prints is what the renderer used. There is no second copy to drift.
+   *
+   * It reads `CrowdSim.population()` — the live centroid — and then places the
+   * camera on a real carriageway from `sampleStreetPlan`. The centroid alone is
+   * not enough: a centroid can sit mid-block, and a camera at 2.4 m mid-block
+   * photographs a wall. Both are needed for a shot that points at its subject,
+   * and both are reported in `source` so the claim is checkable.
+   */
+  pose(id: DerivedPoseId): DerivedPoseResult {
+    const r = derivePose(id, this.crowd.population(), this.world.seed);
+    this.derivedPose = r;
+    return r;
   }
 
   // ---------------------------------------------------------------- ui wiring
@@ -469,12 +599,48 @@ class App {
       pedMesh: { idx: app.renderer.entityGeometry.pedestrian.indexCount },
         crowdDebug: { ...app.crowd.debug(), instancesCount: app.crowd.instances.count },
         traffic: app.traffic.activeCount,
+        // Where the current diagnostic is standing, and what it was derived
+        // from. Without this a stats dump cannot tell a good frame from a pose
+        // aimed at empty ground a kilometre away — which is the whole of F2.
+        derivedPose: app.derivedPose,
+        warm: app.lastWarm,
       }),
-      setPose: (pose: { position?: [number, number, number]; lookAt?: [number, number, number]; fov?: number; roll?: number }) => {
+      /**
+       * Derive a diagnostic pose from live state and return the numbers.
+       *
+       * Call this, then hand the result to `setPose`. The pose a report or a
+       * console print names is therefore the pose the renderer used.
+       */
+      pose: (id: string) => app.pose(id as DerivedPoseId),
+      /** Synchronous streaming warm-up. `__syzygy.warm()` after `setPose`. */
+      warm: (target?: number, maxTicks?: number, maxMs?: number) =>
+        app.warmChunks(target ?? 96, maxTicks ?? 400, maxMs ?? 90_000),
+      /**
+       * Set the crowd population directly.
+       *
+       * This exists to make one control possible: the same camera, the same
+       * frame, the population changed and nothing else. "2550 instances were
+       * submitted and the frame is empty" and "2550 instances were submitted
+       * and 2550 were drawn" are distinguishable by diffing a frame against the
+       * same frame with the population set to zero, and by nothing else.
+       */
+      setCrowdCount: (n: number) => { app.crowd.setCount(n | 0); },
+      setPose: (pose: {
+        position?: [number, number, number]; lookAt?: [number, number, number];
+        fov?: number; roll?: number; derive?: DerivedPoseId;
+      }) => {
         app.camera.stopTour();
+        let p = pose;
+        if (pose.derive) {
+          const r = app.pose(pose.derive);
+          // Refuse rather than fall back. A pose that cannot be derived is a
+          // broken diagnostic, and substituting a constant is how F2 happened.
+          if (!r.ok) throw new Error(`cannot derive '${pose.derive}': ${r.reason}`);
+          p = { position: r.position, lookAt: r.lookAt, fov: r.fov, roll: r.roll };
+        }
         app.camera.setPose({
-          position: pose.position as never, lookAt: pose.lookAt as never,
-          fov: pose.fov, roll: pose.roll,
+          position: p.position as never, lookAt: p.lookAt as never,
+          fov: p.fov, roll: p.roll,
         });
       },
       setLens: (patch: Record<string, number>) => Object.assign(app.world.lens, patch),
