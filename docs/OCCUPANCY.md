@@ -528,3 +528,77 @@ recording precisely for that reason: **an instrument that only observes one side
 of a boundary will produce a coherent, well-controlled, entirely wrong theory.**
 `docs/OCCUPANCY.md` should be read as the proof of that, not as a list of
 mistakes to avoid repeating.
+
+
+---
+
+# Round 12 — the crowd is drawn. It reads as blocks.
+
+## The sentence that changed
+
+The crowd is **drawn**: 2454 to 2550 agents in view, `entity.drawCalls` 5,
+2,776,644 entity triangles, at seed 6191639 with `delivered: 1410`. What remains
+between R1 and done is **legibility and distribution**. No simulation change will
+move it.
+
+Nine mechanisms were eliminated across rounds 5-9 and the thing they were
+investigating was never the problem. That is the **method's limit**, and it is
+worth more than the mechanisms: every instrument was upstream of the draw call,
+and a coherent, well-controlled theory built entirely from upstream measurements
+is still wrong.
+
+## What the frames actually show
+
+`01d-street-crowd.png` — the street is **empty**. Not one pedestrian is visible
+anywhere: not foreground, not far end, not on either pavement. The provenance
+records `entity.inView.inside: 0` against `total: 2454`. The crowd is submitted
+and none of it lands in frame.
+
+`01e-crowd-closeup.png` — the crowd **is** there, and it is legible as *stuff*.
+Two rows of dense coloured masses on the left and right pavements, the
+carriageway completely empty between them. Each mass is roughly **50 px tall and
+40-70 px wide** — wider than tall. A 1.7 m pedestrian is about 3:1 narrow. These
+are not reading as people; they are reading as **market stalls or counters**, a
+continuous row of them, with no gaps.
+
+So the failure is now precise and it is a rendering-of-population fault:
+
+1. **Silhouette**: the pedestrian footprint is far too wide for its height, so a
+   cluster of them reads as one horizontal block.
+2. **Distribution along the street**: a continuous band, not groups with gaps —
+   the exact merge `LEGIBILITY_TARGETS.md` §2 describes as "a continuous
+   orange/grey band ... fails regardless of instance count", and the
+   `PITFALLS.md` §9 clump trap approached from the other side.
+3. **Lateral**: they are correctly on the pavements and absent from the
+   carriageway. That part is right and should not change.
+4. **Longitudinal**: the far end of the street carries nothing at all. The
+   160 m seeding question is still open and is now the obvious suspect.
+
+## Night contrast — the ambient-invariance result is CONFIRMED
+
+Measured in frames that have lights in them (`delivered: 1410`), which is the
+first time this has been possible:
+
+| frame | best local figure/ground | threshold |
+| --- | --- | --- |
+| `08-night-lanterns` | **1.15:1** | 2.5:1 |
+| `09-market-down` | **1.05:1** | 2.5:1 |
+
+**The theory stands.** No palette can lift this, because `skyIrradiance`
+multiplies coat and deck by the same factor and the ratio is ambient-invariant
+by construction. The prediction was that adding real lights would not lift it,
+and 1414 delivered lights moved the number *down* (1.28 -> 1.15), which is what
+an ambient-invariant ratio plus a darker frame does.
+
+That leaves exactly the three options, and the third is now the live one: **the
+crowd has to be dense enough that legibility comes from grouping rather than
+from contrast.** Contrast is a dead end on this path and has been measured twice.
+
+## What R1 says now
+
+`docs/ROADMAP.md` R1 wants "a density where the far end of the street is visibly
+busy" and "people on the pavements". The second is met — they are on the
+pavements, in numbers, and they were there in every frame. The first is not:
+**in the street frame, 0% of the visible street length carries a legible figure,
+and the 17% far-end band named in `LEGIBILITY_TARGETS.md` §3 is empty.** In the
+close-up the mass is legible but does not read as people.
