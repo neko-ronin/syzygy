@@ -45,6 +45,39 @@ node tools/capture.mjs --sequence --pose=canyon
 Screenshots land in `shots/<timestamp>/`. Read the image — actually read it.
 Then change one thing, and shoot the same pose again.
 
+### Read the provenance before the image
+
+`shots/latest.json` carries a `provenance` block per frame. **Read it before
+looking at the frame**, because every field in it has been a false statement at
+least once and the image cannot tell you which it is looking at.
+
+```
+seed              the world the frame rendered. Captures ran seed 0 for a whole
+                  session while every document said 0x5e7a17, so every coordinate
+                  anyone derived was from a different city. Assert it equals
+                  0x5E7A17 = 6191639.
+tier              `high` / `medium` / `low`. The governor demotes under load, so a
+                  sequence at default quality can decay from high to low across the
+                  run. Pass `--quality <tier>` to pin it. A set with mixed tiers is
+                  not comparable frame to frame.
+camera.position   where the renderer actually was.
+camera.requested  what the pose table asked for. The harness compares these per
+                  frame and FAILS the run on a mismatch.
+lodHistogram      [LOD0, LOD1, ...]. A frame with 128 chunks at LOD 2 is a
+                  different rendering path from one with none.
+lights            count handed to the light binner. The most useful single number
+                  for judging a night frame.
+lightDelivery     produced / delivered / binned / starved / rejectedFar / dayPhase.
+                  `starved > 0` means the bin filled and lights were dropped by
+                  proximity order.
+entity.drawCalls  draws actually issued. Was 0 in every capture for four sessions
+                  because the counter had no callers.
+```
+
+If a frame's provenance is stale or self-contradictory, **stop and fix before
+shooting the rest.** Every silent failure this project has had would have been
+visible in this block.
+
 ### Capture harness options
 
 | Flag | Effect |
