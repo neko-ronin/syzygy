@@ -799,9 +799,57 @@ $ node tools/lsp-check.mjs
 5/5 language server(s) verified
 ```
 
+## Market occupancy — measured, and it does not happen
+
+Round 4 added a market dwell (`F.dwell`, 8-30 s) on the reasoning that a
+Market-goer who arrives and immediately re-picks a goal is a person walking
+*through* the market. That reasoning is plausible and **I asserted it without
+measuring it**. Measuring took four probe runs and the answer is no.
+
+```
+control (no event)    centroid->market  10s 159m  20s 159m  30s 157m  40s 159m  50s 157m  60s 162m
+market-rush fired     centroid->market  10s 159m  20s 159m  30s 157m  40s 159m  50s 157m  60s 162m
+```
+
+Identical to the metre at every sample. A full-intensity `market-rush` changes
+nothing measurable.
+
+Three faults in my own measurement, in order, because each hid the next:
+
+1. **The control was saturated.** The camera stood *on* the market, so the
+   crowd seeded there anyway and the baseline was already ~420 agents within
+   40 m. A saturated control cannot show a delta.
+2. **Moving the camera 300 m away made it worse**, not better:
+   `CrowdSim.instances` only ever holds agents inside `viewRadius`, so the
+   market agents are not in it at all and the count read 0 in both runs.
+3. **`SpineHit` has no `nx`/`nz`** — it is `{dist, px, pz, tx, tz, along}` — and
+   my probe read them anyway. That put NaN into the camera position, which put
+   NaN into every agent, which `population()` serialised as `null`. I briefly
+   read that as a crowd fault; it was mine.
+
+### What the result actually means
+
+`rebuildSlices` retires any agent outside `viewRadius` or behind the view plane
+and reseeds it near the camera. So **the crowd only exists inside the camera's
+view radius**, and a market outside it can never accumulate anyone — the
+attractor does its job and the agent is recycled before it arrives.
+
+That makes the two measurement conditions mutually exclusive with the current
+API: put the camera on the market and the control saturates; move it away and
+the agents are not in the buffer. **I could not measure a delta, and I am not
+claiming the dwell works.** It is code with a plausible rationale and no
+evidence behind it.
+
+The honest way to settle it is a counter that reads agent needs directly —
+`CrowdSim` exposes neither need nor position per agent outside `instances` — or a
+camera-independent population. Both are in `crowd.ts`, which I own, and neither
+is in this round.
+
 ## What I did not get to
 
-1. **The night aisle is still unlit.** Delivery is proven correct; the suspect is
+1. **The market occupancy claim is unverified and currently contradicted.**
+   See the section above.
+2. **The night aisle is still unlit.** Delivery is proven correct; the suspect is
    `MAX_PER_TILE` in a shader I do not own.
 2. **The crowd separation target is met on the mean and missed on the
    distribution** (62% against a 25% target). Open.
