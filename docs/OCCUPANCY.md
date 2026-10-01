@@ -318,3 +318,112 @@ lit-aisle target is the 1.28 -> 1.30 mistake again in a new coat.
 The threshold is close, which is worth knowing, but the honest state is that the
 night crowd contrast **has not been measured** and cannot be until `culledByDay`
 stops being true at a night pose.
+
+
+---
+
+# Round 10 — the funnel, on all three seeds
+
+## R10.1 The seed, established empirically
+
+| source | seed |
+|---|---|
+| `tools/capture.mjs:668` requests | `0x5e7a17` = 6192407 |
+| `src/main.ts:99` `parseInt(..., 10)` on that string | **0** |
+| `__syzygy.pose('street-crowd').source.seed` | **6191639** |
+
+The third row is measured, not inferred. The last two rows disagree, so the
+`0x5e7a17` fallback never runs and the world seed is 6191639 from somewhere
+else — that "somewhere else" is untraced and is the first thing to read.
+
+## R10.2 The funnel
+
+Settled 240 frames at each pose before tracing, because round 9 measured a
+teleport transient and called it a profile.
+
+```
+SEED 6191639 (the seed the frames use)
+along=0     active 4097  in-range 4058  buffered 4058   drawn 2541   goal p50  23 m
+along=160   active 6000  in-range 5932  buffered 3502   drawn 1013   goal p50  14 m
+along=240   active 6000  in-range 5955  buffered    0   drawn    0   goal p50  15 m
+             retired radius 6000   retired behind 5955   killed strand>90  0
+
+SEED 0            along=0 drawn 2534 · along=160 drawn 2440 · along=240 drawn 2436
+SEED 6192407      along=0 drawn 2323 · along=160 drawn 1591 · along=240 drawn  585
+```
+
+**On the seed the frames use, `drawn` is 0 at 240 m.** 6000 agents are alive and
+every one of them is outside the 160 m radius. That is R1's gap, and it is not a
+pipeline loss: nothing is dropped, the population is simply not where the camera
+is.
+
+**The three seeds give three different cities.** `drawn` at 240 m along is 0,
+585 and 2436. The same code, the same poses, three answers.
+
+## R10.3 Which stage loses them — and my instrument's own fault
+
+The stage is `in-range -> buffered` at along=240 on seed 6191639. But I have to
+record that **my funnel reported `in-range 5955` where the real test says 0**, so
+that row is wrong.
+
+Direct control, printing both radius tests in the same frame:
+
+```
+along=  0  viewRadius=160  passA_inR2=2537  build_inR2=2537  drawn=2537
+along=160  viewRadius=160  passA_inR2=1356  build_inR2=1356  drawn=1356
+along=240  viewRadius=160  passA_inR2=0     build_inR2=0     drawn=0
+```
+
+The two code paths agree exactly, as they must. So PROCESS.md rule 1 is
+satisfied — *when both sides are printed from the field*. The failure is my
+own: the trace row's `x,z` is written **first-seen-wins**, once, and then
+compared against a camera 70 frames later, so the distance profile in §R10.2 is a
+blend of 70 frames and is not a profile. `drawn` and `passA_inR2` are the
+trustworthy numbers; the per-stage histograms are not.
+
+Sixth wrong-boundary diagnostic in this project. The row must record a position
+*per frame*, or the profile must be computed at the frame the count is taken.
+
+## R10.4 CPU/GPU boundary
+
+```
+lights 465  delivered 465  binned 465      (day pose -- correct)
+entityDrawCalls 0    entityTriangles 55000
+```
+
+**`entityDrawCalls: 0` in every capture this session**, including one with 2537
+instances in the buffer and 55,000 entity triangles counted. A count that is
+produced and never issued is exactly the `arrayLength` shape developer 1 found in
+the light path. This is `renderer.ts` and is not mine; I am reporting it, not
+touching it.
+
+## R10.5 Re-scoping rounds 6-9 honestly
+
+**Survive** (structural, city-independent):
+- The funnel shows **no pipeline loss** on all three seeds.
+- `killed strand>90` is **0** on every seed and pose.
+- `assignPath` discards the goal to `F.next` when `from < 0` (`crowd.ts:588`).
+  Structural, but with correct `F` offsets every live agent has a valid goal,
+  so it is latent rather than active.
+
+**Void** (measured on `0x5e7a17`, a city with no frame):
+- "the 109 m wall"
+- "62% of retirements are `behind`" — on seed 6191639 it is 39% radius / 62%
+  behind at 0 m but **100% radius at 240 m**; the ratio is a property of the city.
+- "12 lanterns within 40 m"
+- the legible-street-length figure of 58%, and every R1 number quoted in rounds
+  6-8.
+
+**Superseded:** round 9's own "93% behind the camera" was measured on
+`0x5e7a17` and does not hold on the frames' seed, where `drawn` at 240 m is 0
+for a different and simpler reason — nobody is within 160 m at all.
+
+## R10.6 What to instrument next
+
+1. **Where seed 6191639 comes from.** Until the boot path is traced end to end,
+   every number in this file is attached to an unnamed world.
+2. **Why nobody is within 160 m at 240 m along** on seed 6191639 while 6000
+   agents are alive. `goal p50 15 m` says the population is clustered on its
+   goals, and those clusters are outside the radius. That is the R1 mechanism.
+3. **`entityDrawCalls: 0`** — developer 1's boundary.
+4. Fix the funnel's first-seen-wins profile before using it again.
