@@ -955,13 +955,38 @@ frame 1: viewRadius=160 target=2550 live=858 instances=846
    the along-range; it was the wrong metric and I did not check the right one then.
 4. **Not lateral spread.** Narrowing it to the street band regressed to 83%.
 
-So placement samples correctly to 156 m and something between seeding and the
-instance buffer removes everything past 109 m, before the first frame completes.
-`rebuildSlices` does not do it — the agents are not `active` at all in that
-range. That is where I stopped.
+### The search is now bounded to four functions
 
-The symptom, the frame-1 bound and four eliminated hypotheses are the useful
-part; the fix is not.
+With the *real* crowd seed (`makeRng(42 ^ 0xc0ffee)`) the anchor draw over the
+144 groups that frame 1 seats is uniform:
+
+```
+aIdx histogram: 0:7 1:5 2:9 3:7 4:8 5:8 6:6 7:7 8:12 9:6 10:10 11:7 12:6
+                13:10 14:6 15:13 16:8 17:9
+max sampled d = 156.2 m
+groups sampling beyond 100 m: 56      beyond 120 m: 40
+```
+
+**So 40 groups — 240 agents — are provably placed beyond 120 m during frame 1, and
+zero of them reach the instance buffer.** Placement is exonerated; the removal
+is not.
+
+That bounds the search to the code between `seedAgent` returning and
+`buildInstances` reading the buffer, which is four functions:
+
+1. the tail of `rebuildSlices` (the retire test only runs on agents that were
+   *already* active, so it cannot be it on frame 1 — but that is a reading, not
+   a measurement, and it should be instrumented rather than assumed);
+2. `HashGrid.build`;
+3. Pass B's `stepAgent`, which runs on every visible agent after seeding;
+4. `buildInstances`' own radius test, which passes at 150 m against a 160 m
+   radius.
+
+Whoever takes this next should instrument that span rather than re-derive the
+placement, which is now exonerated three ways.
+
+The symptom, the bound, and five eliminated hypotheses are the useful part; the
+fix is not.
 
 ## GAP C — thresholds re-measured, including what I missed
 
