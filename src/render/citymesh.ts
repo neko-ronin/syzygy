@@ -17,11 +17,13 @@ import {
 } from '../world/geometry';
 import {
   type BuildingInstance, type Cable, type CityChunk, type PropInstance, PropKind,
-  GROUND_Y,
+  cityPlan, GROUND_Y,
 } from '../world/citygen';
 import {
-  districtPaletteLinear, districtStyle, type ResolvedPalette, type DistrictStyle,
+  districtAtField, districtPaletteLinear, districtStyle,
+  type ResolvedPalette, type DistrictStyle,
 } from '../world/districts';
+import { groundGrammarFor } from '../world/groundgrammar';
 
 // ---------------------------------------------------------------- materials
 
@@ -817,29 +819,87 @@ export function bakeChunk(chunk: CityChunk, lod: number, seed: number): BakedChu
   };
 }
 
-/** Ground plane + canal water, built once and shared. */
+/**
+ * Ground plane + canal water, built once and shared.
+ *
+ * The deck used to be ONE quad in a single hard-coded grey, plus 1.2m kerb
+ * boxes on a jittered 48m world-axis grid. Two things were wrong with that and
+ * neither of them announced itself: the colour ignored `palette.ground`, which
+ * has existed in `districts.ts` since the first commit and was read by nothing;
+ * and the kerb grid had no relationship to the street network, so a "kerb" ran
+ * straight through the middle of a block and none of them ran along an actual
+ * carriageway. The kerbs are now baked per chunk from `sampleStreetPlan`
+ * (`bakeGroundDetail`), and what is left here is the deck itself.
+ */
 export function bakeGround(size: number, seed: number): { mesh: Mesh; water: Mesh } {
   const g = new MeshBuilder();
   const w = new MeshBuilder();
-  const r = bakeRng(seed ^ 0x1234567);
-  // Street deck: a large quad, subdivided enough that vertex-level variation
-  // is possible later. Colour is dark wet asphalt with a warm undertone.
-  const half = size * 0.5;
-  g.pushQuad(
-    [-half, GROUND_Y, half], [half, GROUND_Y, half],
-    [half, GROUND_Y, -half], [-half, GROUND_Y, -half],
-    [0.052, 0.050, 0.049], 0.12,
-  );
-  // Kerb strips along the two axes at the district grid pitch, to break the
-  // ground plane up so the fog has something to sit on.
-  const step = 48;
-  for (let i = -Math.floor(half / step); i <= Math.floor(half / step); i++) {
-    const x = i * step + r.jitter(3);
-    g.pushBox([x, GROUND_Y + 0.07, 0], [0.6, 0.07, half], [0.11, 0.105, 0.10], { faces: FACE_ALL });
-    g.pushBox([0, GROUND_Y + 0.07, x], [half, 0.07, 0.6], [0.11, 0.105, 0.10], { faces: FACE_ALL });
-  }
+  pushGroundDeck(g, size, seed);
   return { mesh: g.build(), water: w.build() };
 }
+
+/** Deck tessellation pitch in metres. Districts are 300m+ across, so this is well under. */
+const DECK_CELL = 64;
+
+/**
+ * The street deck: a shared-vertex grid, one vertex per grid node, coloured by
+ * the district that owns that node.
+ *
+ * A shared vertex grid rather than independent quads is deliberate: with shared
+ * nodes the district boundary is a continuous ramp at cell resolution and
+ * neighbouring cells cannot disagree along a shared edge, so there is no
+ * seam and no z-fight. 64x64 cells over 4096m is 4096 quads / 8192 triangles
+ * for a mesh that used to be 1034, which is nothing against a per-chunk budget
+ * and is the single largest change in screen area in the whole renderer.
+ */
+export function pushGroundDeck(bld: MeshBuilder, size: number, seed: number): void {
+  const plan = cityPlan(seed);
+  const n = Math.max(1, Math.round(size / DECK_CELL));
+  const half = size * 0.5;
+  const step = size / n;
+  // Node colours, computed once each and shared by the quads around them.
+  const cols: Vec3[] = new Array((n + 1) * (n + 1));
+  for (let j = 0; j <= n; j++) {
+    for (let i = 0; i <= n; i++) {
+      const x = -half + i * step;
+      const z = -half + j * step;
+      const d = districtAtField(plan.districts, x, z);
+      const g = groundGrammarFor(d, 'street');
+      // Low-frequency value drift so the 64m lattice does not read as a
+      // checkerboard where two districts of similar value meet.
+      const jitter = 0.94 + 0.12 * hash01(i * 73856093 ^ j * 19349663 ^ seed);
+      const k = jitter;
+      cols[j * (n + 1) + i] = [g.albedo[0] * k, g.albedo[1] * k, g.albedo[2] * k];
+    }
+  }
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) {
+      const x0 = -half + i * step, x1 = x0 + step;
+      const z0 = -half + j * step, z1 = z0 + step;
+      const c00 = cols[j * (n + 1) + i];
+      const c10 = cols[j * (n + 1) + i + 1];
+      const c11 = cols[(j + 1) * (n + 1) + i + 1];
+      const c01 = cols[(j + 1) * (n + 1) + i];
+      // pushQuad takes one colour per quad, so average the four node colours.
+      const c: Vec3 = [
+        (c00[0] + c10[0] + c11[0] + c01[0]) * 0.25,
+        (c00[1] + c10[1] + c11[1] + c01[1]) * 0.25,
+        (c00[2] + c10[2] + c11[2] + c01[2]) * 0.25,
+      ];
+      bld.pushQuad(
+        [x0, GROUND_Y, z1], [x1, GROUND_Y, z1], [x1, GROUND_Y, z0], [x0, GROUND_Y, z0],
+        c, 0.12, { normals: [[0, 1, 0], [0, 1, 0], [0, 1, 0], [0, 1, 0]] },
+      );
+    }
+  }
+}
+
+/** Stable 0..1 from an integer pair. Mirrors the fragment stage's hash intent. */
+const hash01 = (h: number): number => {
+  let x = Math.imul(h ^ 0x9e3779b1, 0x85ebca6b) >>> 0;
+  x = (x ^ (x >>> 13)) >>> 0;
+  return (Math.imul(x, 0xc2b2ae35) >>> 0) / 4294967296;
+};
 
 // ---------------------------------------------------------------- entity meshes
 

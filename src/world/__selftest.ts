@@ -12,6 +12,9 @@ import {
 } from './citygen';
 import { MeshBuilder, meshTriangleCount, type Mesh } from './geometry';
 import { NavGraph, buildRailLines, buildZiplines, resampleSpline } from './networks';
+import {
+  BAND_ORDER, CLUTTER_KINDS, bandAlbedo, familyFromBand, groundGrammarFor, hsv,
+} from './groundgrammar';
 
 const now = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
@@ -357,6 +360,57 @@ export function runCitySelfTest(): string {
     .map(([k, v]) => `${DISTRICT_STYLES[k].key}:${v}`)
     .join(' ');
 
+  // --- ground grammar. The pavement family has to survive the trip to the
+  // fragment stage, which is a round trip through the ONLY per-vertex channel a
+  // chunk draw has (`color.rgb`): band it, read it back, compare. Both numbers
+  // below were wrong before they were measured — the first design decoded 29 of
+  // 66 (district, road kind) pairs correctly, the second decoded 36 because the
+  // colour was banded before the road kind sharpened it.
+  const ROAD_KINDS = ['artery', 'street', 'alley', 'market', 'rail', 'canal'] as const;
+  let decodeOk = 0, decodeTotal = 0;
+  const decodeBad: string[] = [];
+  for (let d = 0; d < DISTRICT_STYLES.length; d++) {
+    for (const k of ROAD_KINDS) {
+      const g = groundGrammarFor(d, k);
+      decodeTotal++;
+      const [, s, v] = hsv(g.albedo);
+      const got = familyFromBand(s, v);
+      if (got === g.pavement) decodeOk++;
+      else if (decodeBad.length < 6) decodeBad.push(`${DISTRICT_STYLES[d].key}/${k} ${g.pavement}->${got}`);
+    }
+  }
+  if (decodeOk !== decodeTotal) {
+    fail(`pavement family survives the vertex-colour round trip for only ${decodeOk}/${decodeTotal} pairs (${decodeBad.join(', ')})`);
+  }
+  // Every band, including the synthetic 'paint', must be uniquely nearest to
+  // itself. Without this the decoder could be self-consistent and still wrong.
+  let bandOk = 0;
+  for (const f of BAND_ORDER) {
+    const [, s, v] = hsv(bandAlbedo([0.42, 0.31, 0.19], f));
+    if (familyFromBand(s, v) === f) bandOk++;
+  }
+  if (bandOk !== BAND_ORDER.length) fail(`${BAND_ORDER.length - bandOk}/${BAND_ORDER.length} pavement bands are not uniquely decodable`);
+  // A kerb must be LIGHTER than its carriageway. rust-hangars was at 0.20x
+  // before `kerbTone` was applied to the banded road value instead of the raw
+  // palette value, and nothing anywhere complained.
+  let kerbBad = 0;
+  for (let d = 0; d < DISTRICT_STYLES.length; d++) {
+    for (const k of ROAD_KINDS) {
+      const g = groundGrammarFor(d, k);
+      const rv = hsv(g.albedo)[2], kv = hsv(g.kerbAlbedo)[2];
+      if (kv < rv * (g.kerbTone - 0.01) || kv > rv * (g.kerbTone + 0.01)) kerbBad++;
+    }
+  }
+  if (kerbBad > 0) fail(`${kerbBad}/${DISTRICT_STYLES.length * ROAD_KINDS.length} kerbs do not honour kerbTone`);
+
+  const groundRow = (d: number): string => {
+    const g = groundGrammarFor(d, 'street');
+    const [, s, v] = hsv(g.albedo);
+    return `${DISTRICT_STYLES[d].key.padEnd(17)} ${g.pavement.padEnd(15)} s${s.toFixed(3)} v${v.toFixed(3)}` +
+      ` kerb x${g.kerbTone.toFixed(1)} mark:${g.marking.padEnd(11)} fw${g.footwayWidth.toFixed(1)}m` +
+      ` clutter ${g.clutter.length}/${CLUTTER_KINDS.length}`;
+  };
+
   const L: string[] = [];
   L.push('syzygy citygen self-test — seed 42, 64 chunks sampled across the 13x13 world @ 256m');
   L.push('');
@@ -381,6 +435,11 @@ export function runCitySelfTest(): string {
   L.push('');
   L.push(`districts     ${districts}`);
   L.push(`props         ${kinds}`);
+  L.push('');
+  L.push('ground grammar (street kind) — albedo banded into the family window so the');
+  L.push('fragment stage can recover it; hue is the district identity that survives');
+  for (let d = 0; d < DISTRICT_STYLES.length; d++) L.push(`              ${groundRow(d)}`);
+  L.push(`              family decode ${decodeOk}/${decodeTotal} pairs; bands ${bandOk}/${BAND_ORDER.length} uniquely decodable; kerbTone honoured on all ${DISTRICT_STYLES.length * ROAD_KINDS.length}`);
   L.push('');
   L.push(violations.length === 0
     ? 'VIOLATIONS   none — all invariants hold'
