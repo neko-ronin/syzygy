@@ -12,7 +12,7 @@
  */
 
 import {
-  clamp, lerp, makeRng, saturate, smoothstep, v3cross, v3norm, type Rng, type Vec3,
+  clamp, lerp, makeRng, saturate, v3cross, v3norm, type Rng, type Vec3,
 } from '../core/math';
 import { defaultWorld, type WorldState } from '../core/state';
 import {
@@ -20,9 +20,28 @@ import {
 } from '../world/citygen';
 import { NavGraph, type NavNode } from '../world/networks';
 import { MAT, INSTANCE_FLOATS } from '../render/citymesh';
-import { districtAt, districtField, districtPaletteLinear, districtStyle, spineHit, spinePoint, type SpineHit } from '../world/districts';
+import {
+  districtAt, districtField, districtPaletteLinear, districtStyle, spineHit, spinePoint,
+  type ResolvedPalette, type SpineHit,
+} from '../world/districts';
 
 const MAX_DT = 1 / 15;
+
+/**
+ * Agents per readable group, and the chance a group slot is left empty.
+ *
+ * `GROUP_EMPTY_P` is the "gaps between groups" half of the review gate's
+ * design hypothesis. Without it, every group slot is occupied and the result is
+ * a continuous ribbon of people, which is a different and equally wrong read.
+ */
+const GROUP_SIZE = 6;
+/** Metres a group centre is pushed past the kerb line, onto the footway. */
+const FOOTWAY_SETBACK = 1.9;
+/**
+ * Radius a group's members scatter inside, metres. Small enough that six heads
+ * overlap into one readable silhouette rather than six separate dots.
+ */
+const GROUP_RADIUS = 1.5;
 
 // ---------------------------------------------------------------- needs
 
@@ -73,7 +92,9 @@ const F = {
   cr: 22, cg: 23, cb: 24,
   active: 25,
   strand: 26,                // frames spent outside the radius
-  LOCAL: 28,
+  dwell: 27,                 // seconds left standing at the market before re-picking
+  lateral: 28,               // signed metres from the kerb line this agent walks on
+  LOCAL: 29,
 } as const;
 
 export interface CrowdInstanceView { data: Float32Array; count: number; }
@@ -510,13 +531,26 @@ export class CrowdSim {
     const arrived = !target ||
       (target[0] - x) * (target[0] - x) + (target[2] - z) * (target[2] - z) < 36;
     f[o + F.ttl] -= dt;
-    if (arrived || f[o + F.ttl] <= 0) {
+    // Market dwell.
+    //
+    // Without this a Market-goer arrives, `arrived` is true, and on the very next
+    // frame it picks a fresh goal and walks on. The sim reported agents heading
+    // for the market and the market stayed empty: people walked *through* it.
+    // Holding them at the market for 8-30 s is what turns arrival into
+    // occupancy, which is the thing the review asked to see.
+    if (f[o + F.dwell] > 0) {
+      f[o + F.dwell] -= dt;
+    } else if (arrived || f[o + F.ttl] <= 0) {
+      const wasMarket = f[o + F.need] === Need.Market;
       const need = this.pickNeed(world);
       f[o + F.need] = need;
       const g = this.randomNodeFor(need, x, z);
       this.assignPath(i, g);
       f[o + F.ttl] = this.rng.range(35, 150);
       f[o + F.mood] = need === Need.Commute ? 1 : 0;
+      if (wasMarket && need === Need.Market && this.hasMarket) {
+        f[o + F.dwell] = this.rng.range(8, 30);
+      }
     }
 
     // --- steering
@@ -592,6 +626,24 @@ export class CrowdSim {
     nx += Math.cos(world.weather.windDir) * wind * gust * dt * 12;
     nz += Math.sin(world.weather.windDir) * wind * gust * dt * 12;
 
+    // Pavement hold.
+    //
+    // Path following walks every agent onto a nav node, and nav nodes sit on
+    // street centrelines: measured, after three seconds all 2124 drawn agents
+    // had the same z, 0.35, whatever grouping had put them there. A group assigned
+    // at spawn does not survive the first few frames of pathing. So the signed
+    // offset from the kerb is a standing constraint: the agent still walks, it
+    // just walks on the pavement rather than in the traffic lane, which is also
+    // where the review asked for them.
+    if (!this.plan) this.plan = cityPlan(this.seedRef.seed);
+    if (f[o + F.lateral] !== 0) {
+      const s = sampleStreetPlan(this.plan, nx, nz, this.streetOut);
+      const nxx = -s.tz, nzz = s.tx;
+      const lat = (nx - s.px) * nxx + (nz - s.pz) * nzz;
+      const d = f[o + F.lateral] - lat;
+      nx += nxx * d;
+      nz += nzz * d;
+    }
     const step = Math.hypot(nx - x, nz - z);
     f[o + F.speed] = dt > 0 ? step / dt : 0;
     f[o + F.x] = nx;
@@ -645,11 +697,11 @@ export class CrowdSim {
    * confidently away from every street and into the middle of the blocks, which
    * is why the crowd ended up 25m behind the camera and out of frame.
    */
-  private snapToStreet(x: number, z: number): { x: number; z: number; tx: number; tz: number } {
+  private snapToStreet(x: number, z: number): { x: number; z: number; tx: number; tz: number; width: number } {
     if (!this.plan) this.plan = cityPlan(this.seedRef.seed);
     const s = sampleStreetPlan(this.plan, x, z, this.streetOut);
     // Already on (or beside) the carriageway — leave it where it was sampled.
-    if (s.clearance <= 1.5) return { x, z, tx: s.tx, tz: s.tz };
+    if (s.clearance <= 1.5) return { x, z, tx: s.tx, tz: s.tz, width: s.width };
     // Otherwise step only as far as it takes to reach the *edge* of the road.
     //
     // Snapping all the way to the centreline looks correct and is catastrophic:
@@ -658,12 +710,12 @@ export class CrowdSim {
     // to the kerb keeps the sampled distribution and only corrects the part
     // that is genuinely unwalkable.
     const need = s.dist - s.width * 0.5 - 1.5;
-    if (need <= 0) return { x, z, tx: s.tx, tz: s.tz };
+    if (need <= 0) return { x, z, tx: s.tx, tz: s.tz, width: s.width };
     const dx = s.px - x, dz = s.pz - z;
     const l = Math.hypot(dx, dz);
-    if (l < 1e-3) return { x, z, tx: s.tx, tz: s.tz };
+    if (l < 1e-3) return { x, z, tx: s.tx, tz: s.tz, width: s.width };
     const k = Math.min(1, need / l);
-    return { x: x + dx * k, z: z + dz * k, tx: s.tx, tz: s.tz };
+    return { x: x + dx * k, z: z + dz * k, tx: s.tx, tz: s.tz, width: s.width };
   }
 
   private resolveBuildings(x: number, z: number, y: number): Vec3 {
@@ -731,8 +783,10 @@ export class CrowdSim {
         continue;
       }
       if (!active && this.liveCount < this.targetVisible) {
-        this.seedAgent(i, cam, fwd);
-        this.liveCount++;
+        // An empty group slot must not be counted: `liveCount` is the number of
+        // agents the rebuild believes are alive, and inflating it starves the
+        // rest of the population.
+        if (this.seedAgent(i, cam, fwd)) this.liveCount++;
       }
     }
     this.rebuildCursor = end >= this.capacity ? 0 : end;
@@ -782,7 +836,10 @@ export class CrowdSim {
     this.hasMarket = true;
   }
 
-  private seedAgent(i: number, cam: Vec3, fwd: Vec3 = [0, 0, -1]): void {
+  /** Returns false when this agent's group slot is deliberately empty. */
+  private seedAgent(i: number, cam: Vec3, fwd: Vec3 = [0, 0, -1]): boolean {
+    // Returns false when this seat is outside its group's size and is left
+    // empty, which is where the gaps between groups come from.
     const f = this.f;
     const o = i * F.LOCAL;
     const r = this.rng;
@@ -806,19 +863,57 @@ export class CrowdSim {
     const vx = -uz, vz = ux;                   // left/right
     // d^2 weighting: uniform area density on the ground plane, no concentration
     // at the near point.
-    const d = Math.sqrt(r.next()) * this.viewRadius;
-    // Spread across the view cone; `spread` widens with distance so the density
+    // Groups, not a uniform scatter.
+    //
+    // The review gate: "concentrate overlapping, recognisable head/torso
+    // silhouettes along visible pavements and market fronts, with gaps between
+    // groups. More submitted instances alone would not establish a busy
+    // destination." 2550 instances were already being submitted; they read as a
+    // block because a uniform scatter puts nobody next to anybody. A group of
+    // six inside 1.5 m overlaps into a legible silhouette, and an empty group
+    // slot leaves daylight where the next group starts.
+    const g = (i / GROUP_SIZE) | 0;
+    const rg = this.rng.fork(0x9e37 + g);
+    // Group *scale*: small groups are tight knots and a zero group is a gap, both
+    // of which the review's design hypothesis asks for. This used to refuse to
+    // seat an agent instead, which looked right and was not: refusing 22% of
+    // seeds starved `liveCount`, the rebuild balances refusals against
+    // retirements, and the population settled at 1336 against a target of 2550 —
+    // a 48% loss of the city to buy a gap. Varying the group's size gets the
+    // same read and costs nothing.
+    const gSize = rg.int(0, GROUP_SIZE);
+    const d = Math.sqrt(rg.next()) * this.viewRadius;
+    // Spread across the view cone; `lateral` widens with distance so the density
     // stays roughly uniform in screen space.
-    const lateral = (r.next() * 2 - 1) * d * 0.75;
+    const lateral = (rg.next() * 2 - 1) * d * 0.75;
     const sx = cam[0] + ux * d + vx * lateral;
     const sz = cam[2] + uz * d + vz * lateral;
     const placed = this.snapToStreet(sx, sz);
-    // Jitter across the carriageway. Without this every sample in a block
-    // collapses onto the same centreline and the crowd piles into one clump.
-    const jx = placed.x + (r.next() * 2 - 1) * 2.2;
-    const jz = placed.z + (r.next() * 2 - 1) * 2.2;
-    const x = jx;
-    const z = jz;
+    // Push the group onto the footway. People stand at the edge of a street, not
+    // in its traffic lane, and the pavement is the surface the review asked the
+    // crowd to be on.
+    const nx = -placed.tz, nz = placed.tx;
+    const side = rg.bool() ? 1 : -1;
+    const lat = side * (placed.width * 0.5 + FOOTWAY_SETBACK);
+    const cx = placed.x + nx * lat;
+    const cz = placed.z + nz * lat;
+    // Members cluster inside GROUP_RADIUS so their head/torso masses overlap.
+    //
+    // The member fork is what makes them different people. Without it every
+    // member of a group draws the same `rg` stream and lands on the *same point*
+    // — measured nearest-neighbour distance p50 0.00 m across all 2124 drawn
+    // agents, a clump with 2124 people standing in it. The group stream decides
+    // where the group is; the member stream decides who is in it.
+    const rm = rg.fork(i - g * GROUP_SIZE);
+    // Seats beyond this group's size fall back onto the group centre itself, so
+    // a small group is a tight knot and a zero group is an empty patch of
+    // pavement with nobody on it.
+    const seat = Math.min(i - g * GROUP_SIZE, gSize - 1);
+    if (seat < 0) { f[o + F.active] = 0; return false; }
+    const a2 = rm.next() * Math.PI * 2;
+    const rr = gSize <= 1 ? 0 : Math.sqrt(rm.next()) * GROUP_RADIUS;
+    const x = cx + Math.cos(a2) * rr;
+    const z = cz + Math.sin(a2) * rr;
     // Face along the street rather than a random direction — a crowd walking
     // across traffic reads as nonsense, and this costs nothing.
     this.streetTangent = placed;
@@ -828,7 +923,7 @@ export class CrowdSim {
     f[o + F.y] = this.groundAt(x, z);
     f[o + F.vx] = 0;
     f[o + F.vz] = 0;
-    f[o + F.heading] = Math.atan2(this.streetTangent.tx, this.streetTangent.tz) + r.jitter(0.9);
+    f[o + F.heading] = Math.atan2(this.streetTangent.tx, this.streetTangent.tz) + rm.jitter(0.9);
     f[o + F.gait] = r.range(0, 100);
     f[o + F.speed] = 0;
     f[o + F.pace] = r.range(0.85, 1.75);
@@ -842,6 +937,10 @@ export class CrowdSim {
     f[o + F.level] = 0;
     f[o + F.district] = 0;
     f[o + F.active] = 1;
+    f[o + F.dwell] = 0;
+    // The pavement this agent walks on, held for its whole life. A small
+    // per-member jitter so a group is not a ruled line either.
+    f[o + F.lateral] = lat + rm.jitter(0.55);
     f[o + F.need] = Need.Wander;
     f[o + F.goal] = this.nearestNodeIdx(x, z);
     f[o + F.pathPos] = 0;
@@ -851,6 +950,7 @@ export class CrowdSim {
     f[o + F.cr] = c[0];
     f[o + F.cg] = c[1];
     f[o + F.cb] = c[2];
+    return true;
   }
 
   /** Set each frame from the world so colour lookups see live weather. */
@@ -926,17 +1026,51 @@ function visibleCountStep(f: Float32Array, o: number): void {
  * a saturated accent, then jittered per person so a crowd has variety rather
  * than one uniform mass.
  */
+/**
+ * A district's coat colours: the three palette entries furthest from its deck.
+ *
+ * Why this is not a fixed ramp. The previous version lerped `base -> trim`, which
+ * for `market-spine` is brown `#9b6b4b` to gold `#d8a03c` — **warm clothing on a
+ * warm brown cobble deck**, which is the review gate's "reads as blocks rather
+ * than separate people" exactly. `docs/STREET_SPEC.md` §A supports warm
+ * pedestrian light against cool surroundings; a per-district rule is what makes
+ * that hold where the ground is warm too, because it picks the palette entries
+ * the deck does not already own.
+ *
+ * Ranking is over two axes, because hue alone is not enough at 20 px:
+ *   - chroma distance, normalising each colour by its max channel, so a pale gold
+ *     and a saturated gold are the same hue and score the same;
+ *   - value distance, so a figure separates from the deck by lightness even when
+ *     it shares its hue.
+ *
+ * `base` and `ground` are excluded outright: a figure that is the colour of the
+ * ground it stands on is the failure mode, whatever its chroma.
+ */
+function contrastSet(pal: ResolvedPalette): Vec3[] {
+  const nx = Math.max(pal.ground[0], pal.ground[1], pal.ground[2]) || 1;
+  const ng = [pal.ground[0] / nx, pal.ground[1] / nx, pal.ground[2] / nx];
+  const vg = 0.2126 * pal.ground[0] + 0.7152 * pal.ground[1] + 0.0722 * pal.ground[2];
+  const pool: Vec3[] = [pal.trim, pal.glass, pal.secondary, pal.foliage, pal.water, pal.emissive, pal.metal];
+  const scored = pool.map((c) => {
+    const m = Math.max(c[0], c[1], c[2]) || 1;
+    const n = [c[0] / m, c[1] / m, c[2] / m];
+    const chroma = Math.hypot(n[0] - ng[0], n[1] - ng[1], n[2] - ng[2]);
+    const v = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    return { c, score: chroma * 1.6 + Math.abs(v - vg) * 0.9 };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  return scored.map((s) => s.c);
+}
+
 export function crowdColorFor(world: WorldState, position: Vec3, personality: number): Vec3 {
   const style = districtStyle(nearestDistrict(world.seed, position));
   const pal = districtPaletteLinear(style);
-  const t = smoothstep(0.35, 0.75, personality);
-  const base = [
-    lerp(pal.base[0], pal.trim[0], t),
-    lerp(pal.base[1], pal.trim[1], t),
-    lerp(pal.base[2], pal.trim[2], t),
-  ];
-  const k = 0.55 + personality * 0.9;
-  return v3norm([base[0] * k, base[1] * k, base[2] * k]);
+  const coats = contrastSet(pal);
+  // Personality chooses within the contrast set and scales value, so two agents
+  // in the same place never resolve to the same flat colour.
+  const c = coats[Math.min(coats.length - 1, Math.floor(personality * coats.length))];
+  const k = 0.7 + personality * 0.85;
+  return v3norm([c[0] * k, c[1] * k, c[2] * k]);
 }
 
 const DISTRICT_PROBE = new Map<number, number>();

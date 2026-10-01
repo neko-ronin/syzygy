@@ -45,7 +45,7 @@ import { GROUND_Y } from './citygen';
 import type { CityChunk, CityPlan, RoadKind } from './citygen';
 import {
   MARKET_DISTRICT, districtPaletteLinear, districtStyle, spineHit, spinePoint,
-  type SpineHit,
+  type ResolvedPalette, type SpineHit,
 } from './districts';
 
 /** `lantern-bazaar`, the low-rise shophouse district that wraps the spine. */
@@ -249,6 +249,83 @@ export const CORRIDOR_SCALE = 0.55;
 export type MarketSide = 1 | -1;
 
 /**
+ * Stall typology.
+ *
+ * DESIGN HYPOTHESIS, and the reason it has to exist is a measurement. The
+ * review gate reported "similar pitched roofs and rectangular counters form long,
+ * mechanically regular sequences; the street's left-edge orange/grey forms
+ * merge into a fence-like band". Measured at seed 42 over 24 consecutive
+ * stalls on one kerb:
+ *
+ *     eave spread 0.334 m     ridge spread 0.533 m
+ *     2 distinct cloth colours, both the same orange hue
+ *     longest gapless run on one kerb: 15 stalls
+ *
+ * Every stall was a pitched tarpaulin at the same height with one of two
+ * near-identical oranges. Panel count and support type varied; the *type* did
+ * not, and a 0.33 m height spread is a fence. The six modules below differ in
+ * silhouette, height band and whether there is cloth at all.
+ */
+export type MarketModule =
+  /** Pitched tarpaulin, the common case. */
+  | 'tarpaulin'
+  /** Mono-pitch leaning on the building: no roadward overhang, steeper, taller at the back. */
+  | 'lean-to'
+  /** Flat deck on posts. Breaks the roofline completely. */
+  | 'flat'
+  /** Two-storey front, sign panel above the awning. The thing that stops a row reading as a fence. */
+  | 'double'
+  /** Frame with no cloth: a stripped stall being set up or packed down. */
+  | 'frame'
+  /** No roof at all: a pitch stall, a counter and crates in the open. */
+  | 'bare';
+
+/**
+ * Per-module geometry, all metres. `eave`/`ridge` are heights above the deck.
+ *
+ * The height bands deliberately do not overlap much. A `double` at 4.4-5.6 m
+ * beside a `lean-to` at 2.0-2.35 m is a 3.5 m step in the roofline; that is what
+ * the review asked for when it said to spend geometry on "edges, thickness,
+ * posts, brackets and canopy silhouettes".
+ */
+export interface ModuleForm {
+  eave: [number, number];
+  ridge: [number, number];
+  /** Horizontal roof: `ridge` follows `eave` instead of rising. */
+  flat: boolean;
+  /** Roadward overhang past the kerb line, metres. */
+  overhang: [number, number];
+  depth: [number, number];
+  /** Does the module emit a cloth surface at all? */
+  cloth: boolean;
+  /** Does it emit legs, or hang off the building? */
+  frame: 'poles' | 'wall-tied';
+  /** Share of the fleet, weights. */
+  weight: number;
+}
+
+export const MODULE_FORMS: Record<MarketModule, ModuleForm> = {
+  tarpaulin: { eave: [2.25, 2.60], ridge: [2.85, 3.40], flat: false, overhang: [1.1, 2.3], depth: [1.7, 2.7], cloth: true, frame: 'poles', weight: 40 },
+  'lean-to': { eave: [2.00, 2.35], ridge: [3.30, 4.00], flat: false, overhang: [0.0, 0.4], depth: [1.9, 2.8], cloth: true, frame: 'wall-tied', weight: 18 },
+  flat: { eave: [2.45, 2.85], ridge: [2.55, 2.95], flat: true, overhang: [0.9, 1.9], depth: [1.6, 2.4], cloth: true, frame: 'poles', weight: 14 },
+  double: { eave: [4.40, 5.60], ridge: [4.60, 5.80], flat: false, overhang: [1.4, 2.6], depth: [2.2, 3.0], cloth: true, frame: 'wall-tied', weight: 10 },
+  frame: { eave: [2.60, 3.10], ridge: [2.70, 3.20], flat: true, overhang: [0.6, 1.4], depth: [1.7, 2.4], cloth: false, frame: 'poles', weight: 9 },
+  bare: { eave: [0, 0], ridge: [0, 0], flat: true, overhang: [0, 0], depth: [1.4, 2.0], cloth: false, frame: 'poles', weight: 9 },
+};
+
+const MODULE_TOTAL_WEIGHT = MODULE_FORMS.tarpaulin.weight + MODULE_FORMS['lean-to'].weight
+  + MODULE_FORMS.flat.weight + MODULE_FORMS.double.weight + MODULE_FORMS.frame.weight
+  + MODULE_FORMS.bare.weight;
+
+/**
+ * How many stalls may sit side by side on one kerb before a gap is forced.
+ *
+ * Measured longest gapless run before this: 15 stalls. A kerb read as a fence at
+ * 15; the target is 6, which leaves a rhythm of run, run, gap.
+ */
+export const RUN_FATIGUE = 6;
+
+/**
  * A crate, a sack, a box. Cheap geometry, and cheap geometry is what makes a
  * market look traded-in rather than modelled.
  */
@@ -351,6 +428,12 @@ export interface MarketStall {
   crates: MarketCrate[];
   vent: MarketVent | null;
   sign: MarketSign | null;
+  /** Stall typology. Drives silhouette, height band and whether there is cloth. */
+  module: MarketModule;
+  /** Horizontal roof rather than pitched. */
+  flatRoof: boolean;
+  /** This module emits a cloth surface. `false` for `frame` and `bare`. */
+  hasCloth: boolean;
   /** Coarsest LOD the *roof* survives at. */
   lod: MarketLod;
 }
@@ -426,6 +509,8 @@ export interface MarketStats {
   slots: number;
   /** Slots left empty because the run-length machine was in a gap. */
   gaps: number;
+  /** Of those, how many were forced by {@link RUN_FATIGUE} rather than scheduled. */
+  fatigueGaps: number;
   /** Slots where a stall was wanted but no facade clearance could be found. */
   rejected: number;
   stalls: number;
@@ -462,6 +547,37 @@ export interface MarketQuery {
 }
 
 // ---------------------------------------------------------------- helpers
+
+/**
+ * Pick a module from a unit hash.
+ *
+ * Deliberately *not* a function of position along the spine. The review gate's
+ * finding was that position drove everything and the row read as a comb; tying
+ * the module to `along` would reproduce exactly that, one axis further out. The
+ * hash is over the stall's own identity, so the sequence of modules along a run
+ * is a permutation rather than a trend.
+ */
+function pickModule(u: number): MarketModule {
+  const order: MarketModule[] = ['tarpaulin', 'lean-to', 'flat', 'double', 'frame', 'bare'];
+  let acc = 0;
+  for (const m of order) {
+    acc += MODULE_FORMS[m].weight;
+    if (u * MODULE_TOTAL_WEIGHT < acc) return m;
+  }
+  return 'tarpaulin';
+}
+
+/**
+ * Cloth colours drawn from the district palette.
+ *
+ * Measured before: two distinct colours across 24 stalls, both the same orange
+ * hue — the "orange/grey forms merge into a fence-like band" the review named.
+ * Five entries spanning the palette's value range give adjacent stalls a real
+ * chance of differing, and they all stay inside the district's identity.
+ */
+function clothSet(pal: ResolvedPalette, accent: Vec3): Vec3[] {
+  return [pal.trim, pal.glass, accent, tint(pal.base, 0.78), tint(pal.secondary, 0.86)];
+}
 
 /** Multiply a linear colour by a scalar. Linear in, linear out (districts.ts:7). */
 const tint = (c: Vec3, k: number): Vec3 => [c[0] * k, c[1] * k, c[2] * k];
@@ -602,7 +718,7 @@ export function marketGrammarFor(q: MarketQuery): MarketDesc {
   const cloth: MarketCloth[] = [];
   const lights: MarketLight[] = [];
   const stats: MarketStats = {
-    metres: 0, slots: 0, gaps: 0, rejected: 0, stalls: 0, crates: 0, signs: 0,
+    metres: 0, slots: 0, gaps: 0, fatigueGaps: 0, rejected: 0, stalls: 0, crates: 0, signs: 0,
     vents: 0, lanternStrings: 0, lanterns: 0, cloth: 0, lights: 0,
   };
   const empty = (): MarketDesc => ({ stalls, strings, cloth, lights, stats });
@@ -632,6 +748,7 @@ export function marketGrammarFor(q: MarketQuery): MarketDesc {
   if (stats.metres <= 0) return empty();
 
   const base = makeRng(chunkSeed(q.seed, q.chunk.cx, q.chunk.cz));
+  const cloths = clothSet(pal, style.accentColor);
   let slot = 0;
 
   for (const side of [1, -1] as const) {
@@ -643,6 +760,8 @@ export function marketGrammarFor(q: MarketQuery): MarketDesc {
       base.fork(0x6a00 + (side > 0 ? 1 : 2) * 4096 + i).range(RUN_MIN_M, RUN_MAX_M);
     let runLeft = runFor(gapIndex++);
     let gapLeft = 0;
+    // Stalls placed back to back on this kerb since the last gap.
+    let consecutive = 0;
 
     let a = range[0];
     while (a <= range[1]) {
@@ -657,8 +776,21 @@ export function marketGrammarFor(q: MarketQuery): MarketDesc {
       if (gapLeft > 0) {
         gapLeft -= step;
         stalled = false;
+        consecutive = 0;
         stats.gaps++;
+      } else if (consecutive >= RUN_FATIGUE) {
+        // Fatigue gap. The run-length machine already opens gaps on its own
+        // schedule; measured before this, its longest gapless run on one kerb was
+        // 15 stalls, which is a fence at street level whatever the roof heights
+        // do. This forces a short empty slot every RUN_FATIGUE stalls so the
+        // kerb always reads as runs with daylight between them.
+        gapLeft = step * 1.6;
+        consecutive = 0;
+        stalled = false;
+        stats.gaps++;
+        stats.fatigueGaps++;
       } else {
+        consecutive++;
         runLeft -= step;
         if (runLeft <= 0) {
           const rg = base.fork(0x6b00 + (side > 0 ? 1 : 2) * 4096 + gapIndex);
@@ -678,13 +810,15 @@ export function marketGrammarFor(q: MarketQuery): MarketDesc {
         const h = spineHit(spine, p[0], p[1], scratchHit);
         const nx = -h.tz, nz = h.tx;
         const pitch = step - STALL_SEPARATION;
-        const front = side * (half - r.range(OVERHANG_MIN, OVERHANG_MAX));
+        const module = pickModule(r.next());
+        const form = MODULE_FORMS[module];
+        const front = side * (half - r.range(form.overhang[0], form.overhang[1]));
         const reach = half + DEPTH_MAX + pitch * 0.5 + FACADE_CLEARANCE;
 
         // Pull the building-side edge in until the stall clears every facade
         // near it. Measured: the nearest building sits 13.1 m from the
         // centreline at the 5th percentile, well inside the kerb line.
-        let back = half + r.range(DEPTH_MIN, DEPTH_MAX);
+        let back = half + r.range(form.depth[0], form.depth[1]);
         while (back > half + MIN_STALL_DEPTH
           && footprintObstructed(
             q.chunk, p[0], p[1], h.tx, h.tz, pitch * 0.5,
@@ -705,17 +839,20 @@ export function marketGrammarFor(q: MarketQuery): MarketDesc {
             back: side * back,
             counter: side * (half + 0.35),
             pitch,
-            eave: GROUND_Y + r.range(EAVE_MIN, EAVE_MAX),
-            ridge: GROUND_Y + r.range(RIDGE_MIN, RIDGE_MAX),
+            eave: GROUND_Y + r.range(form.eave[0], form.eave[1]),
+            ridge: GROUND_Y + r.range(form.ridge[0], form.ridge[1]),
+            module,
+            flatRoof: form.flat,
+            hasCloth: form.cloth,
             // Two module silhouettes and two support types, mixed by hash. The
             // spec's last section is a warning about exactly this: "repeated
             // canopy modules can fill the empty ground while destroying the
             // references' large value groups". Identical tarps at identical
             // pitch is the failure mode, and it costs six triangles to avoid.
             panels: r.bool(0.42) ? 5 : 3,
-            frame: r.bool(0.34) ? 'wall-tied' : 'poles',
-            cloth: r.bool(0.5) ? pal.trim : style.accentColor,
-            clothAlt: r.bool(0.5) ? tint(pal.base, 0.72) : pal.secondary,
+            frame: form.frame,
+            cloth: cloths[r.int(0, cloths.length - 1)],
+            clothAlt: cloths[r.int(0, cloths.length - 1)],
             frameColor: tint(pal.metal, 0.85),
             crates: [],
             vent: null,

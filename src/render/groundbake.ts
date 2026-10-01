@@ -32,6 +32,7 @@ import {
 } from '../world/groundgrammar';
 import { FACE_ALL, FACE_NY, FACE_PY, MeshBuilder } from '../world/geometry';
 import { bakeMarketDetail } from './marketbake';
+import { marketGrammarFor, MAX_MARKET_LIGHTS_PER_CHUNK } from '../world/marketgrammar';
 import { CLUTTER_EDGE, CLUTTER_KINDS } from '../world/groundgrammar';
 import { districtStyle } from '../world/districts';
 
@@ -205,12 +206,25 @@ export function bakeGroundDetail(
   bld: MeshBuilder, chunk: CityChunk, plan: CityPlan, lod: number, rng: Rng,
   lights: GroundLight[],
 ): GroundBakeResult {
-  // Ceiling on ground-contributed lights so a dense market chunk cannot eat the
-  // whole clustered-light budget that the buildings already draw from.
+  // Ceiling on lights THIS BAKE contributes, so a dense market chunk cannot eat
+  // the whole clustered-light budget that the buildings already draw from.
+  //
+  // It has to be counted against the lights this function adds, not against the
+  // array it was handed. `bakeChunk` fills that array with a rooftop light on 40%
+  // of buildings and a light under every bridge BEFORE it gets here — ~150 on a
+  // market chunk — and it applies no ceiling of its own. Comparing `lights.length`
+  // against 24 therefore read 150 >= 24 on the very first call and refused
+  // everything: lamp posts delivered nothing, and then market lanterns delivered
+  // nothing, and both looked like missing plumbing. Measured in
+  // docs/LIGHT_DELIVERY.md; the static guard is in src/render/__perftest.ts.
   const maxLights = 24;
+  const lightCap = lights.length + maxLights;
   const res: GroundBakeResult = {
     roads: 0, edgeMetres: 0, triangles: 0, fieldMs: 0,
-    clutter: { placed: 0, wanted: 0, tris: 0, lamps: 0 },
+    clutter: {
+      placed: 0, wanted: 0, tris: 0, lamps: 0,
+      marketLights: 0, marketLightsDropped: 0, marketTraces: 0,
+    },
   };
   if (lod > 1) return res;
 
@@ -278,7 +292,7 @@ export function bakeGroundDetail(
 
     clipToChunk(trace, minX, minZ, maxX, maxZ);
     if (trace.to - trace.from < 1) continue;
-    emitTrace(bld, chunk, plan, trace, lod, rng, lights, footwayCells, minX, minZ, size, res, maxLights);
+    emitTrace(bld, chunk, plan, trace, lod, rng, lights, footwayCells, minX, minZ, size, res, lightCap);
     res.roads++;
   }
 
@@ -394,6 +408,18 @@ export interface ClutterTally {
   wanted: number;
   tris: number;
   lamps: number;
+  /**
+   * Market lanterns whose light was harvested into `lights`, counted separately
+   * from `lamps` on purpose: `lamps` means "a lamp-post was placed", and this
+   * means "a light reached the render buffer". Conflating them is how a count
+   * comes to agree with itself and disagree with the frame — which is the bug
+   * this number exists to make impossible.
+   */
+  marketLights: number;
+  /** Market lanterns the grammar produced that the chunk budget refused. */
+  marketLightsDropped: number;
+  /** Distinct market carriageways in this chunk, i.e. grammar queries made. */
+  marketTraces: number;
 }
 
 /**
@@ -869,6 +895,47 @@ function emitTrace(
       builder: bld, rng, plan, chunk, lod, seed: 0, frame, grammar,
     };
     bakeMarketDetail(bld, ctx);
+
+    // ---------------------------------------------------------------------
+    // The half of the market that used to not exist.
+    //
+    // `bakeMarketDetail` draws the stalls, the catenaries and the lanterns, and
+    // returns void. The lights the lantern grammar harvested for those same
+    // lanterns had nowhere to go, so the grammar computed them, a self-test
+    // counted them, and `BakedChunk.lights` — which exists, and which
+    // `gatherLights()` already reads — received none of them. 365 lights
+    // produced, 0 delivered. The lanterns glowed (emissive geometry) and lit
+    // nothing, which is the exact shape of the PHANTOM rows in COVERAGE.md and
+    // is why `aisleWarmPixelPct` measured 0.00 in every configuration tried.
+    //
+    // Recomputing the grammar here is not a second opinion that could disagree:
+    // it is a pure function of (seed, plan, chunk, kind, districtId) and forks
+    // its own RNG per element, so this returns exactly the list
+    // `bakeMarketDetail` just laid the lanterns out from. That property is
+    // stated in `marketgrammar.ts`; it is the reason this loop is safe.
+    const desc = marketGrammarFor({
+      seed: ctx.seed, plan, chunk, kind: t.kind, districtId: t.districtId,
+    });
+    // Mirror `bakeMarketDetail`'s own early-out: no stalls and no catenaries
+    // means no lanterns were drawn, and lights for geometry that is not there
+    // are exactly the kind of counter that agrees with itself and disagrees
+    // with the frame.
+    if (desc.stalls.length === 0 && desc.strings.length === 0) return;
+    res.clutter.marketTraces++;
+    // Chunk-level budget. `MAX_MARKET_LIGHTS_PER_CHUNK` is enforced inside the
+    // grammar, per query — but a chunk can carry more than one market
+    // carriageway, and each one is a separate query, so the grammar's own cap
+    // is not a chunk cap. Measured against the renderer's `MAX_LIGHTS` binner
+    // and `gatherLights`' `(r+1)*320 m` reach test in docs/LIGHT_DELIVERY.md.
+    let added = 0;
+    for (const l of desc.lights) {
+      if (added >= MAX_MARKET_LIGHTS_PER_CHUNK) break;
+      if (lights.length >= maxLights) break;
+      lights.push({ pos: l.pos, radius: l.radius, color: l.color, intensity: l.intensity });
+      added++;
+    }
+    res.clutter.marketLights += added;
+    res.clutter.marketLightsDropped += desc.lights.length - added;
   }
 }
 

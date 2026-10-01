@@ -81,6 +81,8 @@ interface ChunkEntry {
   mesh: GpuMesh | null;
   foliage: GpuMesh | null;
   lights: BakedChunk['lights'];
+  /** Market lanterns this chunk's bake produced, carried for the delivery stat. */
+  marketProduced: number;
   radius: number;
   lastUsed: number;
   centre: Vec3;
@@ -124,6 +126,25 @@ export interface RendererStats {
   /** Every draw in the G-buffer pass, including ground, foliage and entities. */
   visibleDraws: number;
   lights: number;
+  /**
+   * Light delivery, end to end. This exists because 365 market lanterns were
+   * produced, counted by a self-test, and delivered to the frame as none of
+   * them — with every counter the project owned reading healthy. The chain is
+   * `produced` (grammar, at bake) -> `delivered` (in `BakedChunk.lights`, for
+   * chunks the camera can see at night) -> `binned` (survived the `MAX_LIGHTS`
+   * cap and reached the GPU buffer). `starved` and `rejectedFar` say which of
+   * the two filters ate what, because "delivered 400, binned 300" is a
+   * different bug from "produced 400, delivered 0".
+   */
+  lightDelivery: {
+    produced: number;
+    delivered: number;
+    binned: number;
+    starved: number;
+    rejectedFar: number;
+    culledByDay: boolean;
+    cap: number;
+  };
   vramMB: number;
   tier: QualityTier;
   bakeMs: number;
@@ -355,6 +376,10 @@ export class Renderer {
     cascadeDrawCalls: Array.from({ length: CASCADE_COUNT }, () => 0),
     cascadeTriangles: Array.from({ length: CASCADE_COUNT }, () => 0),
     residentChunks: 0, visibleChunks: 0, visibleDraws: 0, lights: 0, vramMB: 0,
+    lightDelivery: {
+      produced: 0, delivered: 0, binned: 0, starved: 0, rejectedFar: 0,
+      culledByDay: false, cap: MAX_LIGHTS,
+    },
     tier: 'high', bakeMs: 0, uploadMs: 0, frustumCulled: 0,
     rebakePending: 0, lodHistogram: [0, 0, 0, 0],
     captureMs: 0,
@@ -972,6 +997,7 @@ export class Renderer {
     );
     this.chunks.set(key, {
       cx, cz, lod, mesh, foliage, lights: baked.lights, radius, centre, lastUsed: this.frameIndex,
+      marketProduced: baked.marketLights?.produced ?? 0,
     });
   }
 
@@ -997,14 +1023,21 @@ export class Renderer {
     const w = this.lightWriter;
     w.reset();
     const r = this.q.viewDistance;
+    // `MAX_LIGHTS` is filled in chunk-iteration order, so a dense district that
+    // happens to come first can starve every light after it. Counting the
+    // refusals is the only way to see that happen; a `break` is silent.
+    let produced = 0, delivered = 0, starved = 0, rejectedFar = 0;
+    const byDay = this.world.dayPhase > 0.55;
     for (const e of this.chunks.values()) {
+      produced += e.marketProduced;
       const d = Math.hypot(e.centre[0] - cam.position[0], e.centre[2] - cam.position[2]);
-      if (d > (r + 1) * 320) continue;
+      if (d > (r + 1) * 320) { rejectedFar += e.lights.length; continue; }
       // Night only: the sun out-competes them by day and the binning cost is
       // not worth paying.
-      if (this.world.dayPhase > 0.55) continue;
+      if (byDay) continue;
+      delivered += e.lights.length;
       for (const l of e.lights) {
-        if (w.count >= MAX_LIGHTS) break;
+        if (w.count >= MAX_LIGHTS) { starved++; continue; }
         w.pushStatic(l.color, 5, 1, l.intensity, 0);
         // Overwrite the position that pushStatic left at identity.
         const o = (w.count - 1) * 24;
@@ -1017,6 +1050,10 @@ export class Renderer {
     }
     this.gpu.device.queue.writeBuffer(this.lightBuf, 0, w.data as unknown as BufferSource, 0, Math.max(1, w.count) * 8);
     this.stats.lights = w.count;
+    this.stats.lightDelivery = {
+      produced, delivered, binned: w.count, starved, rejectedFar,
+      culledByDay: byDay, cap: MAX_LIGHTS,
+    };
     return w.count;
   }
 

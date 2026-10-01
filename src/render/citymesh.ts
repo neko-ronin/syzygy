@@ -697,6 +697,13 @@ export interface BakedChunk {
   lights: { pos: Vec3; radius: number; color: Vec3; intensity: number }[];
   /** A stable per-chunk tint seed so the fragment stage can vary its detail. */
   seed: number;
+  /**
+   * How many market lanterns this chunk's bake produced, and how many the chunk
+   * light budget refused. Kept beside `lights` rather than inferred from it,
+   * because the failure this exists to prevent is a count that agrees with
+   * itself: 365 lanterns produced, 0 in `lights`, and every counter green.
+   */
+  marketLights?: { produced: number; delivered: number; dropped: number; traces: number };
 }
 
 /**
@@ -845,8 +852,21 @@ export function bakeChunk(chunk: CityChunk, lod: number, seed: number): BakedChu
   // in the renderer that knows where a street is — the street field lives on the
   // CPU and cannot be reconstructed in a shader without porting ~90 lines of
   // warped noise and risking a silent disagreement. See `src/render/groundbake.ts`.
+  let marketLights: BakedChunk['marketLights'];
   if (lod < 2) {
-    bakeGroundDetail(solid, chunk, cityPlan(seed), lod, rng, lights as GroundLight[]);
+    const gres = bakeGroundDetail(solid, chunk, cityPlan(seed), lod, rng, lights as GroundLight[]);
+    if (gres.clutter.marketLights > 0 || gres.clutter.marketLightsDropped > 0) {
+      marketLights = {
+        // `produced` counts every grammar query this chunk made, so a chunk with
+        // four market carriageways legitimately produces four times the per-trace
+        // grammar maximum. `traces` is here so that ratio is readable rather than
+        // looking like the grammar over-produced.
+        produced: gres.clutter.marketLights + gres.clutter.marketLightsDropped,
+        delivered: gres.clutter.marketLights,
+        dropped: gres.clutter.marketLightsDropped,
+        traces: gres.clutter.marketTraces,
+      };
+    }
   }
 
   const opaque = solid.build();
@@ -859,6 +879,7 @@ export function bakeChunk(chunk: CityChunk, lod: number, seed: number): BakedChu
     triangleCount: (opaque.indexCount + foliage.indexCount) / 3,
     lights,
     seed: (seed ^ Math.imul(chunk.cx * 73856093 ^ chunk.cz * 19349663, 0x9e3779b1)) >>> 0,
+    ...(marketLights ? { marketLights } : {}),
   };
 }
 

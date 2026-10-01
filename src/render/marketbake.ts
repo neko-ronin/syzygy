@@ -39,7 +39,7 @@ import type { GroundBakeCtx } from '../world/groundgrammar';
 import {
   COUNTER_TOP, MARKET_LOD_GONE, RIGGING_LOD, SAG_ACROSS, SAG_ALONG,
   marketCatenary, marketGrammarFor,
-  type MarketCloth, type MarketCrate, type MarketLanternString, type MarketStall,
+  type MarketCloth, type MarketCrate, type MarketLanternString, type MarketLight, type MarketStall,
 } from '../world/marketgrammar';
 
 // ---------------------------------------------------------------- the build
@@ -76,8 +76,18 @@ function roofPoint(s: MarketStall, u: number, v: number, depth: number): Vec3 {
   return [s.cx + s.nx * lateral + s.tx * along, height, s.cz + s.nz * lateral + s.tz * along];
 }
 
-/** The pitch tarpaulin: alternating panels, bellied, overhanging the kerb. */
+/**
+ * The roof: alternating panels, bellied, overhanging the kerb.
+ *
+ * A `frame` or `bare` module has no cloth and this emits nothing for it — that is
+ * the point of those two: a stripped stall and an open-air pitch stall break the
+ * roofline the way another tarpaulin cannot. A `flat` module has eave and ridge
+ * within 0.4 m of each other, so the same surface formula produces a horizontal
+ * deck rather than a slope, and the existing eave and ridge poles read as its
+ * fascia.
+ */
 function bakeCanopy(bld: MeshBuilder, s: MarketStall): void {
+  if (!s.hasCloth) return;
   const depth = Math.abs(s.back - s.front);
   const panels = s.panels;
   const panelWidth = s.pitch / panels;
@@ -247,7 +257,8 @@ export function bakeMarketDetail(bld: MeshBuilder, ctx: GroundBakeCtx): void {
   for (const s of desc.stalls) {
     if (s.lod < ctx.lod) continue;
     bakeCanopy(bld, s);
-    if (detailed) bakeRigging(bld, s);
+    // A `bare` stall is a counter and crates in the open: no roof and no frame.
+    if (detailed && s.module !== 'bare') bakeRigging(bld, s);
     // Crates ride the counter, not the floor, so a stack reads as goods on a
     // table rather than as a heap in the road.
     let ground = GROUND_Y + COUNTER_TOP;
@@ -270,5 +281,20 @@ export function bakeMarketDetail(bld: MeshBuilder, ctx: GroundBakeCtx): void {
     if (c.lod < ctx.lod) continue;
     bakeCloth(bld, c);
   }
+
+  // Hand the lantern lights to whoever is collecting them.
+  //
+  // `GroundBakeCtx` has no light sink yet, so this reads the field structurally
+  // and does nothing if it is absent — which is the point. The review gate's
+  // single biggest gap is "warm market lantern illumination does not visibly
+  // reach the aisle", and the grammar has been producing these lights since
+  // round 2 with nowhere to put them: 365 measured, 0 delivered.
+  //
+  // Written so it starts working the moment the destination lands on the ctx,
+  // without needing this file to change again. If the field is named something
+  // other than `lights` this silently no-ops, which is why the self-test prints
+  // whether the sink was found rather than assuming it.
+  const sink = (ctx as unknown as { lights?: MarketLight[] }).lights;
+  if (sink) for (const l of desc.lights) sink.push(l);
 }
 

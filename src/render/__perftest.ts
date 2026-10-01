@@ -263,6 +263,50 @@ function run(): void {
       'weather3.w (precip) is still unconsumed',
       'expected: precip was deliberately NOT built this round');
 
+    // ------------------------------------------------------------------
+    // MARKET LIGHT DELIVERY — behavioural, and the reason this is here.
+    //
+    // 365 lanterns were produced by the market grammar, counted by a
+    // self-test, and delivered to the frame as none of them. Nothing was red.
+    // `bakeMarketDetail` draws the stalls and returns void; the lights the same
+    // grammar harvested had nowhere to go, so `BakedChunk.lights` — which
+    // exists, and which `gatherLights` already reads — stayed empty for the
+    // whole market. The lanterns glowed and lit nothing.
+    //
+    // Every guard that could have caught that was a grep, and greps agreed:
+    // the field existed, the writer existed, the counter existed, the selftest
+    // passed. So this one bakes real chunks and asks the only question that
+    // matters — does a chunk that the grammar lit come back with lights in it.
+    // A rename, a moved call site, or a refactor that drops the loop fails
+    // here, loudly, with a number.
+    const mCity = new City(defaultCityConfig(SEED));
+    let marketProduced = 0, marketDelivered = 0, marketChunks = 0;
+    for (let cz = -3; cz <= 3 && marketChunks < 4; cz++) {
+      for (let cx = -3; cx <= 3 && marketChunks < 4; cx++) {
+        const mc = mCity.getChunk(cx, cz);
+        if (!mc) continue;
+        const b = bakeChunk(mc, 0, SEED);
+        const ml = b.marketLights;
+        if (!ml || ml.produced === 0) continue;
+        marketChunks++;
+        marketProduced += ml.produced;
+        // Count the market's OWN lights, not `b.lights.length` — that array also
+        // holds every building's window lights, so reading delivery off it is
+        // how a market that delivers nothing can still look delivered.
+        marketDelivered += ml.delivered;
+        check(ml.delivered > 0,
+          `market chunk (${cx},${cz}): ${ml.delivered}/${ml.produced} lanterns delivered ` +
+          `over ${ml.traces} market carriageway(s)`,
+          'grammar produced lanterns but the chunk delivered none of them');
+      }
+    }
+    check(marketChunks > 0,
+      'the test actually found a market chunk to assert on',
+      'no chunk produced market lights, so the delivery assert above never ran');
+    check(marketDelivered > 0,
+      `market lanterns delivered to BakedChunk.lights: ${marketDelivered} of ${marketProduced} produced`,
+      'zero delivered — this is the 365-lights-go-nowhere bug, back again');
+
     // Whatever the axis is, the box must still be a square of the advertised
     // size, or the culling above is dropping casters.
     const b0 = boxes[0];

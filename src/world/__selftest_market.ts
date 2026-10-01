@@ -188,11 +188,17 @@ if (allStalls.length !== stallsSeen) fail('stall collection disagrees with the s
 const half = plan.districts.market.width * 0.5;
 const pMin = Math.min(...allStalls.map((s) => s.pitch));
 const pMax = Math.max(...allStalls.map((s) => s.pitch));
-let noOverhang = 0, wrongSide = 0, sunk = 0, negative = 0, tooTall = 0;
+// Module-aware, and deliberately so. A `lean-to` does not overhang the
+// carriageway — that is what a lean-to is — and a `bare` stall has no roof at
+// all, so demanding a 1.9 m eave of it tests nothing. These two assertions were
+// written when every stall was a pitched tarpaulin and they caught real faults;
+// what has changed is the vocabulary, not the intent.
+let noOverhang = 0, wrongSide = 0, sunk = 0, negative = 0, tooTall = 0, roofless = 0;
 for (const s of allStalls) {
-  if (Math.abs(s.front) >= half) noOverhang++;
+  if (s.module !== 'lean-to' && Math.abs(s.front) >= half) noOverhang++;
   if (Math.sign(s.back) !== Math.sign(s.front) || Math.abs(s.back) <= Math.abs(s.front)) wrongSide++;
-  if (s.eave < 1.9 || s.ridge <= s.eave) tooTall++;
+  if (!s.hasCloth) roofless++;
+  else if (s.eave < 1.9 || s.ridge <= s.eave) tooTall++;
   if (s.eave < 0) negative++;
 }
 for (const c of marketChunks) {
@@ -239,11 +245,58 @@ const litAll = spread.reduce((a, s) => a + s.litTotal, 0);
 // of the cords. Lighting in walk order puts almost none.
 const tailShare = spread.reduce((a, s) => a + s.tail, 0) / Math.max(1, litAll);
 
+// ---------------------------------------------------------------- variety
+//
+// REVIEW GATE 1: "similar pitched roofs and rectangular counters form long,
+// mechanically regular sequences; the street's left-edge orange/grey forms merge
+// into a fence-like band". Measured before, over 24 consecutive stalls on one
+// kerb: eave spread 0.334 m, ridge spread 0.533 m, 2 distinct cloth colours
+// (both the same orange hue), longest gapless run 15 stalls.
+const variety = marketChunks.flatMap((c) => marketGrammarFor(queryFor(c)).stalls);
+const modules = new Map<string, number>();
+for (const s of variety) modules.set(s.module, (modules.get(s.module) ?? 0) + 1);
+
+const kerb = variety.filter((s) => s.side > 0).sort((a, b) => a.along - b.along);
+const window24 = kerb.slice(0, 24);
+const eaveSpread = window24.length > 1
+  ? Math.max(...window24.map((s) => s.eave)) - Math.min(...window24.map((s) => s.eave)) : 0;
+const ridgeSpread = window24.length > 1
+  ? Math.max(...window24.map((s) => s.ridge)) - Math.min(...window24.map((s) => s.ridge)) : 0;
+const clothColours = new Set(
+  window24.map((s) => s.cloth.map((v) => v.toFixed(3)).join(',')),
+);
+const clothModules = new Set(window24.map((s) => s.module));
+
+let runNow = 1;
+let longestRun = 1;
+for (let i = 1; i < kerb.length; i++) {
+  if (Math.abs(kerb[i].along - kerb[i - 1].along) < kerb[i].pitch * 1.9) runNow++;
+  else { if (runNow > longestRun) longestRun = runNow; runNow = 1; }
+}
+if (runNow > longestRun) longestRun = runNow;
+
+const fatigueGaps = marketChunks.reduce((a, c) => a + marketGrammarFor(queryFor(c)).stats.fatigueGaps, 0);
+
+console.log(`\nvariety — review gate 1, "mechanically regular sequences"`);
+console.log(`  stall modules        ${[...modules.entries()].map(([k, v]) => `${k} ${v}`).join(' · ')}`);
+console.log(`  first 24 on one kerb eave spread ${eaveSpread.toFixed(2)} m (was 0.33), ridge spread ${ridgeSpread.toFixed(2)} m (was 0.53)`);
+console.log(`  cloth colours        ${clothColours.size} in 24 stalls (was 2), ${clothModules.size} modules in the same 24`);
+console.log(`  longest gapless run  ${longestRun} stalls (was 15), fatigue gaps ${fatigueGaps}`);
+
+if (modules.size < 5) fail(`only ${modules.size} stall modules: every stall is still the same typology`);
+if (eaveSpread < 2.0) fail(`eave spread ${eaveSpread.toFixed(2)} m across 24 consecutive stalls: the roofline is still a fence`);
+if (ridgeSpread < 1.5) fail(`ridge spread ${ridgeSpread.toFixed(2)} m across 24 consecutive stalls`);
+if (clothColours.size < 4) fail(`${clothColours.size} cloth colours in 24 stalls: the kerb merges into one band`);
+if (clothModules.size < 3) fail(`${clothModules.size} modules in the first 24 stalls: a run reads as one typology`);
+if (longestRun > 8) fail(`longest gapless run is ${longestRun} stalls`);
+if (fatigueGaps === 0) fail('the run-fatigue gap never fired');
+
 console.log(`\ninvariants over ${allStalls.length} stalls in ${marketChunks.length} chunks`);
 console.log(`  pitch                ${pMin.toFixed(2)} .. ${pMax.toFixed(2)} m`);
 console.log(`  gap slots            ${(100 * gapFrac).toFixed(1)}% of ${any.stats.slots > 0 ? marketChunks.reduce((a, c) => a + marketGrammarFor(queryFor(c)).stats.slots, 0) : 0} slots`);
 console.log(`  kerbs                +1 ${sides[0]} stalls, -1 ${sides[1]} stalls`);
-console.log(`  canopy not overhanging the kerb line   ${noOverhang}`);
+console.log(`  canopy not overhanging the kerb line   ${noOverhang} (lean-to exempt by design)`);
+console.log(`  clothless modules                    ${roofless} of ${allStalls.length} (frame + bare, by design)`);
 console.log(`  stall straddling both kerbs / inverted  ${wrongSide}`);
 console.log(`  eave below 1.9 m or ridge <= eave       ${tooTall}`);
 console.log(`  roof samples inside a building footprint ${sunk}`);
@@ -427,7 +480,8 @@ const nearStall = (s: MarketStall, lateral: number, y: number, tol = FRAME_TOL):
   return false;
 };
 
-const deep = marketGrammarFor(queryFor(meshChunk)).stalls.slice(0, 40);
+// Clothless modules emit no roof, so there is no edge to find on them.
+const deep = marketGrammarFor(queryFor(meshChunk)).stalls.filter((s) => s.hasCloth).slice(0, 40);
 let eaveOk = 0, ridgeOk = 0, sagOk = 0;
 for (const s of deep) {
   const depth = Math.abs(s.back - s.front);
