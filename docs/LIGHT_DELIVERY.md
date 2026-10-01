@@ -965,3 +965,113 @@ Unchanged and still unexplained: **3.638 of high-frequency energy remains at
 grain 0 and chroma 0.** It is severe in this frame, which is dark and therefore
 grain-dominated, but it is not what makes the stalls unreadable — the stalls are
 at byte 8–15, far below anything grain can account for.
+
+---
+
+## 4j. Round 15: the mechanism is refuted, the prediction is vindicated by a camera that never moved
+
+### First, the round-14 numbers
+
+**I stand behind them, and here is why, because the correction implied otherwise.**
+The two wrong-camera frames were the bare-`--pose` runs at 21:04:50 and 21:05:16. I
+read one, saw a rooftop from 444 m up, rejected it, and took **no bytes from
+either**. Every number in `f140e98` came from the `--eval` captures at camera
+`[1.16, 2.441, 0.36]` night and `[1.16, 2.466, 0.36]` day — X and Z exact, Y 0.16 m
+from the requested 2.6.
+
+Re-measured on the correctly-shot pair, same screen points:
+
+| point | R14 (exp 1.28) | R15 (exp 1.50) | R15 day |
+| --- | --- | --- | --- |
+| deck under lantern | `[61.6, 37.0, 23.3]` +38.3 | `[60.6, 36.2, 21.1]` **+39.5** | luma 129 |
+| right stall flank | `[7.5, 8.5, 15.7]` −8.2 | `[7.3, 8.6, 17.0]` **−9.7** | luma 112 |
+| canopy frame | `[5.4, 12.6, 44.7]` −39.3 | `[5.2, 11.5, 41.4]` **−36.2** | luma 124 |
+| centre stall pole | `[5.0, 6.5, 21.4]` −16.4 | `[4.7, 6.3, 21.4]` **−16.7** | luma 170 |
+
+**The numbers did not move** — within one byte everywhere, despite the sidecar now
+reporting exposure 1.5. Both frames settle to the same phase exposure, so the
+reported value changed and the pixels did not. The camera was never the problem.
+
+### My own mechanism is refuted
+
+§4i named lateral offset: cords 1.7 m outboard of the kerb, 17–31 m apart, so
+stalls stand beside the lanterns. Measured in world space, 27 stalls within 60 m:
+
+```
+HORIZONTAL distance, stall -> nearest lantern (m)
+  min 2.14   p25 3.22   median 4.92   p75 7.81   max 11.19
+  stalls with a lantern within 2 m:  0 of 27
+N.L on a stall face 1.0 m up facing its nearest lantern:  median 0.874
+```
+
+The stalls are **well inside** `r = 15` and face the lamps **better** than the
+deck case I had modelled (N·L 0.874, not 0.353). Recomputing honestly — my earlier
+arithmetic compared a face against a deck point 2 m away under the same lamp,
+whereas the median stall is 4.92 m away — a face should receive:
+
+| | horizontal | N·L | flank as % of deck |
+| --- | --- | --- | --- |
+| closest stall | 2.14 m | 0.650 | 68.9% |
+| **median stall** | **4.92 m** | **0.892** | **47.6%** |
+| farthest stall | 11.19 m | 0.976 | 4.0% |
+
+**So geometry says a stall face should read about half the deck — byte 45–50
+against the deck's 60. It reads byte 4.** Lateral offset does not explain this. My
+mechanism was wrong.
+
+### It is not a sampling error either
+
+Thirteen roadward faces were projected from the grammar with the sidecar's exact
+camera and sampled at the same pixels:
+
+```
+night  byte R 4, R-B -6.9 (cold)     day  luma 119
+```
+
+The day control says the geometry is there and lit. Night says it is black. Same
+pixels, same projection.
+
+### And it is not shadowing
+
+`lighting.wgsl` has **no shadow lookup for clustered lights at all**. The only
+`shadow` in the file is `sunShadow(P, NoL)` at :194, for the sun. Local lights
+shine through geometry by construction.
+
+### What is left, and the one thing I tried
+
+The residual is that a vertical face receives ~12% of what its own geometry
+predicts. That points at the **material**: the stall frontage is tarpaulin and
+canvas, and if its albedo is a fraction of the light paving, the correct light
+lands on a surface that reflects almost none of it. That is the leading candidate
+and **it is untested** — the measurement that would settle it is to print the g-buffer
+albedo at a projected stall face against the deck's, which costs one probe.
+
+**Counter-height lights: implemented, measured, reverted.** The reasoning was that
+a lantern at 3.85 m and a canopy at `RIDGE_MAX` 3.4 m cannot be reconciled — hang
+anything lower and the lantern is inside the stall — so a cord can never light a
+stall's own frontage. Sixteen counter sources per chunk at radius 7 were added,
+budget-split from the existing 48 rather than added to it, keeping `delivered` at
+933 and `starved` at 0.
+
+| | before | after |
+| --- | --- | --- |
+| deck under a lantern | byte 60.6 | **byte 22.8** |
+| median known stall face | byte 4 | **byte 4** |
+
+It did nothing to the thing it was aimed at and took two-thirds of the ground.
+Cause: **7 counter lights within 60 m for 27 stalls** — one per ~7.5 stalls at
+radius 7 m, which is nowhere near dense enough to move a frame. Under-powered, not
+wrong in principle. Reverted rather than committed, because it made one surface
+worse and the other measurably identical.
+
+### Verdict: NOT closed. More work needed.
+
+Warm light reaches the ground and does not reach the stalls; the geometry says it
+should; nothing occludes it; the stalls are in range. The remaining candidate is
+material albedo on the stall frontage, and it is a five-minute probe that has not
+been bought.
+
+### Moiré — parked
+
+Unchanged: 3.638 of high-frequency energy at grain 0 and chroma 0. Concentric
+rings are severe in the new night frame. Not the cause — the stalls are at byte 4.
