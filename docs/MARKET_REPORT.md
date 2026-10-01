@@ -992,6 +992,41 @@ entire difference between invisible and legible. Recolouring the crowd cannot
 substitute for lighting it, and I would rather say that than ship a palette
 tweak that moves 1.00 to 1.05 and calls it a fix.
 
+## A certified capture, and it shows both failures at once
+
+The harness was the problem, not the capture. `vite preview` was producing an
+**empty log and binding nothing** on this machine; the "squatter" I reported
+last round was my own `setsid` invocation failing with
+`setsid: command not found` (macOS has no `setsid`), so the port had nothing on
+it and `curl` got an empty 200. I called that a squatter and it was my own
+broken command.
+
+Served from `dist/` with a plain static server and verified before shooting:
+
+```
+disk:   assets/index-BmN2-3OV.js
+served: assets/index-BmN2-3OV.js     MATCH - capturing
+```
+
+Frames in `shots/r6/`, poses derived from the seed.
+
+**`crowd_street-afternoon.png`.** The market is there: canopies and crate stacks
+line both kerbs and recede to a vanishing point, lantern cords and hanging
+strips cross overhead, and the roofline variation from round 5 reads. **There is
+not one person on it.** Two figures stand in the extreme bottom-right corner and
+the street from the left edge to x≈1300 is empty at every distance.
+
+**`crowd_street-night.png`.** The same street at night, and it confirms the
+1.05:1 measurement as pixels rather than as arithmetic. The three figures in the
+foreground — a green one at x≈550, a saturated red one at x≈1000, a pale pink one
+at x≈1330 — read as **coloured slabs, not people**. They have no separation from
+the deck, because under the night ambient every coat in the palette sits within 6%
+of the ground's relative luminance. Nothing was legible there because nothing
+*could* be, and no recolouring of this palette changes that.
+
+Two frames, two failures, both predicted by a number measured before the shot.
+That is the only good argument for measuring first.
+
 ## I could not certify a capture
 
 The brief's instruction to check what is being served rather than what the
