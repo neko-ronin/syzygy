@@ -191,6 +191,62 @@ and every pixel's light loop on an 8-core laptop already at 5.2M triangles, to
 address a second-order effect whose first-order cause was a byte offset. Re-measure
 once the pool is visible at all.
 
+## 4c. Round 7: the bin is full and the pool is still dark
+
+Standing **directly under the nearest market lantern** at `[1.16, 5.78, -9.97]`,
+camera 2.2 m above the deck looking straight down at it — the most favourable
+framing available, pool centre filling the middle of the frame:
+
+| measurement | value |
+| --- | --- |
+| `stats.lights` | 296 |
+| tile at the pool centre (50,28) | `count 74, stored 74` |
+| slots used of `MAX_PER_TILE` 96 | **74 — 22 free** |
+| nearest light in that tile, by world distance | **140 m** |
+| of the 74 in the bin, how many are within their own radius | **0** |
+
+Read those two rows together: the bin is three-quarters full, the cap is not
+touching, and **not one of the lights in it can reach the pixel**. `inRadius:
+false` for all 74.
+
+That rules out the hypothesis this round was sent to test. `MAX_PER_TILE` has 22
+free slots at the exact pixel the acceptance test cares about, so raising it
+would change nothing here and would lengthen the binning pass and every pixel's
+light loop to fix a case that is not occurring.
+
+### What it does point at, and why it is not yet separated
+
+`produced 384, delivered 296` — the market grammar's lanterns are harvested and
+are in `BakedChunk.lights`. They are not in the packed array the bin names. Two
+candidates, and the capture budget (6 runs against a stated 3) ran out before I
+could separate them:
+
+1. **The chunk under the camera is resident at LOD >= 1.** Market lights exist
+   only at LOD 0 — `groundbake.ts:889` gates the whole market block on
+   `lod < 1`. This is the LOD trap in §5a and **I did not read `lodHistogram` at
+   this pose**, which is the first thing to check and a lapse I should name rather
+   than explain away.
+2. **A fourth ABI** between `gatherLights`'s packing and `lightbin.wgsl`'s
+   `arrayLength(&lights)`. Note the binned indices run to 385 while
+   `stats.lights` is 296 — the bin is naming indices past the end of the array it
+   was given. That is consistent with `arrayLength` reading the whole 3072-entry
+   buffer rather than the 296 entries written, which would mean it walks stale
+   lights. **This is the strongest lead and it is a code reading, not a
+   measurement** — it needs `lodHistogram` and the array length read back
+   together to confirm or kill.
+
+### The pattern, stated rather than rediscovered
+
+Delivery (§1), eviction order (§4), write stride, read stride and tile capacity
+(§4b) have each been necessary and none sufficient. This is the third round in a
+row where the previous round's fix was real, measurable, and upstream of another
+bug. The pipeline has **four hand-written ABIs across three files** — CPU packing
+stride, WGSL `Light`, CPU tile allocation, WGSL read stride — and **not one of
+them has a shared declaration**. Every one has now been wrong at least once.
+
+`probe('lights')` and `probe('tileat:x,y')` exist so the next one is a number
+rather than a puzzle.
+
 ## 5. Why the acceptance test is still not demonstrated
 
 Three findings, in order of how much they block it.
