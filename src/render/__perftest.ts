@@ -28,6 +28,7 @@
  * renderer touches `GPUShaderStage` at module scope and cannot be imported here.
  */
 
+import postWgsl from '../shaders/post.wgsl?raw';
 import { City, defaultCityConfig } from '../world/citygen';
 import { defaultWorld, sunDirection, type WorldState } from '../core/state';
 import { FlightCamera } from '../camera/camera';
@@ -234,6 +235,33 @@ function run(): void {
     check(angs.every((a) => a < 5),
       'shadow depth axis is not the sun axis',
       `worst ${Math.max(...angs).toFixed(1)} deg off; per cascade ${angs.map((a) => a.toFixed(1)).join('/')}`);
+
+    // ------------------------------------------------------------------
+    // PHANTOM GUARD. `weather2.y` (godRays) and `weather3.w` (precip) were both
+    // written every frame for three sessions and read by nothing. A pose
+    // carrying `godRays: 0.4` asserted an effect that did not exist, and
+    // grep found the field, the writer and the pose — everything except the
+    // consumer. That is the exact shape COVERAGE.md warns about.
+    //
+    // This is a static check and it is deliberately the unfashionable kind: it
+    // reads the shader source and asserts the uniform is referenced. A renderer
+    // cannot be imported here (it touches GPUShaderStage at module scope), the
+    // pass needs a GPU to run, and a capture costs 24s. What this buys is that
+    // deleting the read cannot merge quietly again, which is the failure mode
+    // that actually happened three times.
+    const shaderSrc = postWgsl;
+    check(/F\.weather2\.y/.test(shaderSrc),
+      'weather2.y (godRays) is consumed by a shader',
+      'no shader reads it — the field is a PHANTOM again');
+    const shaftEntry = /fn shafts\s*\(/.test(shaderSrc);
+    check(shaftEntry, 'post.wgsl has a shafts entry point');
+    // And it must be a real consumer, not a mention: the pass has to write the
+    // marched accumulation into its output.
+    check(/fn shafts[\s\S]*?return vec4f\(F\.sunColor/.test(shaderSrc),
+      'the shafts pass returns the marched accumulation it computes');
+    check(!/F\.weather3\.w/.test(shaderSrc),
+      'weather3.w (precip) is still unconsumed',
+      'expected: precip was deliberately NOT built this round');
 
     // Whatever the axis is, the box must still be a square of the advertised
     // size, or the culling above is dropping casters.

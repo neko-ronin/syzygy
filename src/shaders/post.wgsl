@@ -39,6 +39,8 @@ fn fsFull(@builtin(vertex_index) vi: u32) -> PostOut {
 }
 
 
+@group(1) @binding(8) var depthTex : texture_depth_2d;
+
 /** Camera-basis distortion applied to a centred, aspect-corrected uv. */
 fn warpLens(uvIn: vec2f) -> vec2f {
   var uv = uvIn;
@@ -294,8 +296,118 @@ fn debugView(v: PostOut) -> vec4f {
   else if (mode == 3) { o = df.rgb; }
   else if (mode == 4) { o = tonemap(src * F.weather4.w); }
   else if (mode == 5) { o = tonemap(src * F.weather4.w) * 4.0; }
-  else if (mode == 6) { o = src; }
+  else if (mode == 6) {
+    // The shaft buffer ALONE, x2.5 and tonemapped so a faint in-scatter term is
+    // visible at all. Binding 4 holds the shaft buffer exactly when the shaft
+    // pass ran, and the pass runs on the same `weather2.y > 0` test the CPU
+    // uses, so this view is honest in both directions: black means the pass did
+    // not run, which is the one thing a phantom looks like.
+    let sh = select(vec3f(0.0), textureSampleLevel(dofTex, linSamp, v.uv, 0.0).rgb, F.weather2.y > 0.001);
+    o = tonemap(sh * 2.5);
+  }
   return vec4f(linearToSrgb(o), 1.0);
+}
+
+// ---------------------------------------------------------------- shafts
+
+/**
+ * Shafted volumetric light, by radial scatter from the sun's screen position.
+ *
+ * `weather2.y` was written every frame for three sessions and read by nothing.
+ * `WeatherDirector` drives it from `sunbreak`, `fog-bank` and `lightning`, and
+ * poses and the LLM's `set_weather` set it, so a pose carrying `godRays: 0.4`
+ * was asserting an effect that did not exist. This is the pass that makes that
+ * field mean something.
+ *
+ * The formulation is the cheap portable one on purpose. A full-screen march is
+ * one triangle, one depth fetch per step and no geometry; a froxel compute
+ * volume would be faster per pixel and would not survive the port to WebGL2
+ * without a rewrite. Everything below is plain arithmetic over texture loads.
+ *
+ * How it works: a shaft is the set of pixels whose line of sight to the sun is
+ * not blocked. The occlusion signal is therefore the DEPTH BUFFER and nothing
+ * else — no extra render target, no extra geometry, no lighting query. Each
+ * pixel walks toward the sun in screen space and accumulates how much of that
+ * walk is unobstructed sky. Buildings then read as the thing casting the shafts,
+ * for free, because they are what writes the depth.
+ *
+ * Reverse-Z: the main pass clears depth to 0.0 and tests `greater`, so a
+ * fragment at the far plane is ~0 and sky is exactly 0. That makes the occlusion
+ * test a threshold rather than a comparison against a reconstructed world
+ * distance, which is both cheaper and immune to the near/far convention.
+ */
+const SHAFT_STEPS : i32 = 14;
+
+/** Sun direction to a screen uv, or a sentinel outside the frame. */
+fn sunScreenUv() -> vec2f {
+  // A point far along the sun direction: the sun is a direction, not a point,
+  // so it is placed at the far plane and projected like anything else.
+  let p = F.viewProj * vec4f(F.sunDir.xyz * 1e6, 1.0);
+  if (p.w <= 1e-6) { return vec2f(-10.0); }
+  let n = p.xy / p.w;
+  return vec2f(n.x * 0.5 + 0.5, 0.5 - n.y * 0.5);
+}
+
+@fragment
+fn shafts(v: PostOut) -> @location(0) vec4f {
+  let strength = F.weather2.y;
+  // Below this the pass is skipped by the caller; returning black here as well
+  // means the buffer is never stale if that check is ever loosened.
+  if (strength <= 0.001) { return vec4f(0.0, 0.0, 0.0, 1.0); }
+
+  let sun = sunScreenUv();
+  // The sun is behind the camera or so far off frame that a radial smear would
+  // be a directionless streak rather than a shaft. Nothing to add.
+  if (sun.x < -0.6 || sun.x > 1.6 || sun.y < -0.6 || sun.y > 1.6) {
+    return vec4f(0.0, 0.0, 0.0, 1.0);
+  }
+
+  // Exponent controls the decay along the walk, and therefore whether the shaft
+  // is a tight spear or a wide fan. A shaft reads best when it is brightest
+  // near the sun, which is what the exponent buys.
+  let density = 0.55 + 0.45 * strength;
+  let uv = v.uv;
+  let delta = (sun - uv) * (1.0 / f32(SHAFT_STEPS));
+  var coord = uv;
+  var acc = 0.0;
+  var w = 1.0;
+  var wsum = 0.0;
+  for (var i = 0; i < SHAFT_STEPS; i = i + 1) {
+    coord = coord + delta;
+    // Fetch the depth at this half-res sample. `depthTex` is full res, so the
+    // coordinate is scaled: one fetch covers the same 2x2 block either way.
+    let dim = vec2i(F.screen.xy);
+    let px = vec2i(clamp(coord, vec2f(0.0), vec2f(0.999)) * F.screen.xy);
+    let d = textureLoad(depthTex, clamp(px, vec2i(0), dim - 1), 0);
+    // 0.0 is the clear value: the sky. Anything above it is geometry in the
+    // way, and contributes nothing to the shaft.
+    let sky = step(d, 1e-5);
+    acc = acc + sky * w;
+    wsum = wsum + w;
+    w = w * (1.0 - density * 0.55);
+  }
+  let march = acc / max(wsum, 1e-4);
+  // Fade out when the sun is behind the camera: the shafts have no origin on
+  // screen and a radial smear from off-frame reads as a lens artefact.
+  let onScreen = smoothstep(1.35, 0.75, max(abs(sun.x - 0.5), abs(sun.y - 0.5)) * 2.0);
+  // Concentrate the term around the sun. This is not a taste knob, it is the
+  // difference between the effect existing at all. Open sky marches to
+  // `march == 1` everywhere, so without a radial falloff the pass adds a
+  // uniform veil across the entire frame: a fog card with fourteen steps of
+  // extra cost, and at the gain the sun's own intensity implies it is a white
+  // one. The falloff is also what lets the shafts read — an occluder only
+  // darkens `march` relative to its neighbours, and only near the sun is there
+  // enough signal for that difference to be visible.
+  let dv = (sun - uv) * vec2f(F.screen.x / F.screen.y, 1.0);
+  let radial = exp(-dot(dv, dv) * 4.0);
+  // Deliberately NOT multiplied by sun intensity. Sun intensity is ~4.6 at
+  // dusk, and this term is additive on top of a sky that already has it in it;
+  // scaling by it again is what turned the first working build into white.
+  let amt = march * strength * onScreen * radial * 0.6;
+  // Sun-tinted, so a shaft at sunset is warm and at noon is white. The colour is
+  // the frame's own sun, not a constant — a constant here is the difference
+  // between light and a filter.
+  return vec4f(F.sunColor.rgb * amt, 1.0);
 }
 
 @fragment
@@ -324,6 +436,15 @@ fn composite(v: PostOut) -> @location(0) vec4f {
     col = vec3f(cr, cg, cb);
   } else {
     col = textureSampleLevel(srcTex, linSamp, uv, 0.0).rgb;
+  }
+
+  // Shafts. Added here rather than into the HDR target so they sit AFTER the
+  // temporal resolve: TAA smears anything it accumulates, and a shaft that
+  // trails behind the camera reads as a motion-blur bug rather than as light.
+  // The cost of that ordering is that they do not bloom, which is the right
+  // trade — bloom on an already-soft additive term is how shafts turn to mush.
+  if (F.weather2.y > 0.001) {
+    col = col + textureSampleLevel(dofTex, linSamp, uv, 0.0).rgb;
   }
 
   // Defocus, sampled through the same lens warp so the blur bends too.

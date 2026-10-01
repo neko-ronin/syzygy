@@ -70,6 +70,8 @@ interface RenderTargets {
   taa: [GPUTexture, GPUTexture];
   taaView: [GPUTextureView, GPUTextureView];
   resolved: GPUTexture; resolvedView: GPUTextureView;
+  /** Half-res shaft buffer. See `godRays` in post.wgsl. */
+  shafts: GPUTexture; shaftsView: GPUTextureView;
 }
 
 interface ChunkEntry {
@@ -146,6 +148,15 @@ export interface RendererStats {
    */
   captureMs: number;
   capturePhases: CapturePhases;
+  /**
+   * Shafted volumetrics — the diagnostic that stops `godRays` being a phantom
+   * again. `strength` is the value the CPU wrote into `weather2.y` this frame;
+   * `passRan` says the pass was actually encoded; `sunOnScreen` says whether the
+   * sun projects inside the frame, which is the precondition for a shaft being
+   * visible at all. All three read zero/false on a clear pose, and the whole
+   * point is that they move when the field does.
+   */
+  shafts: { strength: number; passRan: boolean; sunOnScreen: boolean; sunUv: [number, number] };
   /**
    * rAF ticks that `render()` declined to encode since the last frame it did
    * encode, because the queue was full or a readback was in flight. Zero in
@@ -347,6 +358,7 @@ export class Renderer {
     tier: 'high', bakeMs: 0, uploadMs: 0, frustumCulled: 0,
     rebakePending: 0, lodHistogram: [0, 0, 0, 0],
     captureMs: 0,
+    shafts: { strength: 0, passRan: false, sunOnScreen: false, sunUv: [0, 0] },
     capturePhases: {
       tex: 0, encode: 0, buf: 0, submit: 0, map: 0, read: 0, free: 0, total: 0,
       w: 0, h: 0, bytes: 0,
@@ -568,6 +580,10 @@ export class Renderer {
       { binding: 2, kind: 'tex' }, { binding: 3, kind: 'tex' },
       { binding: 4, kind: 'tex' }, { binding: 5, kind: 'tex' },
       { binding: 6, kind: 'sampler' }, { binding: 7, kind: 'tex' },
+      // Scene depth, for the shaft pass only. It is the whole occlusion signal:
+      // a shaft exists where the line of sight to the sun is not blocked by
+      // geometry, and that is exactly what the depth buffer knows.
+      { binding: 8, kind: 'depthTex' },
     ]);
     this.postBgl = postBgl;
     const postGroups = [this.frameBgl, postBgl];
@@ -578,6 +594,7 @@ export class Renderer {
     this.bloomThreshold = mk('bloom-threshold', 'fsFull', 'bloomPrefilter', HDR);
     this.bloomUp = mk('bloom-up', 'fsFull', 'bloomUp', HDR);
     this.taaPass = mk('taa', 'fsFull', 'taa', HDR);
+    this.shaftPass = mk('shafts', 'fsFull', 'shafts', HDR);
     this.blitPass = mk('blit', 'fsFull', 'blit', HDR);
     this.compositePass = makeRenderPass(dev, {
       label: 'composite', code: modules.post, vs: 'fsFull', fs: 'composite',
@@ -665,7 +682,7 @@ export class Renderer {
     const gpu = this.gpu;
     const t = this.targets;
     if (t) {
-      for (const k of ['gAlbedo', 'gNormal', 'gEmis', 'gDepth', 'hdr', 'dof', 'dofTmp', 'resolved'] as const) t[k].destroy();
+      for (const k of ['gAlbedo', 'gNormal', 'gEmis', 'gDepth', 'hdr', 'dof', 'dofTmp', 'resolved', 'shafts'] as const) t[k].destroy();
       for (const b of t.bloom) b.destroy();
       for (const a of t.taa) a.destroy();
     }
@@ -682,6 +699,12 @@ export class Renderer {
     const dof = mk('dof', hw, hh, HDR);
     const dofTmp = mk('dof-tmp', hw, hh, HDR);
     const resolved = mk('resolved', w, h, HDR, RT | GPUTextureUsage.COPY_SRC);
+    // Shafts are computed at half resolution and added in the composite. Half is
+    // not a compromise for its own sake: a radial march is 14 depth fetches per
+    // pixel, and at 1600x900 full-res that is 20M fetches a frame on a laptop
+    // that is already at 2.4-10.9M triangles. Shafts are a low-frequency
+    // effect; nothing in them survives the 2x upsample.
+    const shafts = mk('shafts', hw, hh, HDR);
 
     const bloom: GPUTexture[] = [];
     const bloomView: GPUTextureView[] = [];
@@ -703,6 +726,7 @@ export class Renderer {
       taa: taaTex,
       taaView: [taaTex[0].createView(), taaTex[1].createView()],
       resolved, resolvedView: resolved.createView(),
+      shafts, shaftsView: shafts.createView(),
     };
     this.postGroups.clear();
   }
@@ -1346,9 +1370,10 @@ export class Renderer {
    */
   private postBg(
     key: string, target: GPUTexture, src: GPUTextureView, prev: GPUTextureView,
+    slot4?: GPUTextureView,
   ): GPUBindGroup {
     const t = this.targets!;
-    const k = `${key}|${src.label ?? 's'}|${prev.label ?? 'p'}`;
+    const k = `${key}|${src.label ?? 's'}|${prev.label ?? 'p'}|${slot4 ? 'x' : '-'}`;
     const cached = this.postGroups.get(k);
     if (cached) return cached;
     // Any slot whose texture is the pass's own write target is swapped for the
@@ -1361,10 +1386,14 @@ export class Renderer {
         { binding: 1, resource: this.shadowCmp },
         { binding: 2, resource: safe(src, t.hdr) },
         { binding: 3, resource: safe(t.bloomView[0], t.bloom[0]) },
-        { binding: 4, resource: safe(t.dofView, t.dof) },
+        // Binding 4 is the half-res aux slot: the DOF buffer for the DOF pass,
+        // the shaft buffer for the composite. Only ever one of them at a time,
+        // and always something the pass does not itself write.
+        { binding: 4, resource: safe(slot4 ?? t.dofView, slot4 ? t.shafts : t.dof) },
         { binding: 5, resource: safe(t.hdrView, t.hdr) },
         { binding: 6, resource: this.clampSamp },
         { binding: 7, resource: safe(prev, t.taa[0] === target ? t.taa[0] : t.taa[1]) },
+        { binding: 8, resource: t.gDepth.createView() },
       ],
     });
     this.postGroups.set(k, g);
@@ -1420,6 +1449,26 @@ export class Renderer {
       draw('copy', t.resolved, this.blitPass.pipeline, t.hdrView, t.taaView[prevIdx]);
     }
 
+    // --- shafts: radial scatter from the sun, half res, AFTER the temporal
+    //     resolve. It reads `weather2.y`, which three sessions of poses, weather
+    //     events and LLM tools wrote without anything consuming it.
+    //
+    //     Skipped entirely at zero strength, so a clear day costs one branch in
+    //     the composite and no pass at all.
+    const shafted = this.world.weather.godRays > 0.001;
+    if (shafted) {
+      draw('shafts', t.shafts, this.shaftPass.pipeline, t.resolvedView, t.taaView[prevIdx]);
+    }
+    // Same sun-screen test the shader runs, on the CPU, so a diagnostic can say
+    // "shafts are on and the sun is off frame" instead of leaving you guessing.
+    const sp = this.projectSunUv();
+    this.stats.shafts = {
+      strength: +this.world.weather.godRays.toFixed(3),
+      passRan: shafted,
+      sunOnScreen: shafted && sp[0] >= 0 && sp[0] <= 1 && sp[1] >= 0 && sp[1] <= 1,
+      sunUv: [+sp[0].toFixed(3), +sp[1].toFixed(3)],
+    };
+
     // --- lens: warp, CA, defocus, halation, tonemap, grade, vignette, grain.
     const p = enc.beginRenderPass({
       label: 'composite',
@@ -1430,9 +1479,35 @@ export class Renderer {
     });
     p.setPipeline(this.compositePass.pipeline);
     p.setBindGroup(0, this.frameBg, bg0);
-    p.setBindGroup(1, this.postBg('composite', t.resolved, t.resolvedView, t.taaView[prevIdx]));
+    // The composite reads `dofTex` (binding 4) as the shaft term, so when the
+    // pass ran, that slot has to BE the shaft buffer. Keying the group on a
+    // suffix rather than mutating the cached one keeps both variants alive.
+    p.setBindGroup(1, shafted
+      ? this.postBg('composite+shafts', t.resolved, t.resolvedView, t.taaView[prevIdx], t.shaftsView)
+      : this.postBg('composite', t.resolved, t.resolvedView, t.taaView[prevIdx]));
     p.draw(3);
     p.end();
+  }
+
+  /** Radial shaft pass. Consumes `weather2.y`, which nothing read for three sessions. */
+  private shaftPass!: ReturnType<typeof makeRenderPass>;
+
+  /**
+   * Where the sun lands in screen uv, by the same construction the shader uses:
+   * a point far along `sunDir`, pushed through the frame's viewProj. Mirrors
+   * `sunScreenUv()` in post.wgsl — the two must agree or the diagnostic lies
+   * about a frame the shader drew differently.
+   */
+  private projectSunUv(): [number, number] {
+    const m = this.frameData;
+    const s = sunDirection(this.world.sun);
+    const P = 1e6;
+    const x = s[0] * P, y = s[1] * P, z = s[2] * P;
+    const cx = m[0] * x + m[4] * y + m[8] * z + m[12];
+    const cy = m[1] * x + m[5] * y + m[9] * z + m[13];
+    const cw = m[3] * x + m[7] * y + m[11] * z + m[15];
+    if (cw <= 1e-6) return [-10, -10];
+    return [cx / cw * 0.5 + 0.5, 0.5 - cy / cw * 0.5];
   }
 
   /** Mip 0 of the bloom chain needs the threshold, not a plain downsample. */
@@ -1529,7 +1604,17 @@ export class Renderer {
     });
     p.setPipeline(this.compositePass.pipeline);
     p.setBindGroup(0, this.frameBg, [0]);
-    p.setBindGroup(1, this.postBg('composite', t.resolved, t.resolvedView, t.taaView[prevIdx]));
+    // Same shaft-aware bind group the live path uses. This pass re-composites
+    // into the readback target, so if it does not bind the shaft buffer then
+    // binding 4 is the DOF buffer and every capture — every screenshot the
+    // harness takes, every `--eval` pixel read — silently shows a frame with
+    // the volumetrics missing. That is not a subtle difference: it is the
+    // difference between measuring the feature and measuring its absence, and
+    // it looks exactly like the bug it hides.
+    const shafted = this.world.weather.godRays > 0.001;
+    p.setBindGroup(1, shafted
+      ? this.postBg('composite+shafts', t.resolved, t.resolvedView, t.taaView[prevIdx], t.shaftsView)
+      : this.postBg('composite', t.resolved, t.resolvedView, t.taaView[prevIdx]));
     p.draw(3);
     p.end();
     phase('encode');
