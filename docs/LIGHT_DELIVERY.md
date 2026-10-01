@@ -225,15 +225,27 @@ could separate them:
    only at LOD 0 — `groundbake.ts:889` gates the whole market block on
    `lod < 1`. This is the LOD trap in §5a and **I did not read `lodHistogram` at
    this pose**, which is the first thing to check and a lapse I should name rather
-   than explain away.
-2. **A fourth ABI** between `gatherLights`'s packing and `lightbin.wgsl`'s
-   `arrayLength(&lights)`. Note the binned indices run to 385 while
-   `stats.lights` is 296 — the bin is naming indices past the end of the array it
-   was given. That is consistent with `arrayLength` reading the whole 3072-entry
-   buffer rather than the 296 entries written, which would mean it walks stale
-   lights. **This is the strongest lead and it is a code reading, not a
-   measurement** — it needs `lodHistogram` and the array length read back
-   together to confirm or kill.
+   than explain away. **Still unexcluded** — cause 2 above fully explains the
+   measurement, but nothing yet rules this out as an *additional* factor.
+2. ~~A fourth ABI~~ **CONFIRMED, and it was the whole of it.** The binned indices
+   ran to 385 while `stats.lights` was 296 — past the end of the array the binner
+   was given. `lightBuf` is allocated for `MAX_LIGHTS` and the CPU uploads only
+   what `gatherLights` produced, so `arrayLength(&lights)` is **3072 every frame
+   regardless of what was written**, and everything past the count is the previous
+   frame's data. A zeroed stale entry is harmless (`colorInt.w <= 0` skips it); a
+   real one from last frame is not — it passes the survival test, gets binned, and
+   is evaluated against a pixel it no longer belongs to, and its own radius says
+   it should reach. Fixed in `ab19da9` by bounding the walk with the packed count,
+   which rides in `F.grade.w`.
+
+   This also explains the §4c measurement completely. The 74 lights in that bin
+   were not mis-binned market lanterns — most of them were **stale**, and the 22
+   free slots were not the reason the pool was dark.
+
+   **Not yet confirmed against a frame.** I was over the capture budget and stopped
+   rather than take a seventh. The prediction is specific: at the same pool centre,
+   `probe('tileat:800,450')` should now return `count` well under 74, the highest
+   index under 296, and at least one light with `inRadius: true`.
 
 ### The pattern, stated rather than rediscovered
 
