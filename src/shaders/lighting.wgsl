@@ -26,13 +26,38 @@ struct Light {
   colorInt  : vec4f,   // rgb, w = intensity
 };
 
-struct TileLight {
-  offset : u32,
+/**
+ * Must be the SAME struct `lightbin.wgsl` writes.
+ *
+ * It was not. The binner declared `array<Bin>` — 96 light indices then a count,
+ * 400 bytes — and this declared `array<TileLight>` with `offset`/`count` and a
+ * 16-byte stride. Both bound the same buffer, so the two agreed on the address
+ * and disagreed about everything else:
+ *
+ *   - `offset` read floats 0..3, which is `lights[0]` — a *light index*, used
+ *     here as a base offset into the global light array. Whenever the tile's
+ *     first surviving light was not light 0 of the city, `base` pointed
+ *     somewhere arbitrary and the loop read the wrong lights.
+ *   - `count` read floats 4..7, which is `lights[1]` — the *second light index*,
+ *     used as the number of lights to iterate. So the loop count was a light
+ *     index, typically a large number, capped at 96.
+ *
+ * The result read plausible light data from plausible offsets and lit almost
+ * nothing, because `base` was wrong. `probe('tiles')` reports `count` from the
+ * real location, which is why the measured `maxPerTile 268` and `meanCount
+ * 17.36` were true while the frame stayed dark: the bins were full and the
+ * reader was looking at the wrong words.
+ *
+ * Declaring one struct and importing it from both sides is the fix that cannot
+ * drift again. `lightbin.wgsl` owns it.
+ */
+struct Bin {
+  lights : array<u32, 96>,
   count  : u32,
-  _pad   : vec2u,
+  _pad   : array<u32, 3>,
 };
 
-@group(1) @binding(7) var<storage, read> tileLights : array<TileLight>;
+@group(1) @binding(7) var<storage, read> tileLights : array<Bin>;
 @group(1) @binding(8) var<storage, read> lights     : array<Light>;
 
 // ---------------------------------------------------------------- IBL
@@ -186,10 +211,11 @@ fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
   let tiles = (vec2u(F.screen.xy) + 15u) / 16u;
   let tile = min(vec2u(p) / 16u, tiles - 1u);
   let tl = tileLights[tile.y * tiles.x + tile.x];
-  let base = tl.offset;
+  // The bin stores absolute light indices in `lights[]`, so there is no base to
+  // add — `base` was reading `tl.lights[0]` and treating it as one.
   let cnt = min(tl.count, 96u);
   for (var i = 0u; i < cnt; i++) {
-    let li = lights[base + i];
+    let li = lights[tl.lights[i]];
     let dv = li.posRadius.xyz - P;
     let d2 = dot(dv, dv);
     let r = li.posRadius.w;

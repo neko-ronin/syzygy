@@ -28,6 +28,8 @@
  * renderer touches `GPUShaderStage` at module scope and cannot be imported here.
  */
 
+import rendererSrc from './renderer.ts?raw';
+import lightbinWgsl from '../shaders/lightbin.wgsl?raw';
 import postWgsl from '../shaders/post.wgsl?raw';
 import { City, defaultCityConfig } from '../world/citygen';
 import { defaultWorld, sunDirection, type WorldState } from '../core/state';
@@ -306,6 +308,77 @@ function run(): void {
     check(marketDelivered > 0,
       `market lanterns delivered to BakedChunk.lights: ${marketDelivered} of ${marketProduced} produced`,
       'zero delivered — this is the 365-lights-go-nowhere bug, back again');
+
+    // ------------------------------------------------------------------
+    // THE TILE-BIN CAPACITY TRAP. `tileBuf` was `16 * 16 * 400` bytes, which
+    // looks like "a 16x16 grid of tiles" and is not: `TILE_DIM` in
+    // lightbin.wgsl is a tile's side in PIXELS, so the grid is
+    // `ceil(w/16) x ceil(h/16)` — 5700 bins at 1600x900. The buffer held 256.
+    //
+    // Both the binning pass and the lighting pass agreed with each other and
+    // disagreed with the allocation, and out-of-bounds storage access is legal
+    // WebGPU: stores are dropped, loads read zero. So most tiles got
+    // `count == 0` and lit nothing, with no error anywhere.
+    //
+    // This is arithmetic rather than a GPU measurement — it is checkable by
+    // reading two constants — so it belongs in the fast suite where it can
+    // never be forgotten, rather than in a capture that costs 24s and might be
+    // skipped.
+    const BIN_BYTES = 400;   // array<atomic<u32>,96> + count + 3 pad
+    check(BIN_BYTES === 96 * 4 + 4 + 12,
+      'sizeof(Bin) in lightbin.wgsl is accounted for exactly',
+      'the 400 constant no longer matches the WGSL struct — recheck the allocation');
+    for (const [w, h, tier] of [[1600, 900, 'default'], [1200, 675, 'low'], [2160, 1215, 'ultra']] as const) {
+      const need = Math.ceil(w / 16) * Math.ceil(h / 16);
+      const needBytes = need * BIN_BYTES;
+      check(needBytes > 256 * BIN_BYTES,
+        `tier ${tier} (${w}x${h}) needs ${need} bins = ${(needBytes / 1e6).toFixed(2)} MB of tile bins`,
+        'sanity: this suite assumed the grid outgrows the old 256-bin buffer');
+    }
+    // The real guard: the renderer must size the buffer FROM the resolution.
+    const rsrc = rendererSrc;
+    check(!/tileBuf = dev\.createBuffer\(\{[^}]*size:\s*16\s*\*\s*16/.test(rsrc),
+      'tileBuf is no longer allocated from a hard-coded 16*16 tile count',
+      'the tile buffer is sized by a literal again — it must derive from targetsW/H');
+    check(/Math\.ceil\(this\.targetsW\s*\/\s*16\)/.test(rsrc) && /Math\.ceil\(this\.targetsH\s*\/\s*16\)/.test(rsrc),
+      'the tile buffer size derives from the render-target resolution');
+
+    // ------------------------------------------------------------------
+    // THE LIGHT BUFFER STRIDE. This is the actual cause of the unlit market.
+    //
+    // `gatherLights` packed lights through `makeInstanceWriter`, which strides
+    // 24 floats (a mat4), and then patched floats 12..15 and 19 of each record.
+    // `lightbin.wgsl` reads `struct Light { posRadius: vec4f, colorInt: vec4f }`
+    // — 8 floats. Light 0's position was written to byte 48 and the shader read
+    // bytes 0..32, which held the identity matrix `pushStatic` had left there.
+    //
+    // The refusal was total and silent: `bin` skips any light whose
+    // `colorInt.w <= 0`, and that is the intensity slot, so every light was
+    // rejected, every bin was written with `count == 0`, and
+    // `lighting.wgsl`'s per-pixel loop ran zero iterations for the whole frame.
+    // `stats.lights` still read 219-3072, which is why delivery looked healthy.
+    //
+    // This asserts the layout contract from both ends — the WGSL struct and the
+    // TS packing — rather than trusting that two files written months apart
+    // agree about a byte offset.
+    const rsrc2 = rendererSrc;
+    check(/const LIGHT_FLOATS\s*=\s*8/.test(rsrc2),
+      'the light buffer has its own 8-float stride constant',
+      'no LIGHT_FLOATS — lights are packed at some other stride');
+    check(!/pushStatic\(l\.color/.test(rsrc2),
+      'gatherLights no longer packs lights through the instance writer',
+      'lights are being packed at INSTANCE_FLOATS (96 B) for a 32 B shader struct');
+    const lb = /label: 'lights', size: MAX_LIGHTS \* (\d+)/.exec(rsrc2);
+    check(lb !== null && lb[1] === '32',
+      'lightBuf is allocated 32 bytes per light, matching struct Light',
+      'lightBuf allocation disagrees with the WGSL Light struct');
+    // And the survival test the shader actually applies.
+    const binSrc = lightbinWgsl;
+    check(/colorInt\.w <= 0\.0/.test(binSrc),
+      'the bin shader rejects on colorInt.w, which is the intensity slot',
+      'the shader survival test changed — recheck which slot carries intensity');
+    check(/posRadius\s*:\s*vec4f/.test(binSrc) && /colorInt\s*:\s*vec4f/.test(binSrc),
+      'struct Light is two vec4f, i.e. 8 floats / 32 bytes');
 
     // Whatever the axis is, the box must still be a square of the advertised
     // size, or the culling above is dropping casters.

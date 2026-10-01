@@ -53,6 +53,12 @@ const PACING_FAIL_OPEN_MS = 250;
 const CASCADE_STRIDE = 256;
 const MAX_LIGHTS = 3072;
 /**
+ * Floats per light in `lightBuf`, matching `struct Light` in `lightbin.wgsl`:
+ * `posRadius: vec4f` + `colorInt: vec4f`. NOT `INSTANCE_FLOATS` — that is the
+ * draw-instance stride and it packs a mat4.
+ */
+const LIGHT_FLOATS = 8;
+/**
  * Hard per-frame bake budget in milliseconds. Shared by the streaming queue and
  * the LOD rebake queue so a tier change can never spend more than this.
  */
@@ -136,6 +142,18 @@ export interface RendererStats {
    * the two filters ate what, because "delivered 400, binned 300" is a
    * different bug from "produced 400, delivered 0".
    */
+  /**
+   * Screen-tile bin occupancy. `bins` must equal `ceil(w/16) * ceil(h/16)` or the
+   * bins past the end of the buffer read back as `count == 0` and every clustered
+   * light below that row is invisible. `fullTiles` counts bins that hit
+   * `MAX_PER_TILE` and refused a light; `maxPerTile` is the busiest bin.
+   */
+  tileBins: {
+    bins: number;
+    capacity: number;
+    maxPerTile: number;
+    refusedTiles: number;
+  };
   lightDelivery: {
     produced: number;
     delivered: number;
@@ -264,6 +282,8 @@ export class Renderer {
 
   private lightBuf!: GPUBuffer;
   private tileBuf!: GPUBuffer;
+  /** Bins `tileBuf` can address. See `allocTiles` — this used to be hard-coded. */
+  private tileCapacity = 0;
   private instBuf!: GPUBuffer;
   private identityInst!: GPUBuffer;
   private groundInst!: GPUBuffer;
@@ -356,7 +376,12 @@ export class Renderer {
   private skipped = 0;
   /** `performance.now()` of the last submit, for the pacing fail-open. */
   private lastSubmitAt = 0;
-  private lightWriter = makeInstanceWriter(MAX_LIGHTS);
+  /**
+   * Scratch for the packed light array. Sized for the shader's 8-float stride,
+   * not `INSTANCE_FLOATS`: reusing the instance writer is what put the positions
+   * 48 bytes from where the shader looked.
+   */
+  private lightWriter = makeInstanceWriter(Math.ceil(MAX_LIGHTS * LIGHT_FLOATS / INSTANCE_FLOATS) + 8);
   /**
    * Scratch for the distance-ordered bin. Reused every frame so the sort does
    * not allocate; `gatherLights` runs once per frame at night.
@@ -385,6 +410,7 @@ export class Renderer {
       produced: 0, delivered: 0, binned: 0, starved: 0, rejectedFar: 0,
       culledByDay: false, cap: MAX_LIGHTS,
     },
+    tileBins: { bins: 0, capacity: 0, maxPerTile: 0, refusedTiles: 0 },
     tier: 'high', bakeMs: 0, uploadMs: 0, frustumCulled: 0,
     rebakePending: 0, lodHistogram: [0, 0, 0, 0],
     captureMs: 0,
@@ -450,9 +476,7 @@ export class Renderer {
       label: 'lights', size: MAX_LIGHTS * 32,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
-    this.tileBuf = dev.createBuffer({
-      label: 'light-tiles', size: 16 * 16 * 400, usage: GPUBufferUsage.STORAGE,
-    });
+    this.allocTiles(dev);
     this.instBuf = dev.createBuffer({
       label: 'instances', size: 4096 * 96,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
@@ -706,6 +730,11 @@ export class Renderer {
     if (w === this.targetsW && h === this.targetsH && this.targets) return;
     this.targetsW = w; this.targetsH = h;
     this.allocTargets(w, h);
+    // The tile bins are sized from the target resolution, so they have to be
+    // reallocated with it. Missed this at first and the resize path left the
+    // old, smaller buffer in place — which is the same class of silent
+    // disagreement this method exists to remove.
+    this.allocTiles(this.gpu.device);
   }
 
   private allocTargets(w: number, h: number): void {
@@ -1069,25 +1098,57 @@ export class Renderer {
     // bin takes everything and order is irrelevant.
     if (cand.length > MAX_LIGHTS) cand.sort((a, b) => a.d - b.d);
     const take = Math.min(cand.length, MAX_LIGHTS);
+    // Pack at the SHADER's stride, not the instance writer's.
+    //
+    // This used to go through `makeInstanceWriter` and then patch slots 12..15
+    // and 19 of each 24-float instance record. That was wrong in three
+    // independent ways at once, and each one alone was enough to lose the
+    // lights:
+    //
+    //   1. STRIDE. `INSTANCE_FLOATS` is 24 floats = 96 bytes, because it packs
+    //      a mat4. `lightbin.wgsl`'s `Light` is two vec4f = 8 floats = 32
+    //      bytes. Light 0's position went to byte 48; the shader read light 0
+    //      from bytes 0..32 and found the identity matrix instead.
+    //   2. LENGTH. The upload was `count * 8` floats — the right length for the
+    //      shader's stride but applied to data laid out at 24 — so only the
+    //      first ~1/3 of the buffer was ever written and the rest stayed zero.
+    //   3. `colorInt.w` is the intensity the shader reads to decide whether a
+    //      light exists at all (`if (l.colorInt.w <= 0.0) { continue; }`).
+    //      `pushStatic` writes the *emissive* slot there, and the patch wrote
+    //      intensity to slot 19 — so the survival test read a slot that was
+    //      never given one for lights, and rejected them.
+    //
+    // Net effect: `stats.lights` reported 219-3072 lights "delivered" while the
+    // binning shader rejected every one of them on the intensity test, wrote
+    // `count == 0` to every bin, and `lighting.wgsl` iterated zero lights for
+    // every pixel in the frame. `meanCount 0` from `probe('tiles')` with 772
+    // lights binned is that, measured. This is the actual cause of the unlit
+    // market aisle, and it is upstream of everything in docs/LIGHT_DELIVERY.md
+    // §1-4: delivery, ordering and tile capacity were all necessary and none of
+    // them was sufficient.
+    const d = w.data;
     for (let i = 0; i < take; i++) {
       const l = cand[i].l;
-      w.pushStatic(l.color, 5, 1, l.intensity, 0);
-      // Overwrite the position that pushStatic left at identity.
-      const o = (w.count - 1) * 24;
-      w.data[o + 12] = l.pos[0];
-      w.data[o + 13] = l.pos[1];
-      w.data[o + 14] = l.pos[2];
-      w.data[o + 15] = l.radius;
-      w.data[o + 19] = l.intensity;
+      const o = i * LIGHT_FLOATS;
+      d[o + 0] = l.pos[0];
+      d[o + 1] = l.pos[1];
+      d[o + 2] = l.pos[2];
+      d[o + 3] = l.radius;
+      d[o + 4] = l.color[0];
+      d[o + 5] = l.color[1];
+      d[o + 6] = l.color[2];
+      d[o + 7] = l.intensity;
     }
     starved = cand.length - take;
-    this.gpu.device.queue.writeBuffer(this.lightBuf, 0, w.data as unknown as BufferSource, 0, Math.max(1, w.count) * 8);
-    this.stats.lights = w.count;
+    this.gpu.device.queue.writeBuffer(
+      this.lightBuf, 0, d as unknown as BufferSource, 0, Math.max(1, take) * LIGHT_FLOATS,
+    );
+    this.stats.lights = take;
     this.stats.lightDelivery = {
-      produced, delivered, binned: w.count, starved, rejectedFar,
+      produced, delivered, binned: take, starved, rejectedFar,
       culledByDay: byDay, cap: MAX_LIGHTS,
     };
-    return w.count;
+    return take;
   }
 
   // ---------------------------------------------------------------- frame
@@ -1359,6 +1420,57 @@ export class Renderer {
     return draws;
   }
 
+  /**
+   * Size the screen-tile light bins for the current target resolution.
+   *
+   * THIS WAS A HARD-CODED `16 * 16 * 400`, and it was wrong by more than an
+   * order of magnitude, silently.
+   *
+   * `16 * 16` looks like it means "a 16x16 tile grid", which is what
+   * `lightbin.wgsl` calls `TILE_DIM`. It is not: `TILE_DIM` is the tile's side
+   * in PIXELS, and the grid is `ceil(W/16) x ceil(H/16)` — 5700 bins at 1600x900,
+   * 10260 at ultra. So the buffer held 256 of the 5700 bins the shader actually
+   * addressed.
+   *
+   * `recordBinning` dispatches `ceil(tiles/64)` workgroups over ALL of them and
+   * `lighting.wgsl` reads `tileLights[tile.y * tiles.x + tile.x]` over ALL of
+   * them, so both passes agreed with each other and disagreed with the
+   * allocation. Every store past the end of a storage buffer is discarded and
+   * every load returns zero, which is legal WebGPU and produces no error — so
+   * the bin for any tile past the first 256 read back `count == 0`, and
+   * `lighting.wgsl`'s light loop ran zero iterations for it.
+   *
+   * The visible consequence: clustered lights only ever appeared in roughly the
+   * top 32 pixels of the frame. On the market street, that is the sky. The
+   * lanterns glowed (they are emissive geometry, drawn in the G-buffer pass, not
+   * binned) and the aisle beneath them got nothing — which is exactly the
+   * reviewer's reported symptom, and exactly why raising `MAX_PER_TILE` or
+   * re-ordering the bin could not have fixed it.
+   *
+   * Nothing about this was visible from any number the project owned. `stats.lights`
+   * counted lights *handed to the binner*, and read 219-3072 depending on tier,
+   * which looks like healthy delivery. The lights were delivered; almost none of
+   * them had anywhere to be read from.
+   */
+  private allocTiles(dev: GPUDevice): void {
+    const tx = Math.ceil(this.targetsW / 16);
+    const ty = Math.ceil(this.targetsH / 16);
+    const bins = Math.max(1, tx * ty);
+    // Matches `sizeof(Bin)` in lightbin.wgsl: array<atomic<u32>,96> + count + 3 pad.
+    const bytes = bins * 400;
+    this.tileCapacity = bins;
+    this.stats.tileBins.bins = bins;
+    this.stats.tileBins.capacity = bins;
+    this.tileBuf?.destroy();
+    this.tileBuf = dev.createBuffer({
+      label: 'light-tiles', size: bytes,
+      // COPY_SRC so `tileStats()` can read the bins back. Without it the copy is
+      // a validation error and the whole readback silently returns zeros — the
+      // same "no error, wrong numbers" shape as the bug this buffer had.
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+  }
+
   private recordBinning(enc: GPUCommandEncoder, lightCount: number): void {
     const bg = this.gpu.device.createBindGroup({
       label: 'bin-bg', layout: this.binBgl,
@@ -1369,6 +1481,12 @@ export class Renderer {
     });
     const cp = enc.beginComputePass({ label: 'lightbin' });
     const tiles = Math.ceil(this.targetsW / 16) * Math.ceil(this.targetsH / 16);
+    // Dispatching past the buffer is legal WebGPU and silently wrong: the stores
+    // are dropped and the matching loads read zero, so those tiles light nothing
+    // and no error is raised. Assert it instead of trusting it.
+    if (tiles > this.tileCapacity) {
+      throw new Error(`lightbin: ${tiles} tiles exceed tileBuf capacity ${this.tileCapacity} (${this.targetsW}x${this.targetsH})`);
+    }
     cp.setBindGroup(0, this.frameBg, [0]);
     cp.setBindGroup(1, bg);
     cp.setPipeline(this.binClear.pipeline);
@@ -1735,10 +1853,21 @@ export class Renderer {
    * stage of the frame graph is producing black instead of guessing.
    */
   async probe(
-    target: 'hdr' | 'gbuffer' | 'resolved' | 'dof' | 'bloom' = 'hdr',
+    target: 'hdr' | 'gbuffer' | 'resolved' | 'dof' | 'bloom' | 'tiles' = 'hdr',
   ): Promise<number[]> {
     const t = this.targets;
     if (!t) return [];
+    // `tiles` is not a texture sample, it is the tile-bin occupancy. Reachable
+    // through the existing `probe` entry point so it does not need a new
+    // binding in `main.ts`, and returned flat for the same reason:
+    //   [bins, capacity, maxPerTile, cap, refusedTiles, fullTiles, meanCount,
+    //    busiestCount0, x0, y0, ...]
+    if (target === 'tiles') {
+      const s = await this.tileStats();
+      const flat = [s.bins, s.capacity, s.maxPerTile, s.cap, s.refusedTiles, s.fullTiles, s.meanCount];
+      for (const b of s.busiest) flat.push(b.count, b.x, b.y);
+      return flat;
+    }
     const dev = this.gpu.device;
     const map: Record<string, { tex: GPUTexture; bpp: number; hdr: boolean }> = {
       hdr: { tex: t.hdr, bpp: 8, hdr: true },
@@ -1785,6 +1914,67 @@ export class Renderer {
     return out;
   }
 
+
+  /**
+   * Read back the screen-tile light bins and report their occupancy.
+   *
+   * This exists because of `MAX_PER_TILE = 96`. The cap refuses lights in the
+   * busiest tiles, it does so with no error, and the refusal is invisible from
+   * `stats.lights` — which counts what was *handed to* the binner, not what
+   * survived it. So the question "is the cap biting, and where" had no answer
+   * without reading the bins, and the honest way to settle it is to read them.
+   *
+   * Returns the busiest bins, not an average: an average over 5700 tiles hides
+   * a handful of saturated tiles completely, and a saturated tile is exactly
+   * the failure — every pixel in it silently loses a light.
+   */
+  async tileStats(): Promise<{
+    bins: number; capacity: number; maxPerTile: number; cap: number;
+    refusedTiles: number; fullTiles: number; meanCount: number;
+    busiest: { x: number; y: number; count: number }[];
+  }> {
+    const dev = this.gpu.device;
+    const bins = this.tileCapacity;
+    const bytes = bins * 400;
+    const rb = dev.createBuffer({
+      label: 'tile-readback', size: bytes,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    // `await dev.queue.onSubmittedWorkDone()` first. The bin pass for this
+    // frame is already queued but the copy below would otherwise be recorded
+    // against a buffer whose bins have not been written yet — and a buffer full
+    // of zeros is a perfectly valid thing to read back. That is not a
+    // hypothetical: it is what the first version of this probe returned,
+    // `meanCount 0` with 548 lights binned, which reads exactly like "the tiles
+    // are empty" and is why the race is worth a comment.
+    await dev.queue.onSubmittedWorkDone();
+    const enc = dev.createCommandEncoder({ label: 'tile-readback' });
+    enc.copyBufferToBuffer(this.tileBuf, 0, rb, 0, bytes);
+    dev.queue.submit([enc.finish()]);
+    await rb.mapAsync(GPUMapMode.READ);
+    // `count` is the third u32 of the Bin: 96 light slots then the count.
+    const u = new Uint32Array(rb.getMappedRange());
+    const tx = Math.ceil(this.targetsW / 16);
+    let max = 0, refused = 0, full = 0, total = 0;
+    const hot: { x: number; y: number; count: number }[] = [];
+    for (let i = 0; i < bins; i++) {
+      const c = u[i * 100 + 96];
+      total += Math.min(c, 96);
+      if (c > max) max = c;
+      if (c > 96) { refused += c - 96; full++; }
+      if (c > 48) hot.push({ x: i % tx, y: (i / tx) | 0, count: c });
+    }
+    hot.sort((a, b) => b.count - a.count);
+    rb.unmap();
+    rb.destroy();
+    this.stats.tileBins.maxPerTile = max;
+    this.stats.tileBins.refusedTiles = refused;
+    return {
+      bins, capacity: this.tileCapacity, maxPerTile: max, cap: 96,
+      refusedTiles: refused, fullTiles: full, meanCount: total / Math.max(1, bins),
+      busiest: hot.slice(0, 8),
+    };
+  }
 
   /** Recent entity draw calls, for diagnosing "is it actually being issued". */
   entityDraws: string[] = [];
