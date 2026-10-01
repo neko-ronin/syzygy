@@ -602,3 +602,94 @@ pavements, in numbers, and they were there in every frame. The first is not:
 **in the street frame, 0% of the visible street length carries a legible figure,
 and the 17% far-end band named in `LEGIBILITY_TARGETS.md` §3 is empty.** In the
 close-up the mass is legible but does not read as people.
+
+
+---
+
+# Round 13 — the pose is not looking at its subject
+
+## R13.1 `01d-street-crowd` is empty because of the pose, not the crowd
+
+Provenance for the certified frame, self-contradicting on its face:
+
+```
+camera.position         [910.85, 2.65, 13.49]        <- street level, correct
+camera.viewRayPoint400m [827.65, 1.87, 404.74]       <- looking along the street, correct
+source.population       { n: 2454, cx: 1053, cz: 4, spread: 217 }
+source.distanceToCrowd  10.1                         <- the claim
+```
+
+The camera is at (910.85, 13.49). The crowd centroid it reports is (1053, 4).
+Distance between them is **142.3 m**, not 10.1 m. Either the pose is not placed
+relative to the centroid it reports, or the centroid is stale, or
+`distanceToCrowd` measures something else entirely. **All three are the same
+failure the session has already paid for twice** — a quantity that is true at the
+buffer and false at the frame.
+
+A live reading of the same fields confirms the app can put the camera nowhere
+near the crowd at all:
+
+```
+pos   [1119.85, 434.45, 166.23]     <- camera 434 m up
+look  [ 315.17, 326.63, 124.97]
+crowd samples  [[1101.7, 0.35, 12.2], ...]   <- people at y = 0.35, on the ground
+```
+
+Nothing can be inside that cone. `inView.inside = 0` is **not lying** — it is
+reporting a camera 434 m above a crowd standing on the pavement. The earlier
+report of *"inView puts 810 instances in the cone at 17.8-107.8 m"* is not a
+contradiction: it is the same field, computed correctly, against a camera that
+was actually pointed at the crowd.
+
+**So `inView` is the seventh diagnostic to be suspected and the first to be
+cleared.** The fault is upstream of it, in pose derivation. Until
+`derivePose` is shown to place the camera relative to the centroid it reports,
+**no number measured from `01d-street-crowd` — including my 0% legible-street
+figure — can be trusted.** That retracts the round-12 figure as *evidence about
+the crowd*, though the close-up reading stands, because that frame has people in
+it and I could see the shape of them.
+
+## R13.2 Mesh spec for developer 1 (hand-over, not an edit)
+
+Owner: the `pedestrian` entity factory in `src/render/citymesh.ts`. Not edited.
+
+**Measured current silhouette**, street level, `01e-crowd-closeup.png`, native
+1600x900:
+
+- height **~50 px**, width **40-70 px** — i.e. roughly square, at worst 1.4:1 wide.
+- a 1.7 m human is about **3:1 narrow**. The current footprint is the wrong shape
+  by a factor of two in the wrong direction, which is why clusters read as market
+  stalls rather than people.
+
+**Required silhouette**, in order of what buys legibility at 20-24 px (per
+`docs/LEGIBILITY_TARGETS.md` §2, and explicitly *not* by chasing head geometry
+below 25-30 px):
+
+| # | Requirement | Why |
+| --- | --- | --- |
+| 1 | Overall **3:1 narrow** at 1.7 m: ~0.55 m across at the shoulders | a square mass cannot read as a biped at any contrast |
+| 2 | **Shoulders wider than waist**, a visible narrowing at ~0.85 of height | the single strongest biped cue, and it survives at 20 px where a head does not |
+| 3 | Head **~4 px across at 32 px height**, on a **>=1 px neck** | acceptance sample in LEGIBILITY_TARGETS §2 |
+| 4 | **Gap between the legs** below the hip, so the silhouette is not a slab at 20 px | a solid slab merges with its neighbour into one band |
+| 5 | Fewer, narrower boxes overall | current box count is the reason the silhouette is wide |
+
+**Group-level consequence, which is the other half of this.** At 40-70 px wide
+adjacent agents *merge* even when correctly proportioned. Meeting requirement 1
+alone will roughly halve the projected width and buy separation, but the 2 px
+background gap still has to come from placement — that is round 13's grouping
+work and it is mine, not developer 1's.
+
+## R13.3 What was not measured
+
+Longitudinal extent and the 160 m question, and the grouping separation
+histogram. Both are open. The round-12 reading that the far end of the street
+carries nothing is a **visual** observation from a close-up frame, not a
+measured profile, and it should be re-taken once the pose is trustworthy.
+
+## The method's limit, said once
+
+Nine mechanisms were eliminated across rounds 5-9. Each was real, each was
+measured with a control, and each moved its metric by about one percent. They
+established that **placement, retirement and goal selection are sound** — which
+is a true and useful result, and is why the remaining fault is silhouette and
+extent rather than simulation. The next session should not re-run them.
