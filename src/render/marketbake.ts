@@ -39,14 +39,11 @@ import type { GroundBakeCtx } from '../world/groundgrammar';
 import {
   COUNTER_TOP, MARKET_LOD_GONE, RIGGING_LOD, SAG_ACROSS, SAG_ALONG,
   marketCatenary, marketGrammarFor,
-  type MarketCrate, type MarketLanternString, type MarketStall,
+  type MarketCloth, type MarketCrate, type MarketLanternString, type MarketStall,
 } from '../world/marketgrammar';
 
 // ---------------------------------------------------------------- the build
 
-/** Panels across one stall's roof. Also the stripe count: an odd number gives a
- *  tarp that starts and ends on the same colour at every stall boundary. */
-const CANOPY_PANELS = 3;
 /** Segments the roof is sampled at, across its depth. Two is the minimum for a
  *  cloth that dips at mid-span instead of being a flat plane. */
 const CANOPY_SEGMENTS = 2;
@@ -82,48 +79,57 @@ function roofPoint(s: MarketStall, u: number, v: number, depth: number): Vec3 {
 /** The pitch tarpaulin: alternating panels, bellied, overhanging the kerb. */
 function bakeCanopy(bld: MeshBuilder, s: MarketStall): void {
   const depth = Math.abs(s.back - s.front);
-  const panelWidth = s.pitch / CANOPY_PANELS;
+  const panels = s.panels;
+  const panelWidth = s.pitch / panels;
   const cross: Vec3[] = [];
-  for (let i = 0; i < CANOPY_PANELS; i++) {
+  for (let i = 0; i < panels; i++) {
     cross.length = 0;
     for (let j = 0; j <= CANOPY_SEGMENTS; j++) {
-      cross.push(roofPoint(s, (i + 0.5) / CANOPY_PANELS, j / CANOPY_SEGMENTS, depth));
+      cross.push(roofPoint(s, (i + 0.5) / panels, j / CANOPY_SEGMENTS, depth));
     }
     bld.pushRibbonAlongPath(cross, panelWidth, i % 2 === 0 ? s.cloth : s.clothAlt, { uvScale: 1 });
   }
 }
 
 /**
- * The frame: four legs, two poles, two guys, a trestle.
+ * The frame: two poles and a trestle, plus whatever carries the roadward edge.
  *
  * This is the part that stops the tarpaulin being a floating sheet. A canopy
  * with nothing under it is worse than no canopy at all, which is why
  * {@link RIGGING_LOD} is only ever one step behind the roof's own LOD.
+ *
+ * Two support types, because the references cannot choose between them (see
+ * `MarketStall.frame`): `poles` stands four legs in the road and guys them back
+ * to the building line; `wall-tied` carries the overhang on two raking arms
+ * and stays off the building post, with nothing standing in the carriageway at
+ * all. They read very differently down a street and they cost the same.
  */
 function bakeRigging(bld: MeshBuilder, s: MarketStall): void {
   const halfPitch = s.pitch * 0.5;
   const legTop = s.eave;
   const postTop = s.ridge;
+  const at = (lateral: number, along: number, y: number): Vec3 =>
+    [s.cx + s.nx * lateral + s.tx * along, y, s.cz + s.nz * lateral + s.tz * along];
   for (const end of [-1, 1]) {
     const along = end * halfPitch;
-    // Roadward legs stand inside the overhang; they are what the tarpaulin's
-    // low edge is actually tied to.
-    bld.pushCylinder(
-      [s.cx + s.nx * s.front + s.tx * along, GROUND_Y, s.cz + s.nz * s.front + s.tz * along],
-      [s.cx + s.nx * s.front + s.tx * along, legTop, s.cz + s.nz * s.front + s.tz * along],
-      LEG_RADIUS, 4, s.frameColor,
-    );
-    bld.pushCylinder(
-      [s.cx + s.nx * s.back + s.tx * along, GROUND_Y, s.cz + s.nz * s.back + s.tz * along],
-      [s.cx + s.nx * s.back + s.tx * along, postTop, s.cz + s.nz * s.back + s.tz * along],
-      LEG_RADIUS, 4, s.frameColor,
-    );
-    // Guy from the head of each front leg up to the back post. This is the
-    // diagonal that says "this is tied to something".
-    bld.pushTubeAlongPath([
-      [s.cx + s.nx * s.front + s.tx * along, legTop, s.cz + s.nz * s.front + s.tz * along],
-      [s.cx + s.nx * s.back + s.tx * along, postTop + 0.22, s.cz + s.nz * s.back + s.tz * along],
-    ], GUY_RADIUS, 3, s.frameColor);
+    // The building-side post is common to both types.
+    bld.pushCylinder(at(s.back, along, GROUND_Y), at(s.back, along, postTop), LEG_RADIUS, 4, s.frameColor);
+    if (s.frame === 'poles') {
+      // Roadward legs stand inside the overhang; they are what the tarpaulin's
+      // low edge is actually tied to.
+      bld.pushCylinder(at(s.front, along, GROUND_Y), at(s.front, along, legTop), LEG_RADIUS, 4, s.frameColor);
+      // Guy from the head of each front leg up to the back post. This is the
+      // diagonal that says "this is tied to something".
+      bld.pushTubeAlongPath([at(s.front, along, legTop), at(s.back, along, postTop + 0.22)], GUY_RADIUS, 3, s.frameColor);
+    } else {
+      // A raking arm along the roof line, and a stay above it. Both run from
+      // the building post out to the unsupported roadward edge.
+      bld.pushTubeAlongPath([at(s.front, along, legTop), at(s.back, along, postTop)], LEG_RADIUS, 4, s.frameColor);
+      bld.pushTubeAlongPath(
+        [at(s.front, along, legTop), at(s.back, along, postTop + 0.5)],
+        GUY_RADIUS, 3, s.frameColor,
+      );
+    }
   }
   // Eave and ridge poles run the length of the stall at the two edges.
   for (const [lateral, top] of [[s.front, legTop], [s.back, postTop]] as const) {
@@ -195,6 +201,31 @@ function bakeLanternString(bld: MeshBuilder, str: MarketLanternString): void {
 }
 
 /**
+ * One hanging cloth.
+ *
+ * A strip is a single double-sided ribbon. A pennant is two — full width for
+ * the upper part, half width for the rest — which gives a stepped taper that
+ * reads as a point at street range for four triangles. The ribbon's `up` is
+ * the cord's horizontal normal, which makes its width run *along* the cord:
+ * cloth hanging edge-on to the street is a line, and a line is invisible.
+ */
+function bakeCloth(bld: MeshBuilder, c: MarketCloth): void {
+  const up: Vec3 = [-c.tz, 0, c.tx];
+  const hang = (from: Vec3, d: number, width: number): void => {
+    bld.pushRibbonAlongPath(
+      [from, [from[0], from[1] - d, from[2]]], width, c.color, { up, uvScale: 1 },
+    );
+  };
+  if (c.shape === 'strip') {
+    hang(c.pos, c.drop, c.halfWidth * 2);
+    return;
+  }
+  const waist = c.drop * 0.55;
+  hang(c.pos, waist, c.halfWidth * 2);
+  hang([c.pos[0], c.pos[1] - waist, c.pos[2]], c.drop - waist, c.halfWidth * 0.85);
+}
+
+/**
  * Bake one chunk's market.
  *
  * Reads `ctx.frame` for the road kind and the district, and then lays the stalls
@@ -233,6 +264,11 @@ export function bakeMarketDetail(bld: MeshBuilder, ctx: GroundBakeCtx): void {
   for (const str of desc.strings) {
     if (str.lod < ctx.lod) continue;
     bakeLanternString(bld, str);
+  }
+
+  for (const c of desc.cloth) {
+    if (c.lod < ctx.lod) continue;
+    bakeCloth(bld, c);
   }
 }
 

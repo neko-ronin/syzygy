@@ -18,10 +18,11 @@ import { groundGrammarFor, type GroundBakeCtx, type StreetFrame } from './ground
 import { bakeMarketDetail } from '../render/marketbake';
 import { bakeChunk } from '../render/citymesh';
 import {
-  COOKING_EVERY, GAP_MAX_M, GAP_MIN_M, LIGHT_EVERY, MARKET_LOD_GONE,
-  MAX_MARKET_LIGHTS_PER_CHUNK, PITCH_MAX, PITCH_MIN, PITCH_NOISE_SCALE, RIDGE_MAX,
-  RUN_MAX_M, RUN_MIN_M, SAG_ACROSS, SAG_ALONG, STALL_SEPARATION, STRING_ANCHOR_MAX,
-  SIGN_EVERY, marketCatenary, marketGrammarFor, type MarketQuery, type MarketStall,
+  CLOTH_EVERY_STRING, COOKING_EVERY, GAP_MAX_M, GAP_MIN_M, LANTERN_LIGHT_INTENSITY,
+  LANTERN_LIGHT_RADIUS, MARKET_LOD_GONE, MAX_MARKET_LIGHTS_PER_CHUNK,
+  PITCH_MAX, PITCH_MIN, PITCH_NOISE_SCALE, RIDGE_MAX, RUN_MAX_M, RUN_MIN_M,
+  SAG_ACROSS, SAG_ALONG, SIGN_EVERY, STALL_SEPARATION, STRING_ANCHOR_MAX,
+  marketCatenary, marketGrammarFor, type MarketQuery, type MarketStall,
 } from './marketgrammar';
 
 const SEED = 42;
@@ -204,6 +205,40 @@ const gapFrac = marketChunks.reduce((a, c) => {
 const sides = [0, 0];
 for (const s of allStalls) sides[s.side > 0 ? 0 : 1]++;
 
+// Canopy and sign variety. `docs/STREET_SPEC.md`'s last section is a warning
+// about precisely this: "Identical cracks, evenly spaced props and repeated
+// canopy modules can fill the empty ground while destroying the references'
+// large value groups". A grammar that emits one module type is the failure it
+// names, so the mix is measured rather than assumed.
+const panels3 = allStalls.filter((s) => s.panels === 3).length;
+const panels5 = allStalls.filter((s) => s.panels === 5).length;
+const poles = allStalls.filter((s) => s.frame === 'poles').length;
+const wallTied = allStalls.filter((s) => s.frame === 'wall-tied').length;
+const allSigns = marketChunks.flatMap((c) => marketGrammarFor(queryFor(c)).stalls.map((s) => s.sign));
+const signPanels = allSigns.filter((g) => g !== null && g.shape === 'panel').length;
+const signBands = allSigns.filter((g) => g !== null && g.shape === 'band').length;
+const allCloth = marketChunks.flatMap((c) => marketGrammarFor(queryFor(c)).cloth);
+const pennants = allCloth.filter((c) => c.shape === 'pennant').length;
+
+// Light spread. The first version lit in walk order and stopped at the cap,
+// which put every lit lantern in the opening stretch of the chunk. The
+// cheapest way to see that class of fault is to ask whether the last quarter
+// of the cords has any light on it at all.
+const spread = marketChunks.slice(0, 6).map((c) => {
+  const d = marketGrammarFor(queryFor(c));
+  const lit = d.strings.map((x) => x.lanterns.filter((l) => l.light).length);
+  return {
+    litTotal: lit.reduce((x, y) => x + y, 0),
+    head: lit.slice(0, Math.max(1, Math.floor(lit.length * 0.25))).reduce((x, y) => x + y, 0),
+    tail: lit.slice(Math.floor(lit.length * 0.75)).reduce((x, y) => x + y, 0),
+    cords: d.strings.length,
+  };
+});
+const litAll = spread.reduce((a, s) => a + s.litTotal, 0);
+// An even spread puts roughly a quarter of the lit lanterns on the last quarter
+// of the cords. Lighting in walk order puts almost none.
+const tailShare = spread.reduce((a, s) => a + s.tail, 0) / Math.max(1, litAll);
+
 console.log(`\ninvariants over ${allStalls.length} stalls in ${marketChunks.length} chunks`);
 console.log(`  pitch                ${pMin.toFixed(2)} .. ${pMax.toFixed(2)} m`);
 console.log(`  gap slots            ${(100 * gapFrac).toFixed(1)}% of ${any.stats.slots > 0 ? marketChunks.reduce((a, c) => a + marketGrammarFor(queryFor(c)).stats.slots, 0) : 0} slots`);
@@ -212,7 +247,11 @@ console.log(`  canopy not overhanging the kerb line   ${noOverhang}`);
 console.log(`  stall straddling both kerbs / inverted  ${wrongSide}`);
 console.log(`  eave below 1.9 m or ridge <= eave       ${tooTall}`);
 console.log(`  roof samples inside a building footprint ${sunk}`);
-console.log(`  signs ${totSigns} (1 in ${SIGN_EVERY} slots)   vents ${totVents} (1 in ${COOKING_EVERY})   lit lanterns 1 in ${LIGHT_EVERY}`);
+console.log(`  canopy modules       ${panels3} three-panel / ${panels5} five-panel, ${poles} on poles / ${wallTied} wall-tied`);
+console.log(`  sign silhouettes      ${signPanels} panels / ${signBands} bands   (${totSigns} total, 1 in ${SIGN_EVERY} stalls)`);
+console.log(`  cooking vents         ${totVents}, 1 stall in ${COOKING_EVERY}`);
+console.log(`  hanging cloth         ${allCloth.length} pieces, ${pennants} pennants (1 cord in ${CLOTH_EVERY_STRING} carries cloth)`);
+console.log(`  lit lanterns          ${litAll} across ${spread.length} chunks; ${(100 * tailShare).toFixed(1)}% on the last quarter of the cords`);
 
 if (noOverhang > 0) fail(`${noOverhang} stalls do not overhang the carriageway`);
 if (wrongSide > 0) fail(`${wrongSide} stalls are not wholly on one kerb`);
@@ -226,6 +265,13 @@ if (pMax - pMin < 0.8) fail(`pitch barely varies (${pMin.toFixed(2)}..${pMax.toF
 if (totSigns === 0) fail('no projecting signs were emitted');
 if (totVents === 0) fail('no cooking vents were emitted');
 if (totStrings === 0) fail('no lantern cords were emitted');
+if (panels3 === 0 || panels5 === 0) fail('only one canopy module is emitted — the repeated-module risk the spec names');
+if (poles === 0 || wallTied === 0) fail('only one canopy support type is emitted');
+if (signPanels === 0 || signBands === 0) fail('every projecting sign has the same silhouette');
+if (allCloth.length === 0) fail('no hanging cloth was emitted');
+if (allCloth.some((c) => c.halfWidth <= 0 || c.drop <= 0)) fail('a piece of hanging cloth has no size');
+// A quarter is what an even spread gives. Walk-order truncation gives ~0.
+if (tailShare < 0.12) fail(`${(100 * tailShare).toFixed(1)}% of lit lanterns are on the last quarter of the cords: the budget is truncating, not spreading`);
 
 // ---------------------------------------------------------------- 4. cord + determinism
 
@@ -261,7 +307,78 @@ console.log(`\ndeterminism  mesh identical ${same}; counts identical ${JSON.stri
 if (!same) fail('two bakes of the same chunk produced different meshes');
 if (JSON.stringify(q1) !== JSON.stringify(q2)) fail('two grammar runs of the same chunk disagreed');
 
-// ---------------------------------------------------------------- 5. the mesh
+// ---------------------------------------------------------------- 5. the pools
+
+// Does a lantern put a visible pool on the street? That is arithmetic, not
+// opinion, so it is done here against the exact attenuation in
+// `src/shaders/lighting.wgsl` and the exact night ambient in
+// `src/sim/weather.ts`. A ratio near 1 is a street with lamps in it; a ratio
+// near 100 is a lit market.
+//
+//   lighting.wgsl:191   atten = (1 - d2/r2)^2 / (1 + d2 * 0.05)
+//   weather.ts:234     night ambient #1d2547 at ambientIntensity 0.22;
+//                      market-rush lifts it to 0.34
+const hexToLinear = (hex: string): number[] => {
+  const ch = (i: number): number => {
+    const v = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  return [ch(1), ch(3), ch(5)];
+};
+const NIGHT_AMBIENT_INTENSITY = 0.22;
+/** Diffuse irradiance on an up-facing deck from the night sky alone, albedo 0.2. */
+const ambientDiffuse = hexToLinear('#1d2547').map((a) => a * 1.15 * NIGHT_AMBIENT_INTENSITY * 0.2);
+
+/** Red channel of the pool a lantern of this radius/intensity puts `lateral` away. */
+const poolRed = (height: number, lateral: number, r: number, intensity: number): number => {
+  const d2 = height * height + lateral * lateral;
+  const win = (1 - d2 / (r * r)) ** 2;
+  const atten = win / (1 + d2 * 0.05);
+  const noL = height / Math.sqrt(d2);
+  return (0.96 * 0.2 / Math.PI) * noL * intensity * atten;   // albedo 0.2, kd ~0.96
+};
+
+// A cord anchors at GROUND_Y + 7.0..9.5, sags 1.0-2.1, and the lantern drops a
+// further 0.34-0.72, so it hangs about 6 m over the deck.
+const LANTERN_HEIGHT = 6.0;
+const OFFSETS = [0, 2, 4, 6, 8, 10, 12];
+const ratios = OFFSETS.map((l) => poolRed(LANTERN_HEIGHT, l, LANTERN_LIGHT_RADIUS, LANTERN_LIGHT_INTENSITY) / ambientDiffuse[0]);
+const poolWidth = 2 * Math.sqrt(Math.max(1, LANTERN_LIGHT_RADIUS ** 2 - LANTERN_HEIGHT ** 2));
+// Where the pool falls to twice the ambient it sits in, interpolated between
+// the samples that bracket it. That radius is the pool; the geometric
+// footprint of the light sphere is not, because attenuation at the deck is
+// grazing and dies long before the sphere does.
+const legibleRadius = ((): number => {
+  for (let i = 1; i < OFFSETS.length; i++) {
+    if (ratios[i] >= 2) continue;
+    const t = (ratios[i - 1] - 2) / Math.max(1e-6, ratios[i - 1] - ratios[i]);
+    return OFFSETS[i - 1] + t * (OFFSETS[i] - OFFSETS[i - 1]);
+  }
+  return OFFSETS[OFFSETS.length - 1];
+})();
+
+console.log(`\nlight pools  ambient diffuse on the deck = [${ambientDiffuse.map((a) => a.toFixed(5)).join(', ')}]`);
+console.log(`  lantern r=${LANTERN_LIGHT_RADIUS} intensity=${LANTERN_LIGHT_INTENSITY}, hanging ${LANTERN_HEIGHT} m over the deck`);
+console.log(`  pool/ambient at ${OFFSETS.map((o) => `${o}m`).join(', ')}: ${ratios.map((r) => `${r.toFixed(0)}x`).join(' ')}`);
+console.log(`  pool ${poolWidth.toFixed(1)} m sphere footprint at deck level; above 2x ambient out to ${legibleRadius.toFixed(1)} m lateral`);
+
+// A pool has to beat the ambient it sits in by a wide margin to survive a
+// filmic tonemap at exposure 1. Two is a rounding error; twenty is a lit street.
+if (ratios[0] < 10) fail(`the pool directly under a lantern is only ${ratios[0].toFixed(1)}x the night ambient — it will not read`);
+// A pool that dies inside a couple of metres is a spot, and one still visible
+// from the far kerb is not a pool, it is a floodlight.
+if (legibleRadius < 6) fail(`the pool falls below 2x ambient at ${legibleRadius} m: a spot, not a pool`);
+if (legibleRadius > 14) fail(`the pool is still above 2x ambient at ${legibleRadius} m: that is a floodlight`);
+if (poolWidth < 4) fail(`the pool is only ${poolWidth.toFixed(1)} m across at deck level`);
+
+// And the count. The spec counts "more than 10 small warm lamp points" along
+// successive galleries, several of them "within a short visible stretch".
+const cordsSeen = spread.reduce((a, s) => a + s.cords, 0);
+const litPerCord = litAll / Math.max(1, cordsSeen);
+console.log(`  ${(cordsSeen / Math.max(1, spread.length)).toFixed(1)} cords/chunk, ${litPerCord.toFixed(1)} lit lanterns per cord`);
+if (litPerCord < 2) fail(`${litPerCord.toFixed(1)} lit lanterns per cord: the strings read as decoration, not as lamps`);
+
+// ---------------------------------------------------------------- 6. the mesh
 
 // Everything above checks the descriptor. This checks the artefact: that the
 // vertices that reached the builder are the ones the grammar promised. A
@@ -324,12 +441,59 @@ for (const s of deep) {
   if (nearStall(s, midLat, belly, 0.03)) sagOk++;
 }
 
+// Cloth is a descriptor until a vertex exists for it. A ribbon's first row of
+// vertices sits `halfWidth` either side of its attachment along the cord, so
+// the XZ tolerance is the cloth's own half-width and the vertical tolerance is
+// tight. Getting this wrong reads as "the cloth is missing" when it is built.
+const meshCloth = marketGrammarFor(queryFor(meshChunk)).cloth;
+let clothInMesh = 0;
+for (const c of meshCloth) {
+  const flat = c.halfWidth + 0.01;
+  for (let i = 0; i < pos.length; i += 3) {
+    if (Math.abs(pos[i + 1] - c.pos[1]) > 0.02) continue;
+    if (Math.hypot(pos[i] - c.pos[0], pos[i + 2] - c.pos[2]) > flat) continue;
+    clothInMesh++;
+    break;
+  }
+}
+
+// The two support types have to produce genuinely different geometry, not just
+// a different string in a descriptor. A `poles` stall has a leg standing on
+// the deck at its roadward edge; a `wall-tied` one has nothing there at all.
+//
+// Two precision traps, both of which read as "the geometry is missing":
+// `positions` is a Float32Array, so 0.35 does not survive the round trip and
+// an unsigned `< GROUND_Y` filter rejects the very vertices it is hunting; and
+// the window has to be tight in `along`, because a stall's own legs stand at
+// exactly `pitch/2` while its neighbour's nearest leg is only
+// `pitch/2 + STALL_SEPARATION` away. `pitch * 0.6` sees both.
+let polesMissing = 0, wallTiedWithLeg = 0;
+for (const s of deep) {
+  const own = s.pitch * 0.5;
+  let standing = false;
+  for (let i = 0; i < pos.length; i += 3) {
+    const dy = pos[i + 1] - GROUND_Y;
+    if (dy < -0.05 || dy > 0.3) continue;
+    const l = (pos[i] - s.cx) * s.nx + (pos[i + 2] - s.cz) * s.nz;
+    if (Math.abs(l - s.front) > 0.2) continue;
+    const along = Math.abs((pos[i] - s.cx) * s.tx + (pos[i + 2] - s.cz) * s.tz);
+    if (along < own - 0.06 || along > own + 0.16) continue;
+    standing = true;
+    break;
+  }
+  if (s.frame === 'poles') { if (!standing) polesMissing++; } else if (standing) wallTiedWithLeg++;
+}
+const deepPoles = deep.filter((s) => s.frame === 'poles').length;
+const deepWall = deep.length - deepPoles;
+
 console.log(`\nmesh  chunk ${meshChunk.cx},${meshChunk.cz}: ${mesh.vertexCount} verts, ${mesh.indexCount / 3} tris`);
 console.log(`  y range              ${minY.toFixed(3)} .. ${maxY.toFixed(3)} m  (deck ${GROUND_Y}, declared ceiling ${ceiling.toFixed(2)})`);
 console.log(`  cloth over carriageway ${overRoad} verts, over footway ${overFootway} verts`);
 console.log(`  eave edge present     ${eaveOk}/${deep.length}`);
 console.log(`  ridge edge present    ${ridgeOk}/${deep.length}`);
 console.log(`  belly sags by the declared SAG_ALONG/SAG_ACROSS  ${sagOk}/${deep.length}`);
+console.log(`  hanging cloth         ${clothInMesh}/${meshCloth.length} pieces present in the mesh`);
+console.log(`  roadward legs         ${deepPoles - polesMissing}/${deepPoles} pole-framed stalls have one; ${wallTiedWithLeg}/${deepWall} wall-tied stalls have one (must be 0)`);
 
 if (minY < GROUND_Y - 0.02) fail(`market geometry goes ${(GROUND_Y - minY).toFixed(3)} m below the deck`);
 if (overRoad === 0) fail('no market cloth over the carriageway: the canopy does not overhang the road');
@@ -338,6 +502,17 @@ if (eaveOk < deep.length) fail(`${deep.length - eaveOk} stalls have no roof edge
 if (ridgeOk < deep.length) fail(`${deep.length - ridgeOk} stalls have no roof edge at their declared ridge height`);
 if (sagOk < deep.length) fail(`${deep.length - sagOk} stalls have a flat roof — the cloth does not sag`);
 if (maxY > ceiling) fail(`something rises ${(maxY - GROUND_Y - RIDGE_MAX).toFixed(2)} m above the tallest declared member`);
+if (meshCloth.length > 0 && clothInMesh !== meshCloth.length) {
+  fail(`${meshCloth.length - clothInMesh} of ${meshCloth.length} hanging cloths have no vertex at their attachment`);
+}
+// Exact, not a tolerance: a pole-framed stall with no leg and a wall-tied stall
+// with one are the same defect seen from two sides.
+if (polesMissing > 0) {
+  fail(`${polesMissing} of ${deepPoles} pole-framed stalls have no leg at their roadward edge`);
+}
+if (wallTiedWithLeg !== 0) {
+  fail(`${wallTiedWithLeg} wall-tied stalls have a leg standing in the carriageway`);
+}
 
 const other = marketGrammarFor({ ...queryFor(c0), seed: SEED + 1 }).stats;
 if (JSON.stringify(other) === JSON.stringify(q1)) fail('a different seed produced an identical market — it is not reading the seed');

@@ -148,14 +148,39 @@ export const MIN_STALL_DEPTH = 0.85;
 /** Counter height, metres — a trestle table, not a counter. */
 export const COUNTER_TOP = 0.92;
 
-/** One stall in this many carries a projecting illuminated sign. */
-export const SIGN_EVERY = 3;
+/**
+ * One stall in this many carries a projecting illuminated sign. Section B of
+ * `docs/STREET_SPEC.md` counts "roughly 5-8 nearby projecting illuminated
+ * panels" in one view and "roughly 15-25 glowing sign/fixture silhouettes"
+ * across a canyon; at one in three stalls the measured density was 3.2 signs
+ * per 30 m of street, which reads as signage rather than as a sign field.
+ */
+export const SIGN_EVERY = 2;
 /** Sign arm height range above the deck. */
 export const SIGN_Y_MIN = 3.6;
 export const SIGN_Y_MAX = 5.2;
 /** How far the arm reaches out over the carriageway. */
 export const SIGN_ARM_MIN = 1.6;
 export const SIGN_ARM_MAX = 2.9;
+
+/**
+ * Hanging cloth: pennants and laundry strips on the same cord idiom as the
+ * lanterns. Section C of the spec lists "hanging pennant/laundry-like strips"
+ * among the things actually visible in the fire-lit reference, so this is the
+ * one market element with direct evidence behind it.
+ */
+export const CLOTH_PER_STRING_MIN = 6;
+export const CLOTH_PER_STRING_MAX = 15;
+/** A pennant is short; a laundry strip is long. */
+export const PENNANT_DROP_MIN = 0.45;
+export const PENNANT_DROP_MAX = 0.85;
+export const STRIP_DROP_MIN = 0.95;
+export const STRIP_DROP_MAX = 1.45;
+/** Half-width at the top of the cloth, metres. */
+export const CLOTH_HALF_WIDTH_MIN = 0.13;
+export const CLOTH_HALF_WIDTH_MAX = 0.3;
+/** One cord in this many carries cloth rather than lanterns alone. */
+export const CLOTH_EVERY_STRING = 2;
 
 /** Spacing of lantern cords along the spine. */
 export const STRING_PITCH_MIN = 17;
@@ -175,12 +200,30 @@ export const LANTERNS_PER_STRING_MAX = 9;
 export const LANTERN_DROP_MIN = 0.34;
 export const LANTERN_DROP_MAX = 0.72;
 
-/** One lantern in this many contributes a clustered light. The rest are emissive
- *  geometry only: the light binner caps at 3072 for the whole city and has no
- *  idea what a lantern is, so a market that saturates it starves every other
- *  light in the world. */
-export const LIGHT_EVERY = 3;
-/** Hard ceiling on market lights from one chunk, applied in walk order. */
+/**
+ * Lantern light budget.
+ *
+ * Two things were wrong with the first version. It lit one lantern in three,
+ * which put one lit point every 15 m of street where section C of
+ * `docs/STREET_SPEC.md` counts "more than 10 small warm lamp points along
+ * successive galleries, including lamps on or beside railings. Several occur
+ * within a short visible stretch." And it stopped at the cap in walk order, so
+ * a chunk that wanted more lights than the cap allowed got a lit stretch
+ * followed by a dark one — a seam straight down the middle of the market.
+ *
+ * The budget is now spent by a Bresenham spread over the whole walk, so a
+ * capped market is dim everywhere rather than bright in one place.
+ *
+ * The radius and intensity are not guesses. `lighting.wgsl` attenuates a
+ * clustered light by `(1 - d^2/r^2)^2 / (1 + d^2 * 0.05)`; a lantern 6 m above
+ * the deck inside a 15 m sphere puts roughly 74x the night ambient on the
+ * ground beneath it and roughly 21x at 6 m to the side (see
+ * `__selftest_market.ts`, which does the arithmetic). The size of a pool was
+ * never the problem. The number of them was.
+ */
+export const LANTERN_LIGHT_RADIUS = 15;
+export const LANTERN_LIGHT_INTENSITY = 3.0;
+/** Hard ceiling on market lights from one chunk, spread evenly along the walk. */
 export const MAX_MARKET_LIGHTS_PER_CHUNK = 48;
 
 /** One stall in this many has a cooking vent and a hot glow under a grille. */
@@ -248,6 +291,10 @@ export interface MarketSign {
   boardColor: Vec3;
   frameColor: Vec3;
   emissive: number;
+  /** Silhouette of the board. Section B counts thin projecting panels; a field
+   *  of identical rectangles is the repetition risk the spec warns about in
+   *  its last section, so tall panels and wide bands are mixed. */
+  shape: 'panel' | 'band';
   lod: MarketLod;
 }
 
@@ -280,6 +327,21 @@ export interface MarketStall {
   eave: number;
   /** Roof height at `back`, above the deck. */
   ridge: number;
+  /** Stripes across the roof, along the street. Both counts are odd so a
+   *  striped tarp closes on the same colour at every stall boundary. */
+  panels: 3 | 5;
+  /**
+   * How this tarp is held up.
+   *
+   * DESIGN HYPOTHESIS. The spec is explicit that it cannot answer this: "What
+   * supports a canopy? ... A market canopy's posts, wall attachment, ropes,
+   * braces or frame" is listed as unestablished, and B02's tarps "cannot be
+   * treated as a night-market stall prototype". Both are built here, mixed by
+   * hash, because a street in which every canopy is on four poles and one in
+   * which every canopy is tied to a wall are both visibly wrong and the
+   * references will not adjudicate between them.
+   */
+  frame: 'poles' | 'wall-tied';
   /** Cloth colour of the odd panel. */
   cloth: Vec3;
   /** Cloth colour of the even panel. A striped tarp is the cheapest way to say
@@ -315,6 +377,32 @@ export interface MarketLanternString {
 }
 
 /**
+ * One piece of cloth hanging off a cord.
+ *
+ * This is the only market element with direct reference evidence behind it:
+ * section C of `docs/STREET_SPEC.md` lists "hanging pennant/laundry-like
+ * strips" among the things the fire-lit frames actually show. Everything else
+ * in this module is a design hypothesis filling a gap the spec says it cannot
+ * fill — the spec states outright that "the opened reference set does not
+ * contain a sufficiently legible night market to specify a complete stall".
+ */
+export interface MarketCloth {
+  /** Top-centre attachment, on the cord. */
+  pos: Vec3;
+  /** Unit tangent of the cord here, so the cloth's width runs along the cord. */
+  tx: number;
+  tz: number;
+  /** Half-width at the top, metres. */
+  halfWidth: number;
+  /** Length hanging down, metres. */
+  drop: number;
+  /** A pennant tapers; a strip does not. */
+  shape: 'pennant' | 'strip';
+  color: Vec3;
+  lod: MarketLod;
+}
+
+/**
  * A light the market wants the chunk to carry. Structurally identical to
  * `GroundLight` in `src/render/groundbake.ts`, so pushing one into that array
  * needs no cast — it is one loop at the call site, described in the header of
@@ -346,6 +434,7 @@ export interface MarketStats {
   vents: number;
   lanternStrings: number;
   lanterns: number;
+  cloth: number;
   lights: number;
 }
 
@@ -353,6 +442,7 @@ export interface MarketStats {
 export interface MarketDesc {
   stalls: MarketStall[];
   strings: MarketLanternString[];
+  cloth: MarketCloth[];
   lights: MarketLight[];
   stats: MarketStats;
 }
@@ -509,12 +599,13 @@ function marketAlongRange(q: MarketQuery, pad: number): [number, number] | null 
 export function marketGrammarFor(q: MarketQuery): MarketDesc {
   const stalls: MarketStall[] = [];
   const strings: MarketLanternString[] = [];
+  const cloth: MarketCloth[] = [];
   const lights: MarketLight[] = [];
   const stats: MarketStats = {
     metres: 0, slots: 0, gaps: 0, rejected: 0, stalls: 0, crates: 0, signs: 0,
-    vents: 0, lanternStrings: 0, lanterns: 0, lights: 0,
+    vents: 0, lanternStrings: 0, lanterns: 0, cloth: 0, lights: 0,
   };
-  const empty = (): MarketDesc => ({ stalls, strings, lights, stats });
+  const empty = (): MarketDesc => ({ stalls, strings, cloth, lights, stats });
 
   // Market dressing belongs to the market street and to the bazaar that wraps
   // it. Anything else gets nothing, however close its geometry runs to the
@@ -616,6 +707,13 @@ export function marketGrammarFor(q: MarketQuery): MarketDesc {
             pitch,
             eave: GROUND_Y + r.range(EAVE_MIN, EAVE_MAX),
             ridge: GROUND_Y + r.range(RIDGE_MIN, RIDGE_MAX),
+            // Two module silhouettes and two support types, mixed by hash. The
+            // spec's last section is a warning about exactly this: "repeated
+            // canopy modules can fill the empty ground while destroying the
+            // references' large value groups". Identical tarps at identical
+            // pitch is the failure mode, and it costs six triangles to avoid.
+            panels: r.bool(0.42) ? 5 : 3,
+            frame: r.bool(0.34) ? 'wall-tied' : 'poles',
             cloth: r.bool(0.5) ? pal.trim : style.accentColor,
             clothAlt: r.bool(0.5) ? tint(pal.base, 0.72) : pal.secondary,
             frameColor: tint(pal.metal, 0.85),
@@ -670,16 +768,29 @@ export function marketGrammarFor(q: MarketQuery): MarketDesc {
             const tipX = rootX - nx * side * arm;
             const tipZ = rootZ - nz * side * arm;
             const drop = r.range(0.75, 1.15);
+            // A tall thin panel or a wide horizontal band. Section B's "5-8
+            // nearby projecting illuminated panels" is a silhouette count; a
+            // field of identical rectangles satisfies the count and fails the
+            // read. Both are real signage, so neither is a fantasy.
+            const panel = r.bool(0.62);
             stall.sign = {
               root: [rootX, y, rootZ],
               tip: [tipX, y, tipZ],
-              board: [tipX + nx * side * 0.28, y - drop * 0.5, tipZ + nz * side * 0.28],
+              // A panel hangs below the arm; a band sits just under it, which is
+              // where a fascia sign actually goes and what stops every board on
+              // the street from occupying the same horizontal band.
+              board: [tipX + nx * side * 0.28, y - (panel ? drop * 0.95 : 0.32), tipZ + nz * side * 0.28],
               // Thin along X so that the board faces along the street, i.e.
-              // perpendicular to the facade it hangs off.
-              halfBoard: [0.06, drop * 0.5, r.range(0.42, 0.62)],
+              // perpendicular to the facade it hangs off. A panel is tall and
+              // narrow; a band is the other way round and hangs off the arm
+              // rather than under it.
+              halfBoard: panel
+                ? [0.06, drop * 0.9, r.range(0.26, 0.36)]
+                : [0.06, r.range(0.2, 0.3), r.range(0.62, 0.9)],
               boardColor: pal.emissive,
               frameColor: tint(pal.metal, 0.7),
               emissive: 2.6,
+              shape: panel ? 'panel' : 'band',
               lod: 1,
             };
             stats.signs++;
@@ -712,20 +823,41 @@ export function marketGrammarFor(q: MarketQuery): MarketDesc {
     const n = rs.int(LANTERNS_PER_STRING_MIN, LANTERNS_PER_STRING_MAX);
     for (let i = 0; i < n; i++) {
       const c = marketCatenary(str.a, str.b, str.sag, (i + 0.5) / n);
-      const color: Vec3 = [1.0, 0.58, 0.26];
-      const lit = i % LIGHT_EVERY === 0 && lights.length < MAX_MARKET_LIGHTS_PER_CHUNK;
-      const dropY = rs.range(LANTERN_DROP_MIN, LANTERN_DROP_MAX);
       str.lanterns.push({
-        pos: [c[0], c[1] - dropY, c[2]],
+        pos: [c[0], c[1] - rs.range(LANTERN_DROP_MIN, LANTERN_DROP_MAX), c[2]],
         radius: rs.range(0.17, 0.26),
-        color,
+        color: [1.0, 0.58, 0.26],
         emissive: 5.5,
-        light: lit,
+        // Decided below, once every lantern in the chunk is known.
+        light: false,
       });
       stats.lanterns++;
-      if (lit) {
-        lights.push({ pos: str.lanterns[i].pos, radius: 15, color, intensity: 3.0 });
-        stats.lights++;
+    }
+
+    // Pennants and laundry on the same cord. Half the cords carry them; a cord
+    // with both lanterns and cloth on it is the busiest read and the one the
+    // fire-lit frames actually show.
+    if (strings.length % CLOTH_EVERY_STRING === 0) {
+      const nCloth = rs.int(CLOTH_PER_STRING_MIN, CLOTH_PER_STRING_MAX);
+      for (let i = 0; i < nCloth; i++) {
+        const t = (i + 0.5) / nCloth;
+        const c = marketCatenary(str.a, str.b, str.sag, t);
+        const pennant = rs.bool(0.55);
+        const col = rs.bool(0.4) ? pal.secondary
+          : rs.bool(0.5) ? tint(pal.base, 0.85) : style.accentColor;
+        cloth.push({
+          pos: c,
+          // The cord is a chord, so its tangent is constant along it.
+          tx: -(str.b[2] - str.a[2]), tz: str.b[0] - str.a[0],
+          halfWidth: rs.range(CLOTH_HALF_WIDTH_MIN, CLOTH_HALF_WIDTH_MAX),
+          drop: pennant
+            ? rs.range(PENNANT_DROP_MIN, PENNANT_DROP_MAX)
+            : rs.range(STRIP_DROP_MIN, STRIP_DROP_MAX),
+          shape: pennant ? 'pennant' : 'strip',
+          color: col,
+          lod: 1,
+        });
+        stats.cloth++;
       }
     }
     strings.push(str);
@@ -733,5 +865,27 @@ export function marketGrammarFor(q: MarketQuery): MarketDesc {
     a += rs.range(STRING_PITCH_MIN, STRING_PITCH_MAX);
   }
 
-  return { stalls, strings, lights, stats };
+  // Spend the light budget by a Bresenham spread over the whole walk. Lighting
+  // in walk order and stopping at the cap put every lit lantern in the first
+  // 120 m of the chunk and none in the rest — a seam straight down the middle
+  // of the market, visible only at night, which is exactly the kind of fault
+  // this project keeps paying for.
+  const total = stats.lanterns;
+  let k = 0;
+  for (const str of strings) {
+    for (const l of str.lanterns) {
+      const prev = Math.floor((k * MAX_MARKET_LIGHTS_PER_CHUNK) / total);
+      const next = Math.floor(((k + 1) * MAX_MARKET_LIGHTS_PER_CHUNK) / total);
+      k++;
+      if (next <= prev || lights.length >= MAX_MARKET_LIGHTS_PER_CHUNK) continue;
+      l.light = true;
+      lights.push({
+        pos: l.pos, radius: LANTERN_LIGHT_RADIUS,
+        color: l.color, intensity: LANTERN_LIGHT_INTENSITY,
+      });
+      stats.lights++;
+    }
+  }
+
+  return { stalls, strings, cloth, lights, stats };
 }
