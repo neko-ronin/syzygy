@@ -530,11 +530,10 @@ function run(): void {
     check(!/if \(byDay\) continue;/.test(rs4),
       'gatherLights does not cull authored lights by dayPhase',
       'the day cull is back — a night pose will report delivered 0 again');
-    check(/const byDay = this\.world\.dayPhase > 0\.55/.test(rs4),
-      'byDay is still computed, because stats.lightDelivery.culledByDay reports it',
-      'the stat went away, and the field that caught this is the one to keep');
-    check(/culledByDay: byDay/.test(rs4),
-      'culledByDay is reported on the light-delivery stat');
+    // `byDay` and `culledByDay` are GONE as of round 12: the field outlived its
+    // cause and became a positive false claim beside `delivered 1083`. The day
+    // test no longer exists in any form, and `lightDelivery.dayPhase` publishes
+    // the quantity instead of a claim about a filter.
     // And the two clocks must be visible as two clocks, not conflated.
     check(/w\.dayPhase = saturate\(\(w\.sun\.elevation \+ 0\.35\) \/ 1\.5\)/.test(stateTsSrc),
       'dayPhase is derived from sun elevation, which the sun clock advances',
@@ -598,6 +597,42 @@ function run(): void {
       'drawCalls is short by every crowd and fleet draw — same bug one field over');
     check(/s\.triangles = c\.shadowTris \+ c\.gbufferTris \+ c\.postTris \+ c\.entityTris/.test(rs5),
       'triangle accounting is unchanged and still honest');
+
+    // ------------------------------------------------------------------
+    // A PUBLISHED STAT MUST CORRESPOND TO SOMETHING THAT RUNS.
+    //
+    // `lightDelivery.culledByDay` survived the removal of the day cull in
+    // `cd7b7de`. Every frame in a 12-frame presentation set then reported
+    // `"culledByDay": true` beside `delivered 1083` — a positive false claim in
+    // the file a vision reviewer reads to decide whether a frame is real. Worse
+    // than a missing diagnostic: a missing one is an absence a reader notices.
+    //
+    // The general rule, which this cannot check on its own and so has to be
+    // asserted: **when you remove the thing a diagnostic was reporting, delete the
+    // diagnostic in the same commit.** A counter that outlives its cause is a
+    // landmine.
+    const rs6 = rendererSrc;
+    check(!/culledByDay/.test(rs6),
+      'no published field claims a day cull, because there is no day cull',
+      'a culledByDay-style claim is back describing a filter that does not exist');
+    check(!/const byDay =/.test(rs6),
+      'the day test is not even computed, so it cannot be half-wired',
+      'byDay is computed and published while nothing gates on it — exactly the shape of the bug');
+    // Every field on lightDelivery must be assigned in the one place the stat is
+    // built, so a field cannot be declared in the type and forgotten in the value.
+    const ldAssign = /this\.stats\.lightDelivery = \{([\s\S]{0,300}?)\};/.exec(rs6);
+    check(ldAssign !== null, 'lightDelivery is assigned in exactly one place');
+    const ldBody = ldAssign ? ldAssign[1] : '';
+    for (const f of ['produced', 'delivered', 'binned', 'starved', 'rejectedFar', 'dayPhase', 'cap']) {
+      check(new RegExp(`\\b${f}\\s*[:,=]`).test(ldBody),
+        `lightDelivery.${f} is assigned from something that governs`,
+        `lightDelivery.${f} is declared but never assigned — a field that reads its initial value forever`);
+    }
+    // And the two counts a reviewer cross-checks must come from different sources,
+    // so that `delivered > 0` with `binned == 0` stays visible as a contradiction.
+    check(/this\.stats\.lights = take;/.test(rs6),
+      'stats.lights is the same `take` that lightDelivery.binned reports',
+      'lights and binned have drifted apart — a reviewer cross-checking them cannot');
 
     // Whatever the axis is, the box must still be a square of the advertised
     // size, or the culling above is dropping casters.

@@ -25,6 +25,16 @@ const PORT = Number(process.env.SYZYGY_PORT || 4173);
  * parses it as. Must equal `0x5e7a17`; asserted in `src/render/__perftest.ts`.
  */
 const DEFAULT_SEED = 0x5e7a17;
+/**
+ * How far the renderer may hold a camera from the one a pose requested.
+ *
+ * fov is deliberately NOT compared — `speedFov` biases it by design and by up to
+ * 24%, so comparing it rejects correct frames. See the check.
+ */
+const POSITION_TOLERANCE_M = 0.5;
+const DIRECTION_TOLERANCE_DEG = 1.5;
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const norm = (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
 const BASE = `http://localhost:${PORT}`;
 const GLOBAL_TIMEOUT_MS = Number(process.env.SYZYGY_TIMEOUT || 120_000);
 
@@ -823,6 +833,57 @@ async function main() {
           const warmMs = warm ? warm.ms : 0;
 
           const settled = await settle(page, pose.settle ?? 24);
+
+          // REQUESTED vs HELD. A pose that was asked for is not yet a pose that
+          // was rendered: `setPose` writes yaw/pitch/fov into a camera that
+          // damps and biases them, and the capture then settles for frames during
+          // which the pose keeps moving. Round 11's pool measurement recorded this
+          // as a prose caveat after the fact, because a human noticed the sidecar
+          // disagree with the request.
+          //
+          // So it is checked here, on every frame, and it fails the run. The
+          // tolerances are the camera's own settle budget, not a guess: fov is
+          // deliberately biased by `speedFov`, and position rises to a cruise
+          // height, so an exact match would fail every flying pose. 0.5 m of
+          // position, 0.02 rad (~1.1 degrees) of view direction and 0.02 of fov
+          // are well inside what a settle produces and well outside a wrong pose.
+          const held = await page.evaluate(() => {
+            const s = window.__syzygy?.stats?.();
+            return s ? s.camera : null;
+          });
+          if (held && pose.position) {
+            const dp = Math.hypot(
+              held.position[0] - pose.position[0],
+              held.position[1] - pose.position[1],
+              held.position[2] - pose.position[2]);
+            // View DIRECTION, not fov. `FlightCamera` deliberately biases fov with
+            // `speedFov` — measured at 0.8 requested and 0.991 held on
+            // 04-canal-level, a 24% widening that is a designed feature of the
+            // camera, not a pose that failed to apply. Comparing fov rejects
+            // correct frames for being correct.
+            //
+            // What "the pose applied" means is where the camera STANDS and what it
+            // LOOKS AT. `stats().camera.lookAt` is `position + forward * 400`, so
+            // the angle between (held.pos -> held.ray) and (requested.pos ->
+            // requested.lookAt) is the direction the frame was taken in.
+            let dAngle = 0;
+            if (pose.lookAt) {
+              // `stats().camera.lookAt` is the 400m ray point; the provenance
+              // alias `viewRayPoint400m` is only in the sidecar, not here.
+              const rf = norm(sub(held.lookAt, held.position));
+              const qf = norm(sub(pose.lookAt, pose.position));
+              dAngle = Math.acos(Math.max(-1, Math.min(1, rf[0] * qf[0] + rf[1] * qf[1] + rf[2] * qf[2]))) * 180 / Math.PI;
+            }
+            if (dp > POSITION_TOLERANCE_M || dAngle > DIRECTION_TOLERANCE_DEG) {
+              throw new Error(
+                `pose "${pose.name}": renderer held a different camera than requested ` +
+                `(position off by ${dp.toFixed(2)}m, view direction off by ${dAngle.toFixed(2)} deg). ` +
+                `requested pos ${JSON.stringify(pose.position)} lookAt ${JSON.stringify(pose.lookAt)}; ` +
+                `held pos ${JSON.stringify(held.position)}. ` +
+                `The frame would not be the frame that was asked for.`);
+            }
+          }
+
           const file = join(dir, `${pose.name}.png`);
           const ok = await shoot(page, file);
           if (!ok) throw new Error('screenshot produced no file');
@@ -836,6 +897,10 @@ async function main() {
           results.push({
             name: pose.name, label: pose.label, file: `shots/${runStamp}/${pose.name}.png`,
             ms: Date.now() - at, warmMs, stats,
+            requested: {
+              position: pose.position ?? null, lookAt: pose.lookAt ?? null,
+              fov: pose.fov ?? null,
+            },
           });
           say(`    ✓ ${pose.name.padEnd(18)} ${String(Date.now() - at).padStart(5)}ms` +
             `${warm ? ` (warm ${warm.ms}ms ${warm.residentChunks}/${warm.target} ${warm.stopped})` : ''}` +
@@ -923,7 +988,7 @@ async function main() {
 }
 
 /** Per-shot provenance sidecar. See the note in `writeIndex`. */
-function provenance(r) {
+function provenance(r, req) {
   const s = r.stats || {};
   const cam = s.camera || {};
   return {
@@ -940,9 +1005,19 @@ function provenance(r) {
       // otherwise conclude the camera went somewhere else.
       viewRayPoint400m: cam.lookAt ?? null,
       fov: cam.fov ?? null,
+      // The pose table's own coordinates, so the record states both what was asked
+      // for and what was rendered. A diff between them is a failed run, checked
+      // per frame above; publishing them makes it checkable after the fact too.
+      requested: req ?? null,
     },
     lodHistogram: s.lodHistogram ?? null,
     residentChunks: s.residentChunks ?? null,
+    // The single most useful number for judging a night frame, and it was
+    // missing from every frame of the presentation set. `stats.lights` is the
+    // count handed to the binner; `lightDelivery.binned` is the same number under
+    // a longer name, and both are published so a reviewer can cross-check rather
+    // than trust.
+    lights: s.lights ?? null,
     lightDelivery: s.lightDelivery ?? null,
     entity: {
       drawCalls: s.entityDrawCalls ?? null,
@@ -969,9 +1044,10 @@ function writeIndex(runStamp, results, notes, opts) {
     // needs the seed, the camera, the LOD histogram and the light delivery to
     // believe it; all four are here now and none of them were before.
     seed: DEFAULT_SEED,
-    shots: results.map(({ name, file, ms, label, error, stats: st }) => ({
-      name, file: file ?? null, ms: ms ?? null, label: label ?? null, error: error ?? null,
-      ...(st ? { provenance: provenance({ stats: st }) } : {}),
+    shots: results.map((r) => ({
+      name: r.name, file: r.file ?? null, ms: r.ms ?? null,
+      label: r.label ?? null, error: r.error ?? null,
+      ...(r.stats ? { provenance: provenance(r, r.requested) } : {}),
     })),
     stats,
     notes,

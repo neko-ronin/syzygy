@@ -172,7 +172,23 @@ export interface RendererStats {
     binned: number;
     starved: number;
     rejectedFar: number;
-    culledByDay: boolean;
+    /**
+     * The frame's `dayPhase`, and nothing else.
+     *
+     * This was a boolean named for a day cull, and it was a positive false claim: it said
+     * lights had been culled by a day test on frames where 1083 of them had been
+     * delivered. The cull was removed in `cd7b7de` and the field outlived it,
+     * which is worse than never having had it — a missing diagnostic is an absence
+     * a reader can notice, and a wrong one sitting in the provenance file next to
+     * `delivered 1083` reads as a contradiction that will get a correct frame
+     * rejected.
+     *
+     * So it is replaced by the underlying quantity rather than a claim about what
+     * was done with it. A reviewer who wants to know "is this frame dark" reads
+     * `dayPhase`; nobody has to take a statement about a filter that no longer
+     * exists.
+     */
+    dayPhase: number;
     cap: number;
   };
   vramMB: number;
@@ -422,7 +438,7 @@ export class Renderer {
     camera: { position: [0, 0, 0], lookAt: [0, 0, -1], fov: 1 },
     lightDelivery: {
       produced: 0, delivered: 0, binned: 0, starved: 0, rejectedFar: 0,
-      culledByDay: false, cap: MAX_LIGHTS,
+      dayPhase: 0, cap: MAX_LIGHTS,
     },
     tileBins: { bins: 0, capacity: 0, maxPerTile: 0, refusedTiles: 0 },
     tier: 'high', bakeMs: 0, uploadMs: 0, frustumCulled: 0,
@@ -1084,9 +1100,6 @@ export class Renderer {
     // happens to come first can starve every light after it. Counting the
     // refusals is the only way to see that happen; a `break` is silent.
     let produced = 0, delivered = 0, starved = 0, rejectedFar = 0;
-    // Reported, not acted on. `dayPhase` still describes the frame, and a reader
-    // needs to know whether the lights it is looking at were gated by it.
-    const byDay = this.world.dayPhase > 0.55;
     // Collect first, bin nearest-first.
     //
     // This used to push as it walked `this.chunks.values()`, which is Map
@@ -1115,7 +1128,7 @@ export class Renderer {
       // `sun.azimuth` continuously and derives elevation from it), while
       // `setTime` sets a WEATHER phase once. They are two sources of truth and
       // they disagree: a pose named `night-lanterns` reports
-      // `produced 48, delivered 0, culledByDay: true`, because the clock had
+      // `produced 48, delivered 0` with the cull flag set, because the clock had
       // carried the sun above `elevation 0.475` while the weather was still the
       // night phase. Developer 2 lost a whole measurement cycle to that frame.
       //
@@ -1190,7 +1203,7 @@ export class Renderer {
     this.stats.lights = take;
     this.stats.lightDelivery = {
       produced, delivered, binned: take, starved, rejectedFar,
-      culledByDay: byDay, cap: MAX_LIGHTS,
+      dayPhase: +this.world.dayPhase.toFixed(3), cap: MAX_LIGHTS,
     };
     return take;
   }
