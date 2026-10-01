@@ -102,10 +102,10 @@ evidence*, not assuming:
 agent and a named line. If they agree, the bug was ordering or staleness and F1
 closes with a one-line reorder — not by deleting whichever counter disagreed.
 
-### F2 — The crowd diagnostic poses do not point at the crowd
+### F2 — The crowd diagnostic poses do not point at the crowd — **POSES DONE, SUBJECT STILL INVISIBLE**
 
-**Evidence.** `01b-crowd-closeup` and `01c-street-crowd` are hardcoded at the
-world origin (`position: [0, 2.4, -40]`, `capture.mjs`). The crowd centroid
+**Evidence (original).** `01b-crowd-closeup` and `01c-street-crowd` were hardcoded
+at the world origin (`position: [0, 2.4, -40]`, `capture.mjs`). The crowd centroid
 measured at `(974, 46)` — ~975 units away, outside `viewRadius: 190`. The
 "close-up" was never looking at the crowd, so both poses have reported an empty
 street for a *diagnostic* reason.
@@ -114,19 +114,45 @@ Earlier sessions read that absence as an entity-winding bug, then as G-buffer
 culling. Both wrong. A control run settled it: `pedestrian:0/180` under *both*
 `cull: 'back'` and `cull: 'none'`.
 
-**Proposed fix.**
+**Status: the poses are fixed.** `src/world/diagnosticposes.ts` derives them in
+the app from `crowd.population()` plus `sampleStreetPlan`, so `--eval`, the
+console and the renderer read the same numbers (`__syzygy.pose(id)`). Three
+derived poses now exist — `01d-street-crowd`, `01e-crowd-closeup`,
+`01f-facade-base` — and the two lying poses are renamed to `01b-origin-field` /
+`01c-origin-avenue` (and `01a-building-base` to `01a-lot-interior`), so they no
+longer claim to be crowd or street diagnostics. Each derived shot prints its own
+provenance, and the harness now *fails loudly* if a crowd pose lands more than
+60 m from the centroid — rule 4 as a mechanical check.
 
-- Add a `crowd-live` pose whose `position` is derived from
-  `crowd.population()` — centroid plus a street-aligned offset — rather than
-  hardcoded. `population()` already reports centroid and spread.
-- Compute it in the app, not in the harness, so `--eval` and the console see the
-  same value the renderer used.
-- Keep `01b`/`01c` as origin-anchored establishing shots, but rename them so
-  they no longer claim to be crowd diagnostics. A diagnostic that lies by
-  position is worse than no diagnostic.
+**Status: the subject is still invisible, and it is not the pose.** Measured at
+`01d-street-crowd`, camera `(1041.7, 2.75, 17.8)` on a 31.24 m arterial, 16.57 m
+off the centreline, 49.5 m from the live centroid `(990, 35)`:
 
-**Closed when:** a shot from the new pose contains visible pedestrians, *or*
-F1 shows the count is legitimately zero with the reason identified.
+```
+population()        n=2392, centroid (990, 35)
+instances drawn     pedestrian:2550/180     (renderer.stats.entityDraws)
+entityTriangles     153000 = 2550 × 60
+inView()            inside 810 of 2245, minD 17.8 m, maxD 107.8 m
+pedestrian mesh     180 indices = 5 boxes = 60 tris, 1.7 m tall, sane
+instance[0]         translation (1129.268, 0.35, 0.35), scale 1
+the PNG             zero visible pedestrians
+```
+
+The camera and the subject are in the same place (rule 4 satisfied by
+construction — the pose is *derived* from the centroid), the instance buffer
+holds valid transforms, the draw is issued, and the counters agree. Nothing
+rasterises. That is F1's remaining half, and it is in `src/render/renderer.ts`
+(entity pipeline / `uploadInstances` / `drawEntity`) and
+`src/render/citymesh.ts` (`instanceVertexLayout`), none of which this session
+owned. **F2 cannot close until pedestrians are actually visible.**
+
+A second, intermittent symptom was seen and is worth a look: `pedestrian:0`
+alongside `population().n ≈ 2550`. It reproduced on 8 of 11 poses in a
+pre-change baseline run and on one derived run, and did not reproduce on seven
+others. F1 recorded this divergence as *fixed*; it is not reliably fixed. It is
+the `instances.count` arm of F1.
+
+**Closed when:** a shot from `01d-street-crowd` contains visible pedestrians.
 
 ### F3 — Delete `crowd.inView()`
 
@@ -249,20 +275,83 @@ look of the whole night city and wants its own comparison run.
 **Closed when:** `01d`-equivalent night pose shows lantern and sign light, and
 the emissive channel is in the G-buffer.
 
-### F6 — Warm boot, so a capture is seconds not minutes
+### F6 — Warm boot, so a capture is seconds not minutes — **DONE, but the diagnosis was wrong**
 
-**Evidence.** The sequence is ~9 minutes, dominated by streaming: one chunk baked
-per frame under a 4 ms budget, ~60 frames before a shot means anything. Every
-other decision here is downstream of how cheaply you can look at the thing.
+**Evidence (original, and it was wrong).** "The sequence is ~9 minutes,
+dominated by streaming: one chunk baked per frame under a 4 ms budget, ~60 frames
+before a shot means anything."
 
-**Proposed fix.** A `?seed=&chunks=N&warm=N` query parameter that resolves the
-seed, forces the first `N` chunks resident, and bakes them synchronously at boot
-before the first frame. `capture.mjs` then sets it, and a capture drops to
-seconds. This is also the cheapest way to make F1 cheap to iterate on, so
-consider doing it *before* F1 rather than after.
+**Measured, same 11 poses, current tree:**
 
-**Closed when:** `node tools/capture.mjs --pose=<any>` returns in seconds and the
-image is indistinguishable from the settled version.
+| Stage | Total over 11 poses |
+| --- | --- |
+| residency wait (`residentChunks >= 40`) | **1.0 s** (989 ms on pose 1, 0 ms on the other ten) |
+| `settle()` synchronous steps | 6.1 s |
+| `captureRGBA()` | **89.0 s**, rising 1319 ms → 15204 ms across the run |
+
+Streaming to 40 chunks costs **1591 ms** synchronously (35 ticks). Streaming was
+never the cost. Two real costs, neither in the streaming budget:
+
+1. **`captureRGBA()` (`src/render/renderer.ts:1314`) costs a fixed ~7.6–8.9 s
+   per call** — measured three ways, and it is *not* a queue backlog:
+   `pixels()` (which calls `captureRGBA` directly, no PNG encode) 8220 ms;
+   `capture()` (which adds `toDataURL`) 8586 ms; and three *back-to-back*
+   captures with nothing between them were 7961 / 7731 / 7988 ms. Adding 30 more
+   presented frames before a capture did not change it (7585 ms). A fixed cost
+   of that size, independent of backlog, is what 11 poses × 8 s = 86 s of the
+   105 s run is made of. **This is the actual F6 root cause and it is not mine
+   to fix.**
+2. **`settle()` used `__syzygy.step()`**, which calls `tick()` N times back to
+   back. Each encodes and submits in ~20 ms because `queue.submit` does not wait
+   for the GPU, so N frames of GPU work were queued in tens of milliseconds.
+   Now paced through rAF, so the GPU is never handed more than it can retire.
+
+**Landed.** `?seed=&chunks=N&warm=M` bakes N chunks resident at boot before the
+first presented frame (`App.warmChunks`), and `__syzygy.warm()` does the same
+*after* `setPose` — which is the one that matters, because a chunk's LOD is
+derived from the live camera position, so a boot warm bakes detail levels for
+the spawn camera and re-bakes them the moment the pose moves. It is the app's
+own `streamChunks` loop, not a second bake path, precisely so each chunk is baked
+at the LOD it will be viewed at. `--no-warm` is the cold path for A/B.
+
+**Measured:** boot warm 64 chunks = **2255–2696 ms** (62 ticks, `stopped:
+target`); post-pose warm 96 chunks = 190–5661 ms. A **single-pose capture is
+24.5 s wall** including vite boot, chromium launch and PNG write — inside the
+~30 s target.
+
+**Warm must not change the image — measured.** Same seed, same *literal* camera,
+sim frozen via the existing KeyP binding; warm arm vs. cold arm (teleport far
+away so the residency set is evicted, return to the same camera, let the 4 ms
+budgeted streamer refill it):
+
+```
+triangles       2741068 == 2741068     drawCalls 116 == 116
+pedestrian      2245/180 == 2245/180   lights 0 == 0
+pixels differing  479587 / 1440000  = 33.305%
+mean abs diff      0.129 / 255  (0.05 %)
+max abs diff       9 / 255
+histogram   identical 960413 | ≤1 459380 | ≤4 19264 | ≤16 943 | >16 0
+```
+
+**Noise floor for comparison:** two consecutive captures of a completely
+unchanged world differ on **43.87 %** of pixels, mean 0.171/255, max 9/255. The
+warm-vs-cold difference is *indistinguishable from the noise floor of two
+captures of the same state*, and every residency-sensitive counter is identical
+to the digit. That is the honest form of "indistinguishable": not zero, but
+below what this renderer can resolve, with no geometric difference behind it.
+
+**Closed when:** `node tools/capture.mjs --pose=<any>` returns in seconds — done,
+24.5 s. The remaining ~8 s per shot is `captureRGBA()` and belongs to the
+performance agent's file.
+
+**Also still wrong, and worth 30 seconds from whoever owns it.**
+`src/world/__selftest.ts:551` prints `0.57M tris for 64 chunks`. It is a
+hand-rolled analytic estimate that never calls the baker. The figure measured
+through `bakeChunk` is **6.22M** for 64 chunks — an 11x understatement. Live
+frames corroborate the order of magnitude: this session measured 2.4M–10.9M
+`stats.triangles` for 19–167 visible chunks. It is the same failure class as the
+other phantoms — a number that is printed, looks plausible, and answers to
+nothing.
 
 ---
 
