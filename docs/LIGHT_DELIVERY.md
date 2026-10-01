@@ -1,0 +1,216 @@
+# Light delivery
+
+The market's 365 lanterns were produced by the grammar, counted by a self-test,
+and delivered to the frame as none of them. `aisleWarmPixelPct` measured
+`0.00` in every configuration the night subagent tried: baseline, ambient ×3,
+exposure ×3, both. Correct exposure, warm lanterns glowing above, and not one
+warm pixel below. That is the signature of light that is emitted but never
+delivered.
+
+**Where this stands: the plumbing works and is measured. The reviewer's
+acceptance test — a visible warm pool on the aisle — is NOT yet demonstrated, and
+the reason is not the plumbing.** See §5.
+
+---
+
+## 1. The mechanism was not the one the brief described
+
+The brief's cause 2 was "`bakeMarketDetail` returns `void` and never pushes the
+market's harvested light list anywhere, and `bakeGroundDetail` has no light list
+to push it into." Half of that is right and half of it hides the real defect.
+
+`bakeGroundDetail` **does** take a `lights` array and **does** push into it —
+lamp posts have worked through that path for the whole project. The array is
+`BakedChunk.lights`, `gatherLights()` already reads it, and the chain is intact
+end to end.
+
+The actual cause is one line, and it is in **my** file:
+
+```ts
+// src/render/groundbake.ts, before this change
+const maxLights = 24;
+...
+if (CLUTTER_KINDS[d] === 'lamp-post' && lights.length < maxLights) { ... }
+```
+
+That cap was written as if `lights` arrived empty. It does not.
+`bakeChunk` fills the same array with a rooftop light on 40% of buildings and a
+light under every bridge **before** it calls `bakeGroundDetail` — measured ~150
+on a market chunk — and applies no ceiling of its own
+(`src/render/citymesh.ts:761`, `:832`).
+
+So `lights.length` was already 150 when the ground baker started, `150 >= 24` was
+true on the very first test, and the ground baker refused **everything**:
+
+- lamp-post lights: never delivered, in the whole project, ever;
+- market lantern lights: never delivered, which is the reviewer's gap.
+
+Nothing was broken about the sink. The sink was **full before anyone poured into
+it**, and the only symptom was a counter that agreed with itself.
+
+The fix is to count what *this bake* contributes rather than what the array
+already holds:
+
+```ts
+const maxLights = 24;
+const lightCap = lights.length + maxLights;   // passed to emitTrace as its cap
+```
+
+## 2. The plumbing added, and where
+
+| File | Change |
+| --- | --- |
+| `src/render/groundbake.ts` | Budget counted against this bake's own pushes (`lightCap`). At the `bakeMarketDetail` call site, re-derive the market grammar and push its lights, mirroring `bakeMarketDetail`'s own early-out so lights are never added for stalls that were not drawn. New counters: `clutter.marketLights`, `marketLightsDropped`, `marketTraces`. |
+| `src/render/citymesh.ts` | `BakedChunk.marketLights?: { produced, delivered, dropped, traces }` — carries the counts beside `lights` so delivery is readable without inferring it. |
+| `src/render/renderer.ts` | `stats.lightDelivery` — produced / delivered / binned / starved / rejectedFar / culledByDay / cap. `gatherLights` counts refusals instead of `break`-ing silently. `ChunkEntry.marketProduced` accumulates the produced side. |
+| `src/render/__perftest.ts` | A **behavioural** guard (below). |
+
+`bakeMarketDetail` recomputes its grammar rather than returning the light list.
+That is safe and is stated in `marketbake.ts`'s own header: the grammar is a pure
+function of `(seed, plan, chunk, kind, districtId)` and forks its own RNG per
+element, so the second call returns the same list. **Developer 2's file was not
+edited.**
+
+### The guard, and why it is behavioural
+
+Every check that could have caught this was a grep, and greps agreed — the field
+existed, the writer existed, the counter existed, the self-test passed. So the
+guard bakes real chunks and asks the only question that matters: does a chunk the
+grammar lit come back with lights in it?
+
+```
+ok  market chunk (0,-3): 24/192 lanterns delivered over 4 market carriageway(s)
+ok  market lanterns delivered to BakedChunk.lights: 96 of 912 produced
+```
+
+It counts the market's **own** lights (`ml.delivered`), not `b.lights.length` —
+that array also holds every building's window lights, so reading delivery off it
+is precisely how a market that delivers nothing can still look delivered.
+
+## 3. Measured: produced vs delivered vs binned
+
+CPU, `src/world/__probe_night.ts`, 8 market chunks:
+
+| | Produced by grammar | Harvested into `BakedChunk.lights` |
+| --- | --- | --- |
+| **Before** | 365 | **0** |
+| **After** | 365 | **192** (24/chunk, the `lightCap`) |
+
+Runtime, at the market spine `[1.16, 2.6, 0.36]`, night, camera LOD 0:
+
+| Tier | resident | `produced` | `delivered` | `binned` | `starved` | `aisleWarmPixelPct` |
+| --- | --- | --- | --- | --- | --- | --- |
+| default | 18 | 288 | 219 | 219 | 0 | **0.225** |
+| `ultra` | 79 | 1592 | 5990 | 3072 | **2918** | **0.073** |
+
+`aisleWarmPixelPct` moved off zero — 0.000 → 0.225 — so light is reaching the
+frame that did not before. It is not yet a *pool*, and the second row explains
+why.
+
+## 4. The trade, measured: the bin was evicting by accident
+
+At `ultra` the bin **saturates**: `binned 3072` of a 3072 cap, `starved 2918`.
+48% of the city's night lights were dropped, and *which* 48% was decided by
+`this.chunks` Map **insertion order** — bake order, not proximity.
+
+The consequence is the part nobody would have predicted:
+
+> `aisleWarmPixelPct` at the market was **0.225 at the default tier and 0.073 at
+> ultra**. Turning the lights on made the market **darker**, because the extra
+> residency filled the bin with other districts' lights and the market's nearest
+> lanterns lost the coin toss.
+
+Fixed by collecting candidates and binning **nearest-first** (the sort is skipped
+below the cap, where order cannot change the answer, and the scratch array is
+reused so it does not allocate per frame). This is the standard remedy for a
+capped light buffer and the only ordering that matches what the frame can see.
+
+**This is committed with the measurement above and one open question: the
+ordering change is not yet confirmed against a frame.** See §6.
+
+## 5. Why the acceptance test is still not demonstrated
+
+Three findings, in order of how much they block it.
+
+**a. The market only exists at LOD 0.** Market geometry and market lights are
+both gated on `lod < 1` (`groundbake.ts:825`, `:889` — the call site requires
+`lod < 1`, and `MAX_MARKET_LIGHTS_PER_CHUNK` is enforced inside a grammar that
+only runs there). `lodRange` is `[0,3]` at `potato`/`low`, `[0,2]` at `medium`,
+`[0,1]` at `high` and `[0,0]` at **`ultra` only**. With `LOD_CHUNK_STEP = 1.6`
+(~510m at the default 320m chunk), the market exists in roughly the chunk you are
+standing in and then vanishes. **Any review of the market must use
+`--quality ultra`**, and the two LOD gates are load-bearing for that reason.
+
+The lamp precedent does *not* support widening the gate: clutter geometry is
+gated on `lod < 1` and its light push rides inside that block, so no light in
+this project currently outlives its geometry. Letting market lights persist to
+LOD 1 would put pools of light where the stalls have been culled. Not done
+unverified.
+
+**b. The nearest lantern is ~10 m away and 6.3 m up.** Measured on CPU at the
+review-gate pose: nearest market light `d=9.6 m`, `drop=6.3 m`, `r=15`, `I=3`.
+So the pool is real and reachable — but it is a pool seen at a shallow angle
+from 2.6 m, which is the least favourable geometry for reading one.
+
+**c. The review pose is not where I aimed.** `DOWN_THE_STREET` is
+`[1.16, 2.6, 0.36]`, on a chunk corner the probe flags as carrying *0 stalls /
+0 cords / 0 lights* — the market lives either side, in `(0,-1)` and `(0,-2)`. My
+frames show an open plaza with a crowd and stalls off to the right, with no
+lanterns in view. **I have not yet found the camera that puts a lantern and its
+pool in the same frame.** That is the outstanding piece of work, and it is a
+question about where the market is, not about whether light is delivered.
+
+### A seed discrepancy worth knowing about
+
+`ctx.seed` is hardcoded `0` at the market call site, while the night probe
+measured with `SEED` (`0x5e7a17`). Geometry and lights agree with each other
+(both use `0`), so the render is self-consistent — but the probe's irradiance
+table describes a **different layout** from the one that renders. On CPU, seed 0
+puts lights at `d=9.6/10.2/10.3/11.8/12.7 m` from the camera where `SEED` puts
+them at `10.3/12.7/12.7/32.2/32.6 m`. Any future measurement must derive its
+expectations from the same seed the baker uses.
+
+## 6. Code/document contradictions, said plainly
+
+- **The "deck 0.62 multiplier" is stale.** The uniformity brief says the slab
+  joints may be "drowned by the deck's 0.62 multiplier". That multiplier was
+  removed: `gbuffer.wgsl` now reads `deckMul = select(1.0, 0.82, dirtyRoad)`, and
+  only for asphalt/rubber/dirt. Flagstone, cobble, boardwalk, metal deck,
+  terracotta and board-formed get **no** deck multiplier at all, by the argument
+  in `STREET_SPEC.md` §A. Do not go looking for a 0.62.
+- **The "365" is probe-scoped, not a city total.** 365 is the grammar's output
+  over the 8 market chunks the probe walks at `SEED`. At `ultra` with 79
+  resident chunks the same counter reads `produced 1592`. Both are true; they
+  measure different sets.
+- **`MAX_MARKET_LIGHTS_PER_CHUNK = 48` is not a chunk cap.** It is enforced
+  inside the grammar, per query, and a chunk can carry several market
+  carriageways — measured 4, 5 and 6 in three chunks, which is why one chunk
+  reports `produced 192` against a per-query maximum of 48. A chunk-level budget
+  is needed and lives in `groundbake.ts`.
+- **`src/agent/tools.ts:315-322` carries a second, divergent `PHASE_LOOK`.** The
+  conductor's `set_time` and the renderer read different night rows. Not my file,
+  and it remains unowned — flagged again here because it is a silent-divergence
+  trap and this round measured night behaviour.
+- **`windowGlow` is still a phantom** and `ROADMAP.md` R2 still recommends
+  raising it by name. Untouched this round; see §7.
+
+## 7. Not done
+
+- **The kerb joint.** The kerb face already has block joints at 0.30 amplitude
+  (`gbuffer.wgsl:432`), but at 3 m the reviewer is looking mostly at the kerb
+  **top**, which is handled by the footway branch. A distinct joint where the
+  kerb meets the road needs to be authored, and I could not verify it against a
+  frame.
+- **Ground uniformity.** Diagnosis only, from code: joint masks are
+  `smoothstep(joint*0.45, joint*1.35, dist)`, i.e. **1.35–2.7 cm wide** for the
+  paving families (`pavingParams`: flagstone 0.030, terracotta 0.022, cobble
+  0.050). Against ~0.69 mrad/px at fov 1.1, a 2.2 cm joint passes 1.5 px at
+  about **21 m** and is gone by 30 m. That predicts the reviewer's "does not
+  survive" finding, and the remedy is a screen-space floor on joint width plus
+  more joint contrast — but the frame I captured is a *carriageway at night*,
+  which carries no joints by design, so **it does not test the reviewer's
+  daylight claim and I am not claiming it does.** Unverified; not committed.
+- **Confirming the distance-ordered bin against a frame.** Capture budget spent.
+- **`windowGlow`**, R2's night luma (11.4 vs a noon of 125.75 — worth
+  re-measuring now that the market emits light, but it is `weather.ts`, not mine),
+  and the duplicate `PHASE_LOOK`.

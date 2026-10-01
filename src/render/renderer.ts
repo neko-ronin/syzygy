@@ -357,6 +357,11 @@ export class Renderer {
   /** `performance.now()` of the last submit, for the pacing fail-open. */
   private lastSubmitAt = 0;
   private lightWriter = makeInstanceWriter(MAX_LIGHTS);
+  /**
+   * Scratch for the distance-ordered bin. Reused every frame so the sort does
+   * not allocate; `gatherLights` runs once per frame at night.
+   */
+  private lightCandidates: { l: BakedChunk['lights'][number]; d: number }[] = [];
   private pendingBakes: { cx: number; cz: number }[] = [];
   /**
    * Resident chunks whose baked detail level is now wrong, with the level they
@@ -1028,6 +1033,23 @@ export class Renderer {
     // refusals is the only way to see that happen; a `break` is silent.
     let produced = 0, delivered = 0, starved = 0, rejectedFar = 0;
     const byDay = this.world.dayPhase > 0.55;
+    // Collect first, bin nearest-first.
+    //
+    // This used to push as it walked `this.chunks.values()`, which is Map
+    // INSERTION order — bake order, not proximity. At `ultra`, where every
+    // chunk is LOD 0 and the market contributes 1592 lanterns, the bin
+    // overflows: measured `binned 3072, starved 2918`, so 48% of the city's
+    // night lights were dropped and *which* 48% was decided by the order chunks
+    // happened to stream in. The effect was not subtle and it was not in the
+    // direction anyone would guess: `aisleWarmPixelPct` at the market measured
+    // 0.225 at the default tier and 0.073 at ultra. Turning the lights on made
+    // the market DARKER, because the extra residency filled the bin with other
+    // districts' lights and the market's nearest ones lost the coin toss.
+    //
+    // A distance-ordered bin is the standard remedy for a capped light buffer
+    // and it is the only ordering that matches what the frame can see.
+    const cand = this.lightCandidates;
+    cand.length = 0;
     for (const e of this.chunks.values()) {
       produced += e.marketProduced;
       const d = Math.hypot(e.centre[0] - cam.position[0], e.centre[2] - cam.position[2]);
@@ -1037,17 +1059,28 @@ export class Renderer {
       if (byDay) continue;
       delivered += e.lights.length;
       for (const l of e.lights) {
-        if (w.count >= MAX_LIGHTS) { starved++; continue; }
-        w.pushStatic(l.color, 5, 1, l.intensity, 0);
-        // Overwrite the position that pushStatic left at identity.
-        const o = (w.count - 1) * 24;
-        w.data[o + 12] = l.pos[0];
-        w.data[o + 13] = l.pos[1];
-        w.data[o + 14] = l.pos[2];
-        w.data[o + 15] = l.radius;
-        w.data[o + 19] = l.intensity;
+        cand.push({
+          l,
+          d: (l.pos[0] - cam.position[0]) ** 2 + (l.pos[2] - cam.position[2]) ** 2,
+        });
       }
     }
+    // Only pay for the sort when it can change the answer. Below the cap the
+    // bin takes everything and order is irrelevant.
+    if (cand.length > MAX_LIGHTS) cand.sort((a, b) => a.d - b.d);
+    const take = Math.min(cand.length, MAX_LIGHTS);
+    for (let i = 0; i < take; i++) {
+      const l = cand[i].l;
+      w.pushStatic(l.color, 5, 1, l.intensity, 0);
+      // Overwrite the position that pushStatic left at identity.
+      const o = (w.count - 1) * 24;
+      w.data[o + 12] = l.pos[0];
+      w.data[o + 13] = l.pos[1];
+      w.data[o + 14] = l.pos[2];
+      w.data[o + 15] = l.radius;
+      w.data[o + 19] = l.intensity;
+    }
+    starved = cand.length - take;
     this.gpu.device.queue.writeBuffer(this.lightBuf, 0, w.data as unknown as BufferSource, 0, Math.max(1, w.count) * 8);
     this.stats.lights = w.count;
     this.stats.lightDelivery = {
