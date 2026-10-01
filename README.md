@@ -22,7 +22,12 @@ faults — cases where the app ran at full speed, reported plausible statistics,
 and produced wrong pixels.
 
 Not yet: street level does not read as inhabited, traffic is simulated but never
-drawn, night is nearly black, and WebGL 2 does not exist.
+drawn, and night is nearly black.
+
+On backends: this is **WebGPU-only**, by decision — the owner shelved WebGL 2 on
+2026-10-01, and it was always what was being built. Not a gap, and not something
+to pick up: [`docs/DECISIONS.md`](docs/DECISIONS.md) D1, roadmap R8. The cost is
+real, though — **without WebGPU you see an error, not a city.**
 
 **Read [`docs/COVERAGE.md`](docs/COVERAGE.md) if you want to know what is
 missing.** It maps the original build checklist to where each item is covered,

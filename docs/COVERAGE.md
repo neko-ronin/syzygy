@@ -69,15 +69,33 @@ it satisfies a grep, and it will be believed.
 | 12 | Vegetation / solarpunk overgrowth + district colour identities | `done` | R9 |
 | 13 | Iteration loop: screenshots, perf, notes | `partial` | R10, F6 |
 
-Two deviations from the checklist as written, both deliberate and both recorded
-in `DECISIONS.md`:
+Two departures from the checklist as written. Both are deliberate, both are
+recorded in `DECISIONS.md`, and **neither is outstanding work**:
 
 - **Item 8 says "GPU compute". The crowd runs on the CPU** in structure-of-arrays
   (D8). It simulates 6,000 agents in ~2 ms/frame. This is a considered
   trade-off, not a shortfall — the checklist assumed an implementation detail
   rather than stating a requirement.
-- **Item 4's WebGL 2 half is missing** entirely. The brief asked for both
-  backends; this project is WebGPU-only (D1, R8). The one outright deviation.
+- **Item 4 is WebGPU-only; there is no WebGL 2 half.** The brief asked for both
+  backends. The human owner ratified WebGPU-only on **2026-10-01** — *"we're
+  shelving webgl 2. we're going all in on webGPU."* — and it was confirmed
+  against the source that this is what has always been built: six `.wgsl`
+  shaders and no GLSL anywhere, `getContext` called with `'webgpu'` and `'2d'`
+  and never `'webgl2'`, and a hard-fail (`gpu.ts:74`, surfaced by `main.ts:64`)
+  rather than a fallback. This was
+  previously written up here as *the one outright deviation*, which made a
+  settled scope decision look like a shortfall. It is not: it is closed, and the
+  decision plus its cost live in [`DECISIONS.md`](DECISIONS.md) **D1**, with
+  **R8** in the roadmap holding the reasoning. **The cost is not zero — anyone
+  without WebGPU sees nothing.** Row 4 above stays `done` because the row
+  describes the renderer, and the renderer exists; the deleted WebGL 2 half is
+  out of scope by decision, not unimplemented.
+
+Note the direction of the error this row used to carry: a *truthful* cost
+("anyone without WebGPU sees nothing") attached to a *false* status ("the one
+outstanding deviation"). Splitting them is the fix — the cost is now stated in
+D1 and R8 where a decision belongs, and the checklist row reports only whether
+the renderer was built.
 
 ---
 

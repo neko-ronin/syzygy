@@ -1,17 +1,25 @@
 /**
- * Backend detection and device acquisition.
+ * GPU device acquisition and capability limits.
  *
- * Two backends behind one interface:
- *   - `webgpu`  : WGSL, compute available, preferred. Full-fat path.
- *   - `webgl2`  : GLSL ES 3.00, transform feedback + float textures stand in for compute.
+ * WebGPU only, by decision — [`DECISIONS.md`](../../docs/DECISIONS.md) D1,
+ * ratified by the project's human owner on 2026-10-01 ("we're shelving webgl 2.
+ * we're going all in on webGPU."). `create()` hard-fails when `navigator.gpu` is
+ * absent rather than falling back to anything: a visitor without WebGPU sees an
+ * error, not a picture, and that is the accepted cost of the decision.
  *
- * The app only ever sees `Backend`, so a module can be written once against it and
- * get a shader translation at the edge.
+ * There has only ever been one renderer here — six `.wgsl` files and no GLSL in
+ * the tree — so the module comment that used to describe a `webgl2` path was
+ * describing a system that was never built. The algorithms are still written to
+ * be portable to WebGL 2 and three.js; see the notes in
+ * `src/render/cascade.ts` and `src/shaders/post.wgsl`. Portability is not the
+ * same thing as a second backend, and only the second one was ever on the table.
  */
 
-export type BackendKind = 'webgpu' | 'webgl2';
+/** The only backend this project has. Not a union: there is no second member. */
+export type BackendKind = 'webgpu';
 
 export interface Caps {
+  /** Diagnostic only — nothing branches on it. There is no second backend. */
   backend: BackendKind;
   /** Compute pipelines available. */
   compute: boolean;

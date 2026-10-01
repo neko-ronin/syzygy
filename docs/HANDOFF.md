@@ -429,7 +429,14 @@ silent rendering bugs** — faults where the application ran at full speed, repo
 plausible statistics, and produced wrong pixels.
 
 What is *not* true yet: street level does not read as inhabited, traffic is
-simulated but never drawn, night is nearly black, and WebGL 2 does not exist.
+simulated but never drawn, and night is nearly black.
+
+The project is **WebGPU-only**, decided by the human owner on 2026-10-01 (*"we're
+shelving webgl 2. we're going all in on webGPU."*) and confirmed against the
+source — six `.wgsl` shaders, no GLSL, `gpu.ts:74` hard-fails rather than
+falling back. The brief asked for both backends; the WebGL 2 half is out of
+scope by decision, not missing by neglect. Anyone without WebGPU sees nothing.
+Do not pick it up in passing: `DECISIONS.md` D1, roadmap R8.
 
 ## Running it
 
@@ -566,9 +573,15 @@ the capture's settle budget. Distant geometry crawls. Options: longer history
 accumulation, a cheap edge-detect resolve, or jittered projection with more
 samples.
 
-**5. WebGL 2 does not exist.** The prompt asked for it. See
-`ORIGINAL_PROMPT.md` and roadmap item R8 — this is a product decision, not a
-task to quietly pick up.
+**5. WebGL 2 does not exist — by decision, not by neglect.** The prompt asked for
+both backends. The human owner shelved WebGL 2 on 2026-10-01 (*"we're shelving
+webgl 2. we're going all in on webGPU."*), and it was confirmed against the
+source that WebGPU is the only renderer that has ever existed here. **This is
+not on the list of things that need doing and was previously written here as if
+it were** — that framing was wrong, and it is the one item in this document that
+a reader could act on by mistake. `DECISIONS.md` D1 (closed), roadmap R8
+(shelved). Portability to WebGL 2 / three.js is still wanted and is a separate
+thing; do not read this as "rewrite the renderer as GL".
 
 **6. Not built at all:** destructible structures, precipitation, volumetric god
 rays, water rendering (`bakeGround` returns a water mesh that nothing consumes),

@@ -8,7 +8,9 @@ Every item is tied back to a clause of the [original prompt](ORIGINAL_PROMPT.md)
 The reasoning column matters more than the task: it explains what "done" means
 and what a lazy or misdirected attempt would look like.
 
-Status key: **done** · **partial** · **todo** · **decision**
+Status key: **done** · **partial** · **todo** · **closed**
+
+**closed** means a decision was taken, not that work finished. See R8.
 
 ---
 
@@ -193,20 +195,29 @@ level and the night shot enormously.
 
 ## R8 — WebGL 2 backend
 
-**Status: decision** · *Vision: "use webgl 2 and webgpu"*
+**Status: closed — shelved by decision, 2026-10-01** · *Vision: "use webgl 2 and
+webgpu"*
 
-The prompt asked for both. Only WebGPU exists. See
-[`ORIGINAL_PROMPT.md` § The one outright deviation](ORIGINAL_PROMPT.md) for why,
-and for the cost. The decision itself is recorded in
-[`DECISIONS.md`](DECISIONS.md).
+**Not work. Do not pick this up.** The prompt asked for both backends; the human
+owner ratified *WebGPU only* on 2026-10-01, and D1 is closed. This entry is kept
+rather than deleted because a roadmap is a map of where quality still lives, and
+this records a decision that was actually taken — including what it cost.
 
-Genuinely a second renderer: no compute (the light binner needs a transform
-feedback path), GLSL ES 3.00 instead of WGSL, no `float32-filterable`, and the
-whole frame graph re-authored. Weeks, not days.
+What was confirmed against the source before closing it: there has only ever been
+one renderer here. Six `.wgsl` shaders, no `.glsl` anywhere; `getContext` is
+called with `'webgpu'` and `'2d'` and never `'webgl2'`; `gpu.ts:74` hard-fails
+rather than falling back. The cost, stated plainly: **anyone without WebGPU sees
+nothing.** That was accepted, not overlooked.
 
-The alternative — a hard-fail with a clear message (current behaviour) — is
-honest but reaches nobody. **This needs a human decision, not an agent's
-guess.**
+Genuinely a second renderer, if it is ever un-shelved: no compute (the light
+binner needs a transform feedback path), GLSL ES 3.00 instead of WGSL, no
+`float32-filterable`, and the whole frame graph re-authored. Weeks, not days.
+
+**Shelving is not retracting portability.** The owner may still port to
+three.js or WebGL 2 later; the algorithms already allow for it and three
+comments exist to keep that honest — `src/render/cascade.ts:6`,
+`src/shaders/post.wgsl:324`, `docs/WATER_AND_VOLUMETRICS.md:27`. Do not "clean
+those up"; they are why the current design can move.
 
 ## R9 — Districts that read as places
 
@@ -273,7 +284,7 @@ R6 (atmosphere)    ──  the most recognisable missing element of the referenc
 R5 (destructible)  ──  explicitly requested, spectator-scale is enough
 R7 (water)         ──  cheap once R1 makes streets matter
 R9 (districts)     ──  polish
-R8 (WebGL 2)       ──  decision, not work (D1)
+R8 (WebGL 2)       ──  CLOSED: shelved by decision 2026-10-01, not work (D1)
 R10 (iteration)    ──  partly done: compare.mjs landed, warm boot is F6
 ```
 

@@ -24,7 +24,7 @@ The formulation is the cheap portable one on purpose:
 | Candidate | Cost | Why not |
 | --- | --- | --- |
 | Full-screen radial march | 1 triangle, 14 depth fetches/px, no geometry | **Chosen.** Nothing in a low-frequency effect survives 2× upsample |
-| Froxel volume | Faster per pixel, one more target, compute pass | Does not survive the WebGL2 port without a rewrite (D1, R8) |
+| Froxel volume | Faster per pixel, one more target, compute pass | Does not survive a WebGL2 port without a rewrite — the backend is shelved, but a port is still wanted, so this stays a real constraint (D1, R8) |
 | Cascaded shadow-map march | Free occlusion, exact | Only correct where the cascade covers; the shafts in the references cut across 300m |
 | Reflection probe / cubemap | — | Cannot be justified before water exists; R7 needs the budget more |
 

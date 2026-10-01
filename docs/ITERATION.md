@@ -107,6 +107,40 @@ Five separate faults all presenting as "no pedestrians", each documented in
 [`PITFALLS.md`](PITFALLS.md) §9–13. Short version: the crowd now renders and is
 placed on real streets; the remaining gap is density, not correctness.
 
+## WebGPU-only: a decision that nine files were still describing as open
+
+Recorded 2026-10-01. The human owner settled the backend question — *"we're
+shelving webgl 2. we're going all in on webGPU."* — and the second sentence was
+a question, so it was checked rather than answered from the docs: WebGPU is the
+only renderer that has ever existed here. Six `.wgsl` shaders and no GLSL
+anywhere; `getContext` called with `'webgpu'` and `'2d'` and never `'webgl2'`;
+`gpu.ts:74` throws rather than falling back.
+
+The interesting part is what that left behind. `BackendKind` was
+`'webgpu' | 'webgl2'`, but nothing ever constructed a `'webgl2'` — the only
+producer of `Caps.backend` was the literal `'webgpu'`. `package.json` advertised
+`WebGPU/WebGL2` to anyone who opened the repository. The module doc comment in
+`gpu.ts` described a GL path in the present tense, with GLSL ES 3.00 and
+transform feedback, as though it were implemented. Nine documents framed a
+settled scope decision as an outstanding deviation from the brief.
+
+**None of it threw, and every check passed.** That is the whole failure mode, and
+it is the one [`PROCESS.md`](PROCESS.md) rule 5 names: *a name, a uniform slot, a
+registered tool, or a config value is not a feature — it is a claim that
+something exists.* A union member is a claim. A package description is a claim.
+Each was individually plausible and each was greppable, so no single session
+tripped over the contradiction; it took a human decision to make the
+accumulation visible. A reader arriving from the package description would
+reasonably have concluded the project had two renderers.
+
+The fix kept the decision's cost visible rather than deleting the inconvenient
+part: **anyone without WebGPU sees nothing.** That is now stated in D1, R8, and
+the places a reader will actually look, and it is framed as accepted rather than
+as a shortfall. The three portability comments (`src/render/cascade.ts`,
+`src/shaders/post.wgsl`, `docs/WATER_AND_VOLUMETRICS.md`) were deliberately left
+alone — shelving the backend does not retract the owner's interest in porting to
+three.js or WebGL 2, and those comments are the reason the design can move.
+
 ## Known gaps, in priority order
 
 1. **Street level does not read as inhabited.** The ground plane has no markings,

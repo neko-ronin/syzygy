@@ -13,8 +13,32 @@ the last column tells you what to check first.
 
 ## D1 — WebGPU only, no WebGL 2 backend
 
+**Status: CLOSED — ratified by the human owner, 2026-10-01.** Not revisable
+without them. This is a scope decision, not a known gap and not overdue work.
+
 **Decision.** The renderer is WebGPU. `src/core/gpu.ts` requests an adapter and
 device from `navigator.gpu` and there is no GL path.
+
+**Ratified by the human owner, 2026-10-01.** Verbatim: *"we're shelving webgl 2.
+we're going all in on webGPU. that's what the team has been building right?"* —
+that last clause was a question, and it was checked rather than assumed.
+**Confirmed: yes.** WebGPU is the only thing that has ever been built here.
+Measured across the tree on 2026-10-01:
+
+| Claim | Evidence |
+| --- | --- |
+| Six shaders, all WGSL | `src/shaders/*.wgsl` — six files, zero `.glsl` / `.vert` / `.frag` anywhere in `src/`, `tools/` or `server/` |
+| No GL context is ever requested | `getContext` appears exactly twice in the whole source tree: `'webgpu'` (`gpu.ts:106`) and `'2d'` (`main.ts:630`, the minimap/PNG canvas). No `'webgl2'` call exists |
+| No fallback path | `gpu.ts:74` throws when `navigator.gpu` is absent; `main.ts:64` surfaces that as a hard-fail boot message |
+| `BackendKind` never carried a live second member | It was `export type BackendKind = 'webgpu' \| 'webgl2'`, but `Caps.backend` had exactly one producer, the literal `'webgpu'` (now `gpu.ts:127`). `'webgl2'` was never constructed. It is now `export type BackendKind = 'webgpu'`, and nothing outside `gpu.ts` ever referenced either the type or `Caps.backend` |
+
+This was previously filed as *the one outstanding deviation from the brief*. It
+is not outstanding. It is a ratified scope decision, closed on 2026-10-01, and
+nothing should reopen it without the human owner saying so. The `'webgl2'`
+member of `BackendKind` and a `WebGPU/WebGL2` package description were both
+removed in the same change as this entry, for the reason
+[`PROCESS.md`](PROCESS.md) rule 5 exists: a name in a type union is a claim
+that something exists, and it sat there long enough to be believed.
 
 **Why.** WGSL compute is load-bearing for the light binner. The deferred
 G-buffer maps cleanly onto WebGPU's multi-render-target, which is the single
@@ -23,15 +47,19 @@ worse codebase living alongside the first.
 
 **Rejected.** A shared abstraction with two shader languages. Rejected as a trap:
 it halves the performance ceiling in exchange for reach, and the ceiling is the
-product.
+product. This reasoning still stands and is kept deliberately — it is the reason
+the decision is not "just add a second backend later".
 
 **Cost, stated plainly.** Anyone without WebGPU sees nothing. The prompt asked
-for both. Tracked as **R8** in the roadmap — it is a product decision, not
-overdue work.
+for both. That trade is now accepted rather than outstanding; **R8** in the
+roadmap records the scope decision, not a task.
 
-**If you think this is wrong:** the thing to check first is how much of the
-renderer actually needs compute. The light binner is the only hard requirement,
-and it is ~80 lines.
+**Shelving the backend does not retract portability.** The owner may still port
+to three.js or WebGL 2 later. The algorithms are written to allow it, and three
+comments say so on purpose: `src/render/cascade.ts:6`,
+`src/shaders/post.wgsl:324`, `docs/WATER_AND_VOLUMETRICS.md:27`. Keep them;
+they are the reason the current design can move. Portability is not a promise of
+a second backend.
 
 ---
 
@@ -416,9 +444,10 @@ rewrite had to be redone.
 
 Decisions this project has deliberately *not* made. Do not resolve one in passing.
 
-- **WebGL 2 backend.** Settled as *WebGPU only* (D1); the brief asked for both,
-  and the cost of the second backend is weeks. Revisit only if the brief's
-  intent changes.
+**None.** The last entry — the WebGL 2 backend — was answered by the human owner
+on 2026-10-01 and folded into D1, which is now closed rather than open. This
+section is kept, empty, because the next open decision should not have to invent
+a place to go.
 
 ---
 

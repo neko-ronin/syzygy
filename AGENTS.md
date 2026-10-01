@@ -43,7 +43,7 @@ which document answers your question.
 | [`COVERAGE.md`](docs/COVERAGE.md) | Living map from the original build checklist to where each item is covered. Marks `PHANTOM`s | When you need to know what is **missing** rather than what to do next. Read it before adding a feature |
 | [`ROADMAP.md`](docs/ROADMAP.md) | R1–R10, ranked by visual impact, with the reasoning and the done-when | When choosing what to work on. This is the priority queue |
 | [`PITFALLS.md`](docs/PITFALLS.md) | Every silent failure, what it looked like, and how to catch it next time. The history behind these rules | Before touching the renderer. When something is wrong and you have no idea why |
-| [`DECISIONS.md`](docs/DECISIONS.md) | D1–D22: why the architecture is what it is, and what was rejected | **Before changing the architecture.** Several would be actively harmful to reverse |
+| [`DECISIONS.md`](docs/DECISIONS.md) | D1–D24: why the architecture is what it is, and what was rejected | **Before changing the architecture.** Several would be actively harmful to reverse |
 | [`PROCEDURES.md`](docs/PROCEDURES.md) | How to run, capture, debug, and extend. Instance layouts, frame graph, quality tiers, committing | When you need to do a specific mechanical task |
 | [`ORIGINAL_PROMPT.md`](docs/ORIGINAL_PROMPT.md) | The brief, verbatim, read clause by clause as a specification | When you need to know what was actually **asked for**, to judge scope or spot a deviation |
 | [`GLOSSARY.md`](docs/GLOSSARY.md) | Vocabulary for the city, the render, the simulation, and the process | When a term is ambiguous, or you need to name something precisely |
@@ -191,11 +191,21 @@ session.
 Do not commit a change made on an unverified theory. Committing a measurement
 and an open question is better than committing a speculative fix.
 
-## Two things needing a human decision
+## Closed decisions — do not reopen these casually
 
-- **WebGL 2** — the brief asked for both backends; this is WebGPU-only (D1, R8).
-  Weeks of work for a second renderer. Do not start it in passing.
+- **WebGL 2 is shelved, and that is the owner's call, not a gap.** The human
+  owner decided on **2026-10-01**: *"we're shelving webgl 2. we're going all in
+  on webGPU."* This was WebGPU-only from the first commit, and it has been
+  confirmed against the source, not assumed. The full entry, including the
+  evidence table, the accepted cost (**anyone without WebGPU sees nothing**),
+  and the rejected shared-abstraction alternative, is
+  [`DECISIONS.md`](docs/DECISIONS.md) **D1**; the roadmap record is
+  [`ROADMAP.md`](docs/ROADMAP.md) **R8**, status *closed*. **Weeks of work for a
+  second renderer — do not start it in passing, and do not re-raise it as an
+  outstanding deviation.** Portability to three.js and WebGL 2 is still wanted
+  and is a different thing from building a second backend; the comments saying
+  so are load-bearing.
 
-The reference videos and all screenshots are deliberately **not** in git (D22) —
-`.git` is 1.3 MB. A fresh clone has neither. Copy the videos from a working
-checkout before `tools/compare.mjs --ref` will work.
+That was the only item under this heading, so this section is now a record of a
+decision rather than a to-do. If you add an open question, put it under a
+heading that says *open*.
