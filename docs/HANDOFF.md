@@ -344,6 +344,68 @@ below what this renderer can resolve, with no geometric difference behind it.
 24.5 s. The remaining ~8 s per shot is `captureRGBA()` and belongs to the
 performance agent's file.
 
+### F7 — `captureRGBA()`'s 8 s is a fence, not a function (new, measured)
+
+The ~8 s was attributed to `captureRGBA()` three times without ever being
+measured inside it. It is now measured, per phase, and published in
+`stats.capturePhases` so any later claim can be checked. Milliseconds:
+
+```
+run                    tex  encode  buf  submit    map    read  free  total
+1 (quiet)             0.0     0.1  1.9     0.2  1854.2   14.5   0.0  1871.0
+2 (busy)              0.1     0.0  0.1     0.1  9175.0   11.8   0.1  9187.1
+2 (busy)              0.0     0.0  0.0     0.1 12040.0   12.7   0.0 12052.9
+2 (busy)              0.1     0.0  0.0     0.0 16786.0   18.8   0.0 16804.9
+3 (readback gate)     0.0     0.1  0.0     0.1  6487.0    8.1   0.0  6495.2
+4 (gate + pacing)     0.0     0.1  0.0     0.1  646.0     7.2   0.0   653.0
+```
+
+Encoding the composite is 0.1 ms, allocating the 5.76 MB readback buffer is 0,
+submitting is 0, and the 1.44M-pixel BGRA→RGBA swizzle is 8-19 ms.
+`mapAsync` is 99.9 % of the function in every run at every contention level.
+
+What the fence waits for, measured:
+
+- `probe()` copies **27 bytes** through the identical submit/`mapAsync`/
+  `getMappedRange` path and took **3.7-12.8 s** (run 2) and **1.3-1.9 s**
+  (runs 3-4). A readback transferring 200000× less data for the same time is
+  not paying for its data.
+- **440-528 rAF ticks** elapsed inside one `captureRGBA()` call. Ticks, not
+  presented frames: the loop never waits for the GPU, and rAF free-ran at a
+  measured 87-114 Hz while `render()` encoded a 3-7M-triangle, four-cascade
+  frame in 8.8-9.9 ms of CPU and submitted it regardless. The queue was being
+  refilled faster than it drained, which is why the cost was stable at ~8 s and
+  why adding 30 presented frames first "did not move it".
+- The **PNG encode is not the cost**: `putImageData` 0-7 ms, `toDataURL`
+  14-75 ms for a 2.16 MB PNG, GPU-backed and `willReadFrequently` alike. The
+  6511 ms `toDataURL` in run 2 was CPU contention with four browsers running.
+
+**Landed:** `render()` will not submit while more than 2 frames are unretired
+(`MAX_FRAMES_IN_FLIGHT`), nor while a readback is in flight, with a 250 ms
+fail-open. `stats.framesInFlight` and `stats.framesSkipped` publish the queue
+depth and the declines, because "the queue is deep" was previously unfalsifiable.
+
+**No speedup is claimed.** Four runs on a GPU shared with other agents returned
+0.65-28.8 s per call for identical code, and in run 4 the governor stepped
+high→low mid-run (3.1M triangles instead of 6.9M) after a 661 s stall in which
+333 rAF ticks took 661 s. Runs 3 and 4 differ by the gate *and* the tier, so
+6.5 s → 0.65 s is not attributable to anything yet. The invariant is real; the
+number is not. Re-measure on an idle machine.
+
+**Two things for whoever picks this up:**
+
+1. `main.ts`'s `refreshCapture` is now the largest remaining term and nobody owns
+   it: it is `putImageData` + `toDataURL`, ~20-90 ms once the fence is bounded.
+   Worth re-checking after the next idle-machine run before optimising it.
+2. Pacing makes `stats.frameMs` the real GPU-paced frame time instead of the
+   rAF cadence, and `governQuality()` reads exactly that and demotes below
+   34 fps. In steady state that was not reached (frameMs 8.25-9.19 ms,
+   109-121 fps) but the governor did demote after an external stall. Whether a
+   capture on a shared GPU should be allowed to demote the tier is a decision,
+   not a default.
+
+---
+
 **Also still wrong, and worth 30 seconds from whoever owns it.**
 `src/world/__selftest.ts:551` prints `0.57M tris for 64 chunks`. It is a
 hand-rolled analytic estimate that never calls the baker. The figure measured
