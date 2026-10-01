@@ -1115,6 +1115,123 @@ are not is that I looked.
 
 ---
 
+# Round 7 — the 109 m wall, and a night fix I could not verify
+
+## The suggested cause is disproved
+
+Round 7's lead was that `liveCount` reaching `targetVisible` stops further
+seeding, and that seeding order is nearest-first — which would produce exactly my
+symptom. It is a good hypothesis and it is **wrong**:
+
+```
+f  1  live= 858/2550  radius=160  instances= 846  forward 20m: 149 238 159 148 68 72 0 0 0
+f  8  live=2291/2550  radius=160  instances=2124  forward 20m: 194 393 799 214 123 49 0 0 0
+f 30  live=2550/2550  radius=160  instances=2526  forward 20m: 288 527 1112 305 194 64 0 0 0
+f120  live=2549/2550  radius=160  instances=2511  forward 20m: 291 492 873 538 157 98 0 0 0
+```
+
+`live` reaches the target by frame 30 and stays there. The cap never binds.
+
+And the forward extent does **not** move with the camera — it tracks a point in
+the *world* roughly 40-60 m ahead:
+
+```
+camera at spine along=  0  live=2550/2550  max fwd 108m   288 508 1098 361 163 69 0 0 0
+camera at spine along= 80  live=2550/2550  max fwd  66m   1347 297 210 16 0 0 0 0 0
+camera at spine along=160  live= 473/2550  max fwd  18m   55 0 0 0 0 0 0 0 0
+camera at spine along=240  live= 198/2550  max fwd   --   0 0 0 0 0 0 0 0 0
+```
+
+**That is the real shape of the bug, and it is not a 109 m wall at all.** It is
+two failures:
+
+1. **The standing population collapses away from the market.** 160 m along the
+   spine it is 473 of a target of 2550; at 240 m, 198. The crowd only exists
+   where something keeps it there, and the only stationary things it walks to are
+   the market attractor and an event. Everywhere else the population churns.
+2. **What remains piles at the market**, which is why the forward histogram
+   spikes at 40-60 m and the rest of the street is bare.
+
+So GAP A and the empty market are **the same cause**, and it is behavioural: a
+crowd with one destination and no reason to occupy a street.
+
+### A sixth mechanism, disproved — including the round-7 suggested fix
+
+The obvious response to (1) is that goals exceed the view radius, so agents walk
+out and are retired: `randomNodeFor` picked nodes 150-900 m away and
+`RideStop` 300-1200 m, inside a 160 m `viewRadius`. I implemented a bound
+(`Math.min(want, viewRadius * 0.8)`) and measured it.
+
+**It changed nothing** — `live` still 473 at 160 m along, forward histogram
+unchanged, street still 58% empty. Reverted, because shipping an unverified
+change is not better than shipping nothing.
+
+Six mechanisms now eliminated: `rng.fork` distribution, the build, `snapToStreet`
+drag, lateral spread, sampling frame, and goal radius. The remaining suspect is
+`rebuildSlices`' `behind` test — any agent whose goal takes it across the view
+plane is retired on the next pass, and with `viewRadius` 160 m a 900 m goal
+crosses it within seconds. That is a reading, not a measurement, and it is the
+next thing to instrument.
+
+## Night legibility: the fix is right, and I could not verify it
+
+Measured from the pixels of the certified round-6 night frame, not from the
+analytic model:
+
+```
+frame mean relative luminance      0.004461
+brightest figure block             0.019658
+figure/ground contrast             1.28:1     (threshold 2.5:1)
+```
+
+I implemented the self-lit floor the brief offers: `params.z` on pedestrian
+instances, ramping with `nightFloor(dayPhase)`, zero by day. It is verified in
+the data — at night `params.z` averages 0.244 across 2513 instances, by day
+exactly 0 — and it is compensated for the gait mask the crowd already spends
+`tint.a` on, or it would pulse to zero twice per stride.
+
+**And I have reverted it.** The capture after the change contains **no
+identifiable figures at all**, so there is no before/after to measure: my proxy
+metric picked a lit building edge rather than a figure, and the 1.28 -> 1.30 it
+produced is noise. A change to a rendering parameter that I cannot show working
+is an unverified theory, and the round's whole lesson has been that shipping one
+costs the next agent a round.
+
+What the frame does establish is the analytic finding, now confirmed by pixels:
+**no palette can lift the night ratio, because `skyIrradiance` multiplies coat
+and deck by the same ambient.** The fix that will work is the one that does not
+belong to me — developer 1's market aisle lighting, which raises the ground the
+figures have to contrast against and puts light on them directly.
+
+## What I saw
+
+Round 6, night: three figures in the foreground reading as **coloured slabs**.
+Round 7, night, with the emissive: **an empty street and no figures to judge**.
+Day in both: the market fully built along both kerbs and **not one person on it**.
+
+That is the honest summary of the visual state: the market is dressed and
+unoccupied, and the crowd that exists is concentrated at one point on it.
+
+## What I did not get to
+
+1. **The 109 m mechanism is still not named to a line.** Six mechanisms
+   eliminated; `rebuildSlices`' `behind` test is the next candidate and is
+   uninstrumented.
+2. **Market emptiness is confirmed to be the same cause**, not a second bug.
+3. **The night fix is unverified and reverted.** I am not claiming the crowd
+   reads at night.
+4. The crowd separation distribution (62% against a 25% target) is unchanged.
+5. Two of my three captures this round produced frames I could not measure from,
+   because I estimated figure coordinates by eye and then depended on them. The
+   lesson from round 6 was "measure the mechanism, not the outcome"; the
+   corollary I did not apply is *locate the subject before measuring it*.
+
+😎 And the harness point holds: the round-7 capture verified disk and served
+bundle to `assets/index-l9G_L_sJ.js` before shooting, after two rounds of
+diagnosing my own `setsid` failure as a squatter.
+
+---
+
 ## 9. Contradictions between code and documents
 
 1. **`src/render/groundbake.ts` — `void lights;`.** The `lights` array is in
