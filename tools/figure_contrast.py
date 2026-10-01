@@ -89,19 +89,40 @@ def patch(w, bpp, buf, x0, y0, x1, y1):
     mean = tuple(v / n for v in acc)
     return mean, max(lums) - min(lums), len(lums)
 
+def best_local_contrast(w, h, bpp, buf, y_lo=430, y_hi=880):
+    """Blocks whose core beats a ring around them, best WCAG contrast first.
+
+    A figure is found by being locally brighter than what is behind it, so this
+    needs no coordinates from the caller and cannot inherit a bad estimate.
+    """
+    def lum(x, y):
+        i = (y * w + x) * bpp
+        return rel_lum((buf[i], buf[i + 1], buf[i + 2]))
+    hits = []
+    for y0 in range(y_lo, min(h - 40, y_hi - 40), 20):
+        for x0 in range(0, w - 40, 20):
+            core = [lum(x, y) for y in range(y0 + 10, y0 + 30, 4)
+                                for x in range(x0 + 10, x0 + 30, 4)]
+            cm = sum(core) / len(core)
+            ring = [lum(x, y) for y in range(max(0, y0 - 14), min(h, y0 + 44), 6)
+                                  for x in range(max(0, x0 - 14), min(w, x0 + 54), 6)
+                                  if not (y0 + 8 < y < y0 + 32 and x0 + 8 < x < x0 + 32)]
+            if len(ring) < 20:
+                continue
+            rm = sum(ring) / len(ring)
+            hits.append(((cm + 0.05) / (rm + 0.05), cm, rm, x0, y0))
+    hits.sort(reverse=True)
+    return hits
+
+
 if __name__ == '__main__':
-    path = sys.argv[1]
-    w, h, bpp, buf = load(path)
-    print(f'{path}: {w}x{h} bpp={bpp}')
-    # (figure box, adjacent ground box) pairs, read off the frame by eye.
-    spots = [
-        ('green figure + ground', (530, 590, 580, 660), (600, 620, 700, 680)),
-        ('red figure + ground',   (975, 600, 1065, 700), (1090, 640, 1180, 700)),
-        ('pale figure + ground',  (1285, 610, 1395, 700), (1420, 650, 1500, 700)),
-        ('empty deck, left',      (200, 520, 320, 600), (200, 620, 320, 700)),
-    ]
-    for name, f, g in spots:
-        fm, fspread, fn = patch(w, bpp, buf, *f)
-        gm, gspread, gn = patch(w, bpp, buf, *g)
-        print(f'  {name:24} figure mean lum {rel_lum(fm):.5f}  ground {rel_lum(gm):.5f}  '
-              f'contrast {ratio(fm, gm):.2f}:1  (within-patch lum spread f {fspread:.5f} g {gspread:.5f})')
+    for path in sys.argv[1:]:
+        w, h, bpp, buf = load(path)
+        hits = best_local_contrast(w, h, bpp, buf)
+        print(f'{path}: {w}x{h}')
+        if not hits:
+            print('   no locally-brighter blocks found in the lower half')
+            continue
+        for r, cm, rm, x, y in hits[:6]:
+            print(f'   block ({x:4d},{y:4d})  core lum {cm:.5f}  surround {rm:.5f}  contrast {r:.2f}:1')
+        print(f'   best {hits[0][0]:.2f}:1   (threshold 2.5:1)')
