@@ -44,6 +44,11 @@ const HDR: GPUTextureFormat = 'rgba16float';
 const DEPTH: GPUTextureFormat = 'depth32float';
 const SHADOW_FMT: GPUTextureFormat = 'depth32float';
 const CASCADE_COUNT = 4;
+/**
+ * How long `render()` will decline to encode before it stops believing the GPU
+ * is simply behind, and renders anyway. See the fail-open clause in `render()`.
+ */
+const PACING_FAIL_OPEN_MS = 250;
 /** One cascade's params, padded to the dynamic-offset alignment. */
 const CASCADE_STRIDE = 256;
 const MAX_LIGHTS = 3072;
@@ -127,6 +132,59 @@ export interface RendererStats {
   rebakePending: number;
   /** Fraction of resident chunks at each detail level, index = lod. */
   lodHistogram: number[];
+  /**
+   * Wall-clock cost of the last `captureRGBA()`, split by phase.
+   *
+   * This exists because the per-call cost of a readback was measured three times
+   * in three sessions and each time it was attributed to something else —
+   * streaming, "frames settling", a queue backlog — while adding presented
+   * frames in between did not move it. A single total cannot distinguish
+   * "the GPU had work to retire" from "this function is slow", and those two
+   * have opposite fixes. `phases.map` is the `mapAsync` wait: it absorbs both
+   * the GPU work queued ahead of it and any readback stall, so it is the phase
+   * to look at first.
+   */
+  captureMs: number;
+  capturePhases: CapturePhases;
+  /**
+   * rAF ticks that `render()` declined to encode since the last frame it did
+   * encode, because the queue was full or a readback was in flight. Zero in
+   * steady state; a large value means the loop is asking for frames faster than
+   * the machine can retire them, which is the condition every readback in this
+   * project was paying for.
+   */
+  framesSkipped: number;
+  /**
+   * Frames submitted to the GPU but not yet reported retired, sampled at the end
+   * of the frame that published this stat. With `MAX_FRAMES_IN_FLIGHT` = 2 this
+   * should never exceed 2; a value in the hundreds is the queue-drain defect
+   * that made every readback in the project cost seconds, made visible.
+   */
+  framesInFlight: number;
+}
+
+/** Phase-by-phase milliseconds for one `captureRGBA()`. */
+export interface CapturePhases {
+  /** (Re)allocating the offscreen capture texture. */
+  tex: number;
+  /** Recording the composite pass. */
+  encode: number;
+  /** Allocating the readback buffer. */
+  buf: number;
+  /** `copyTextureToBuffer` + `queue.finish()` + `queue.submit`. */
+  submit: number;
+  /** Awaiting `mapAsync`: everything queued ahead of it has to retire first. */
+  map: number;
+  /** `getMappedRange` plus the per-pixel BGRA→RGBA swizzle. */
+  read: number;
+  /** `unmap` + `destroy`. */
+  free: number;
+  /** Sum of the phases above. Differs from `captureMs` only by JSON marshalling. */
+  total: number;
+  /** Capture texture size in pixels, and the padded bytes-per-row actually copied. */
+  w: number;
+  h: number;
+  bytes: number;
 }
 
 export class Renderer {
@@ -214,6 +272,58 @@ export class Renderer {
   private wallAccum = 0;
   private bakeAccum = 0;
   private frameTimes: number[] = [];
+  /**
+   * True from the moment `captureRGBA()` starts recording until its `mapAsync`
+   * has resolved. While it is set, `render()` declines to submit.
+   *
+   * `mapAsync` resolves only when the device has retired everything submitted
+   * *ahead of it* on the same queue, so a readback is a queue drain wearing a
+   * copy's clothes. Gating for the duration of the readback bounds what is ahead
+   * of the fence by the work already queued, which is the only part the readback
+   * is responsible for. Without the gate the fence also waits for every frame
+   * the loop submits while it is blocked, which on this machine was 440-528 rAF
+   * ticks — not presented frames, ticks: the loop is not waiting for the GPU.
+   */
+  private capturePending = false;
+  /**
+   * Frames submitted to the GPU that `onSubmittedWorkDone` has not yet reported
+   * as retired. Published as `stats.framesInFlight` because "the queue is deep"
+   * is otherwise an unfalsifiable claim: on this machine rAF ran at 87-114 ticks
+   * per second while a single fence took seconds, and nothing in `stats` could
+   * say whether the fence was waiting for 2 frames or for 2000.
+   */
+  private framesInFlight = 0;
+  /**
+   * Frames may be submitted-but-unretired before `render()` stops encoding.
+   *
+   * Measured, not reasoned, and the measurement is the uncomfortable one: rAF in
+   * headless Chromium free-runs, and this loop hands the GPU a 3-7M-triangle,
+   * four-cascade frame every 8.8-9.9 ms of CPU encode time without ever waiting
+   * for one to retire. Every fence in the project therefore had to drain a queue
+   * that was still being refilled, and `mapAsync` in `captureRGBA()` spent
+   * 0.65-16.8 s there depending on what else was using the GPU — while
+   * `probe()`, which copies 27 bytes through the identical submit / `mapAsync` /
+   * `getMappedRange` path, spent 1.3-12.8 s in the same minutes. A readback that
+   * transfers 200000x less data and costs the same is not paying for its data.
+   *
+   * Two frames, not one: `getCurrentTexture()` cannot block forever and a single
+   * frame in flight serialises the loop on the fence callback, which is a latency
+   * of its own.
+   *
+   * NOT MEASURED AS A SPEEDUP, and the honest reason is in HANDOFF.md: four
+   * capture runs on a GPU shared with other agents produced per-call times from
+   * 0.65 s to 28.8 s for the same code, and the quality governor moved the tier
+   * mid-run in the last one. What this change does buy is an invariant —
+   * `framesInFlight` cannot exceed 2, so a fence's worst case is two frames of
+   * work rather than however long the page has been open. That is a bound, not a
+   * benchmark, and it should be re-measured on an idle machine before anyone
+   * quotes a number for it.
+   */
+  private static readonly MAX_FRAMES_IN_FLIGHT = 2;
+  /** rAF ticks `render()` declined to encode: the queue was full or a readback was in flight. */
+  private skipped = 0;
+  /** `performance.now()` of the last submit, for the pacing fail-open. */
+  private lastSubmitAt = 0;
   private lightWriter = makeInstanceWriter(MAX_LIGHTS);
   private pendingBakes: { cx: number; cz: number }[] = [];
   /**
@@ -236,6 +346,13 @@ export class Renderer {
     residentChunks: 0, visibleChunks: 0, visibleDraws: 0, lights: 0, vramMB: 0,
     tier: 'high', bakeMs: 0, uploadMs: 0, frustumCulled: 0,
     rebakePending: 0, lodHistogram: [0, 0, 0, 0],
+    captureMs: 0,
+    capturePhases: {
+      tex: 0, encode: 0, buf: 0, submit: 0, map: 0, read: 0, free: 0, total: 0,
+      w: 0, h: 0, bytes: 0,
+    },
+    framesSkipped: 0,
+    framesInFlight: 0,
   };
 
   /**
@@ -883,7 +1000,27 @@ export class Renderer {
 
   render(cam: FlightCamera, dt: number): void {
     if (!this.targets) return;
-    const t0 = performance.now();
+    // The GPU is the bottleneck, and a fence is the only place that shows it.
+    //   1. A readback is in flight. Every frame submitted here is work the
+    //      readback's `mapAsync` has to wait behind.
+    //   2. The queue is already `MAX_FRAMES_IN_FLIGHT` deep. Submitting anyway
+    //      makes every readback in the project pay for the backlog, and a
+    //      backlog the loop keeps refilling never drains.
+    //
+    // The `lastSubmitAt` clause is a fail-open. Both gates depend on an
+    // `onSubmittedWorkDone` promise resolving, and if one ever does not, the
+    // counter latches at the cap and the app stops drawing for the rest of the
+    // session. Losing pacing for a frame is a far better failure than losing the
+    // picture, so after `PACING_FAIL_OPEN_MS` of declining to encode, the gate
+    // opens itself and the frame goes through regardless.
+    const now = performance.now();
+    const overBudget = this.framesInFlight >= Renderer.MAX_FRAMES_IN_FLIGHT;
+    if ((this.capturePending || overBudget) && now - this.lastSubmitAt < PACING_FAIL_OPEN_MS) {
+      this.skipped++;
+      return;
+    }
+    if (overBudget) this.framesInFlight = 0;
+    const t0 = now;
     this.resetCounter();
     this.resize();
     this.updateCascades(cam);
@@ -898,6 +1035,7 @@ export class Renderer {
     this.recordLighting(enc);
     this.recordPost(enc);
     this.gpu.device.queue.submit([enc.finish()]);
+    this.trackGpuCompletion();
 
     this.frameIndex++;
     const cpu = performance.now() - t0;
@@ -906,6 +1044,28 @@ export class Renderer {
     if (this.frameTimes.length > 60) this.frameTimes.shift();
     this.publishStats(visible);
     void dt;
+  }
+
+  /**
+   * Count this frame against the in-flight budget and release it when the GPU
+   * says it has retired everything submitted up to now.
+   *
+   * The budget is what keeps any fence in this renderer honest — `mapAsync` in
+   * `captureRGBA`, `probe`, and the loop's own pacing all read the same queue
+   * depth. Without it the depth is a function of how long the page has been
+   * open, which is why every fence measured in this project came out at
+   * seconds and nobody could say why.
+   */
+  private trackGpuCompletion(): void {
+    const q = this.gpu.device.queue;
+    this.framesInFlight++;
+    this.lastSubmitAt = performance.now();
+    void q.onSubmittedWorkDone().then(
+      () => { this.framesInFlight = Math.max(0, this.framesInFlight - 1); },
+      // Device lost or the queue torn down: never let the counter latch at the
+      // cap, which would stop the app drawing for the rest of the session.
+      () => { this.framesInFlight = 0; },
+    );
   }
 
   /**
@@ -965,6 +1125,9 @@ export class Renderer {
 
     s.residentChunks = this.chunks.size;
     s.tier = this.quality;
+    s.framesSkipped = this.skipped;
+    s.framesInFlight = this.framesInFlight;
+    this.skipped = 0;
 
     const w = this.world;
     w.perf.frameMs = s.frameMs;
@@ -1316,6 +1479,32 @@ export class Renderer {
     if (!t) return null;
     const dev = this.gpu.device;
     const w = t.w, h = t.h;
+    const ph = this.stats.capturePhases;
+    const mark = performance.now();
+    let t0 = mark;
+    const phase = (k: 'tex' | 'encode' | 'buf' | 'submit' | 'map' | 'read' | 'free'): void => {
+      const now = performance.now();
+      ph[k] = now - t0;
+      t0 = now;
+    };
+    this.capturePending = true;
+    try {
+      return await this.captureLocked(dev, t, w, h, ph, mark, phase);
+    } finally {
+      this.capturePending = false;
+      // A readback is not a frame. Without this the first frame after a capture
+      // reports the capture's whole duration as its frame time, which is one
+      // large enough lie to feed the quality governor three times over.
+      this.lastFrameAt = performance.now();
+    }
+  }
+
+  /** The body of `captureRGBA`, with the readback gate already held. */
+  private async captureLocked(
+    dev: GPUDevice, t: RenderTargets, w: number, h: number,
+    ph: CapturePhases, mark: number,
+    phase: (k: 'tex' | 'encode' | 'buf' | 'submit' | 'map' | 'read' | 'free') => void,
+  ): Promise<{ width: number; height: number; data: Uint8ClampedArray<ArrayBuffer> } | null> {
     if (!this.captureTex || !this.captureView
       || this.captureTex.width !== w || this.captureTex.height !== h) {
       this.captureTex?.destroy();
@@ -1325,6 +1514,7 @@ export class Renderer {
       });
       this.captureView = this.captureTex.createView();
     }
+    phase('tex');
     const view = this.captureView!;
     {
     }
@@ -1342,18 +1532,22 @@ export class Renderer {
     p.setBindGroup(1, this.postBg('composite', t.resolved, t.resolvedView, t.taaView[prevIdx]));
     p.draw(3);
     p.end();
+    phase('encode');
 
     const bpr = Math.ceil((w * 4) / 256) * 256;
     const buf = dev.createBuffer({
       size: bpr * h, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
     });
+    phase('buf');
     enc.copyTextureToBuffer(
       { texture: this.captureTex },
       { buffer: buf, bytesPerRow: bpr, rowsPerImage: h },
       { width: w, height: h },
     );
     dev.queue.submit([enc.finish()]);
+    phase('submit');
     await buf.mapAsync(GPUMapMode.READ);
+    phase('map');
     const src = new Uint8Array(buf.getMappedRange());
     const out = new Uint8ClampedArray(new ArrayBuffer(w * h * 4));
     const bgra = this.gpu.format.startsWith('bgra');
@@ -1367,8 +1561,13 @@ export class Renderer {
         out[d + 3] = 255;
       }
     }
+    phase('read');
     buf.unmap();
     buf.destroy();
+    phase('free');
+    ph.w = w; ph.h = h; ph.bytes = bpr * h;
+    ph.total = performance.now() - mark;
+    this.stats.captureMs = ph.total;
     return { width: w, height: h, data: out };
   }
 
