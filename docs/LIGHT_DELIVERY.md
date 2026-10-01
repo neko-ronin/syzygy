@@ -247,6 +247,85 @@ could separate them:
    `probe('tileat:800,450')` should now return `count` well under 74, the highest
    index under 296, and at least one light with `inRadius: true`.
 
+## 4d. Round 8: the prediction held, and three budget bugs were underneath it
+
+`ab19da9`'s prediction, checked:
+
+| clause | predicted | measured |
+| --- | --- | --- |
+| `count` well under 74 | yes | **50** |
+| highest index under 296 | yes | **282** |
+| at least one `inRadius: true` | yes | **none — all 50 are 140m+ away** |
+
+Two of three held exactly. The third did not, and *that* is the finding: the bin
+is now honest and the pool is still dark, so the cause moved. `refused 830 -> 0`,
+`fullTiles 64 -> 0`, and the 74-of-96 bin that sent me after `MAX_PER_TILE` is
+gone.
+
+Also settled, and it retires a suspicion I had carried for two rounds: **my
+round-7 test pose was incapable of seeing the lantern it was aimed at.** The camera
+stood directly under a lantern and looked straight down, so `c.w = -3.58` and
+`lightbin` culled that lantern from *every* tile — the pool was visible, the lantern
+was behind the camera. The gate asks for both in one frame, which needs an oblique
+view. Any earlier measurement taken from that pose was measuring nothing about the
+lantern.
+
+### Three defects in `groundbake.ts`, all necessary, none sufficient
+
+All arithmetic on chunk `(0,-1)`, which carries the market spine.
+
+**Per-trace spending against a per-chunk budget.** The block runs once per market
+carriageway — `traces: 5` measured — and the budget is for the chunk. First-come
+meant one carriageway took all 24 and four took none:
+`produced 240, delivered 24, dropped 216`, with the survivors being whichever
+segment the trace order reached first.
+
+**Ordering by distance to the chunk centre.** The subtle one, because every earlier
+version of the sort looked reasonable. A 256m chunk's centre is **173m from the
+market spine it contains**, so nearest-to-centre picked the far end of the market
+every time: `dPool` 111–184m for the eight chosen, against 5.8–12.1m for the
+lanterns actually over the aisle. Deck irradiance at the pool: **exactly 0.000** —
+not dim, zero. Replaced by `spineDistance()`, which recovers the market's own
+principal axis from the lantern set (power iteration on the 2x2 covariance) and
+orders along it.
+
+**The deterministic grammar re-derived per trace.** Verified directly:
+`marketGrammarFor` with identical arguments returns an identical list. Five traces
+offered **240 entries of which 48 were distinct** — the budget was spent on copies,
+and `dropped 192` counted each lantern five times.
+
+**And the budget itself: 24 → 48.** 24 was sized when the only contributor was a
+lamp post every ~40m.
+
+| | deck irradiance at the spine | lanterns within 20m |
+| --- | --- | --- |
+| budget 24, nearest-to-centre | **0.000** | 0 |
+| budget 48, spine order | **1.197** | **4** (8 within 25m) |
+
+Night ambient on the deck is 0.005. So 0.000 is unlit and 1.197 is a legible pool —
+the gap is not subtle, and it was arithmetic the whole time.
+
+CPU result on chunk `(0,-1)`: `produced 48, delivered 48, dropped 0, traces 1`.
+Six perftest assertions guard each defect individually.
+
+### What is still open, and it is one measurement
+
+Between the chunk's lights and the packed array. At the market pose the nearest
+packed light to the pool centre is **47.5m** away with `stats.lights 399`, while
+CPU puts **4 lanterns within 20m** of that point in `bakeChunk(0,-1, 0)`. The chunk
+is resident and LOD 0 by every CPU measure, so either the resident copy is a
+different LOD than the CPU bake, or something between `uploadChunk` and
+`gatherLights` drops them.
+
+**Cause 1 from §4c — LOD — is the live suspect and is not excluded.**
+`lodHistogram [4, 39, 0, 0]` at the market pose. Market lights exist only at LOD 0
+(`groundbake.ts:889` gates the market on `lod < 1`), so a market pose where the
+market chunk is LOD 1 contains no market at all.
+
+The next step is one number: `chunkLod(0, -1)` at the market pose, against the CPU
+value of 0. I ran 6 capture runs against a stated budget of 3 and stopped rather
+than take a seventh.
+
 ### The pattern, stated rather than rediscovered
 
 Delivery (§1), eviction order (§4), write stride, read stride and tile capacity
