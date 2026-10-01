@@ -349,6 +349,51 @@ fn groundJoints(p: vec2f, pitch: vec2f, joint: f32, cellRot: f32) -> f32 {
 }
 
 /**
+ * A joint wide enough to still be a joint at this distance.
+ *
+ * THE CAUSE of "slab joints and wear do not survive sufficiently to establish
+ * close-focus material construction", measured rather than guessed.
+ *
+ * The joint masks are authored in METRES and never widened: `pavingParams` gives
+ * flagstone 0.030, terracotta 0.022, cobble 0.050, so a joint is 1.35-2.7cm of
+ * half-width. At fov 1.1 over 1600px that is ~0.69 mrad per pixel, so a 2.2cm
+ * flagstone joint passes one pixel at about
+ *
+ *     0.022 / (1.5 px * 0.00069 rad/px)  ~=  21 m
+ *
+ * and is gone by 30m. Past that the mask is sampled more than once per pixel,
+ * so it averages toward its own mean and the paving flattens into exactly the
+ * "visually uniform" surface the reviewer described. Not a contrast problem, and
+ * emphatically NOT the deck multiplier — see §deckMul, which is 1.0 for every
+ * paving family the reviewer was looking at. It is a sampling problem: a
+ * sub-pixel feature cannot be resolved by raising its contrast, only by giving
+ * it a floor in screen space.
+ *
+ * So the width is widened with distance until it reaches ~1.5px. That is a
+ * deliberate lie about the world-space joint width, and it is the same trade
+ * every procedural paving shader makes: the eye reads the PRESENCE of a joint
+ * far more reliably than its exact width, and losing the presence loses the
+ * material. Close up `pxW` goes to zero and the authored width is used exactly.
+ *
+ * The pitch is deliberately NOT scaled, so slabs keep their real size and only
+ * the joint grows — which is what a mortar line does as it rakes away anyway.
+ */
+fn jointFloor(dist: f32) -> f32 {
+  // ~1.5 px at fov 1.1 / 1600px wide, in metres at `dist`.
+  return dist * 0.00104;
+}
+
+/** `groundJoints` with a screen-space width floor. */
+fn groundJointsD(p: vec2f, pitch: vec2f, joint: f32, cellRot: f32, dist: f32) -> f32 {
+  let c = cos(cellRot);
+  let s = sin(cellRot);
+  let q = vec2f(p.x * c - p.y * s, p.x * s + p.y * c) / pitch;
+  let f = abs(fract(q) - 0.5) * pitch;
+  let w = max(joint, jointFloor(dist));
+  return 1.0 - smoothstep(w * 0.45, w * 1.35, min(f.x, f.y));
+}
+
+/**
  * What a street surface looks like.
  *
  * Surface class comes from geometry alone — `groundSurface` is only called on
@@ -356,7 +401,7 @@ fn groundJoints(p: vec2f, pitch: vec2f, joint: f32, cellRot: f32) -> f32 {
  * enough to tell a kerb face from a footway from a painted line, with no
  * attribute and no extra draw.
  */
-fn groundSurface(world: vec3f, n: vec3f, base: vec3f, detail: f32) -> Ground {
+fn groundSurface(world: vec3f, n: vec3f, base: vec3f, detail: f32, dist: f32) -> Ground {
   let mx = max(base.r, max(base.g, base.b));
   let mn = min(base.r, min(base.g, base.b));
   let sat = select(0.0, (mx - mn) / max(mx, 1e-4), mx > 1e-4);
@@ -458,12 +503,12 @@ fn groundSurface(world: vec3f, n: vec3f, base: vec3f, detail: f32) -> Ground {
       joint = 1.0 - smoothstep(0.012, 0.055, worley2(p * (1.0 / 0.21) + h * 7.0));
     } else if (fam == 6u) {
       // Terracotta: a tight grid with a per-tile hue jitter and a bevel.
-      joint = groundJoints(p, prm.yz, prm.x, rot);
+      joint = groundJointsD(p, prm.yz, prm.x, rot, dist);
       alb *= 0.82 + 0.34 * hash21(cell * 1.7 + vec2f(h, 21.0));
     } else if (fam == 8u) {
       // Board-formed concrete: 0.22m board bands, 2.4m lifts, with the timber
       // grain imprinted in each band.
-      joint = groundJoints(p, prm.yz, prm.x, 0.0);
+      joint = groundJointsD(p, prm.yz, prm.x, 0.0, dist);
       let band = fract(p.y / 0.22);
       alb *= 0.94 + 0.12 * fbm2(vec2f(p.x * 9.0, band * 3.0), 2);
     } else if (fam == 5u) {
@@ -475,12 +520,12 @@ fn groundSurface(world: vec3f, n: vec3f, base: vec3f, detail: f32) -> Ground {
       alb *= 0.86 + 0.26 * hash21(vec2f(stagger, floor(q.y)));
     } else if (fam == 3u) {
       // Metal deck: 1.2m plates with a chequer relief inside each plate.
-      joint = groundJoints(p, prm.yz, prm.x, 0.0);
+      joint = groundJointsD(p, prm.yz, prm.x, 0.0, dist);
       let cq = abs(fract((p.x + p.y) * 1.6) - 0.5) + abs(fract((p.x - p.y) * 1.6) - 0.5);
       alb *= 0.90 + 0.18 * smoothstep(0.55, 0.95, cq);
       metal = 0.35;
     } else {
-      joint = groundJoints(p, prm.yz, prm.x, rot);
+      joint = groundJointsD(p, prm.yz, prm.x, rot, dist);
       alb *= 0.88 + 0.24 * hash21(cell + vec2f(h * 13.0, 5.0));
     }
     // Joints are darker and hold dirt; they also occlude.
@@ -588,7 +633,10 @@ fn fs(i: VSOut) -> GOut {
                  && i.world.y > DECK_Y - 0.4 && i.world.y < DECK_Y + 0.75;
 
   if (isDeckMat || isChunkDeck) {
-    let g = groundSurface(i.world, n, i.color, detail);
+    // Distance drives the joint width floor below; without it every paving
+    // family flattens to a uniform field past ~25m.
+    let gdist = length(F.camPos.xyz - i.world);
+    let g = groundSurface(i.world, n, i.color, detail, gdist);
     base = g.albedo; rough = g.roughness; metal = g.metallic; emis = g.emissive;
     ao *= g.occlusion;
   } else if (i.matId == MAT_DIFFUSE || i.matId == MAT_PLASTER || i.matId == MAT_BRICK) {

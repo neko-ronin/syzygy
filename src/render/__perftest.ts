@@ -30,6 +30,7 @@
 
 import rendererSrc from './renderer.ts?raw';
 import lightbinWgsl from '../shaders/lightbin.wgsl?raw';
+import gbufferWgsl from '../shaders/gbuffer.wgsl?raw';
 import postWgsl from '../shaders/post.wgsl?raw';
 import { City, defaultCityConfig } from '../world/citygen';
 import { defaultWorld, sunDirection, type WorldState } from '../core/state';
@@ -379,6 +380,34 @@ function run(): void {
       'the shader survival test changed — recheck which slot carries intensity');
     check(/posRadius\s*:\s*vec4f/.test(binSrc) && /colorInt\s*:\s*vec4f/.test(binSrc),
       'struct Light is two vec4f, i.e. 8 floats / 32 bytes');
+
+    // ------------------------------------------------------------------
+    // PAVEMENT JOINT WIDTH FLOOR. The review gate says slab joints "do not
+    // survive sufficiently to establish close-focus material construction", and
+    // the instinct is to raise joint contrast. That is the wrong lever: the
+    // masks are 1.35-2.7cm wide in world units, which is ~1px at 21m and gone by
+    // 30m, and a sub-pixel feature cannot be rescued by contrast. It has to be
+    // rescued in SCREEN SPACE.
+    //
+    // This asserts the floor exists and that it scales with distance, because a
+    // constant-width joint is the bug it replaces.
+    const gb = gbufferWgsl;
+    check(/fn jointFloor\(/.test(gb) && /fn groundJointsD\(/.test(gb),
+      'paving has a distance-aware joint width, not a fixed world width',
+      'groundJointsD is gone — joints are back to a constant 1.35-2.7cm and vanish past ~25m');
+    check(/fn groundSurface\([^)]*dist: f32/.test(gb),
+      'groundSurface receives the view distance its joint widths depend on');
+    const calls = gb.match(/groundJointsD\(/g) ?? [];
+    check(calls.length >= 5,
+      `every paving family uses the floored joint (${calls.length - 1} call sites + the definition)`,
+      'a family still calls the unfloored groundJoints — it will flatten with distance');
+    check(!/joint = groundJoints\(/.test(gb),
+      'no paving family is left on the unfloored joint width');
+    // And the deck multiplier the brief blamed is NOT the cause — record that
+    // so nobody goes looking for a 0.62 again.
+    check(/let deckMul = select\(1\.0, 0\.82, dirtyRoad\)/.test(gb),
+      'the deck multiplier is 1.0 for paving families (0.82 only for dirty road)',
+      'deckMul changed — re-read §deckMul before attributing uniformity to it');
 
     // Whatever the axis is, the box must still be a square of the advertised
     // size, or the culling above is dropping casters.

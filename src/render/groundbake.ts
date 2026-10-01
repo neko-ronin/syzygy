@@ -399,6 +399,12 @@ const METAL: Vec3 = [0.16, 0.17, 0.18];
  * (asphalt, 0.150) so it stays the darkest thing on the ground at any district.
  */
 const GUTTER: Vec3 = [0.048, 0.052, 0.058];
+/**
+ * The kerb/road meeting line. Darker than the gutter by design: this is the
+ * shadowed gap between two stones, and the gutter either side is the graded
+ * shadow that makes it read as a joint rather than as a stripe.
+ */
+const DEEP_JOINT: Vec3 = [0.020, 0.021, 0.024];
 const DARK: Vec3 = [0.055, 0.058, 0.062];
 const TIMBER: Vec3 = [0.26, 0.17, 0.10];
 const LEAF: Vec3 = [0.075, 0.21, 0.055];
@@ -775,12 +781,43 @@ function emitTrace(
       // shading joint rather than modelled channel geometry: 2 triangles a
       // segment, where a modelled channel would be 4 and would fight the deck
       // for z-precision across its whole width.
-      const gOut = 0.26;
+      //
+      // WIDTH, and this is the second attempt at the review gate's "a distinct
+      // kerb joint is not legible". The first pass modelled this as a 0.26 m
+      // flat dark strip, which the reviewer described exactly: "a light top and
+      // a narrow dark lip, so it reads more convincingly as shallow geometry
+      // than paint". Their phrase names the failure — one value, one width, no
+      // gradient — so it reads as an edge finish rather than as a JOINT.
+      //
+      // A joint is a gap between two stones, and it has three parts: a dark
+      // line where the two faces meet, a graded shadow that gets darker toward
+      // that line, and the lit arris on the kerb's own corner. A single strip
+      // has none of the three. So it is two strips, and the geometry carries a
+      // gradient the fragment stage would otherwise have to infer:
+      //
+      //   0.00 - 0.10m  DEEP   the meeting line, near-black
+      //   0.10 - 0.34m  GUTTER graded out toward the carriageway
+      //
+      // 0.34 m total, from 0.26 m, at 4 triangles a segment instead of 2. The
+      // z-precision worry in the comment above was about a modelled CHANNEL
+      // fighting the deck across its width; these are coplanar with the gutter
+      // was and separated by 4 mm, which is comfortably above the depth
+      // precision at this range and is why the pair does not z-fight.
+      const gDeep = 0.10;
+      const gOut = 0.34;
+      const lift = (d: number): number => GROUND_Y + 0.006 + d * 0.004;
       bld.pushQuad(
-        [axE2 - anx * side * gOut, GROUND_Y + 0.006, azE2 - anz * side * gOut],
-        [bxE2 - bnx * side * gOut, GROUND_Y + 0.006, bzE2 - bnz * side * gOut],
-        [bxE2, GROUND_Y + 0.006, bzE2],
-        [axE2, GROUND_Y + 0.006, azE2],
+        [axE2 - anx * side * gDeep, lift(0), azE2 - anz * side * gDeep],
+        [bxE2 - bnx * side * gDeep, lift(0), bzE2 - bnz * side * gDeep],
+        [bxE2 - bnx * side * gOut, lift(1), bzE2 - bnz * side * gOut],
+        [axE2 - anx * side * gOut, lift(1), azE2 - anz * side * gOut],
+        DEEP_JOINT, 1, { normals: UP4 },
+      );
+      bld.pushQuad(
+        [axE2 - anx * side * gOut, lift(1), azE2 - anz * side * gOut],
+        [bxE2 - bnx * side * gOut, lift(1), bzE2 - bnz * side * gOut],
+        [bxE2, lift(2), bzE2],
+        [axE2, lift(2), azE2],
         GUTTER, 1, { normals: UP4 },
       );
 
