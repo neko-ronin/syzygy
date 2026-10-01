@@ -427,3 +427,104 @@ for a different and simpler reason — nobody is within 160 m at all.
    goals, and those clusters are outside the radius. That is the R1 mechanism.
 3. **`entityDrawCalls: 0`** — developer 1's boundary.
 4. Fix the funnel's first-seen-wins profile before using it again.
+
+
+---
+
+# Round 11 — counting versus issuing
+
+## The proof
+
+`src/main.ts:424-430` installs a closure that `Renderer.render` invokes:
+
+```ts
+this.renderer.pendingEntities = (p) => {
+  this.renderer.uploadInstances(this.entityScratch, total);
+  this.pendingEntityTris = this.drawEntityBlock(p, 'pedestrian', ped.count, 0);
+  ...
+};
+this.renderer.render(this.camera, dt);
+```
+
+`drawEntityBlock` (`main.ts:468`) is the only caller of `drawIndexed` for the
+crowd, and it records every issue in `issuedEntityDraws`. Measured, live:
+
+```
+__syzygy.stats().issuedEntityDraws.length   ->  0
+__syzygy.stats().entityTriangles            ->  1109640
+```
+
+**Zero entity draws issued, 1.1 million entity triangles reported.** The crowd
+is not being drawn.
+
+## Which counter lies
+
+**`entityDrawCalls: 0` is correct.** It is `c.entity` (`renderer.ts:1294`),
+incremented only at `renderer.ts:1554` inside `Renderer.drawEntitySet` — and
+`main.ts` deliberately bypasses `drawEntitySet` (the comment at `main.ts:405`
+explains why: it writes at buffer offset 0 on every call). So that counter is
+honestly reporting a path this app never takes.
+
+**`entityTriangles` is the diagnostic that lies.** `main.ts:438`:
+
+```ts
+this.renderer.stats.triangles += this.pendingEntityTris;
+this.renderer.stats.entityTriangles += this.pendingEntityTris;
+```
+
+These run **after** `render()` returns, unconditionally — including on every
+frame where `render()` early-returned at `renderer.ts:1187` or `1205` and issued
+nothing. The accumulator is never reset on the skipped path, so it carries a
+stale `pendingEntityTris` forward and adds it again. It reached 1,109,640 in
+about 130 frames.
+
+So the frame was advertising triangles for draws that had not happened, for as
+long as the early exit has been firing. That is the same shape as the two bugs
+already found this session: `arrayLength(&lights)` reporting the allocation, and
+`byDay` meaning two different things. **Counted, not issued.**
+
+## Which exit fires
+
+`issuedEntityDraws` empty with the app reporting `frameCount=134` and
+`framesInFlight=2` means `render()` returned before `recordGBuffer` on every
+observed frame. Of the two:
+
+- `if (!this.targets) return;` (`renderer.ts:1187`) — the canvas has never been
+  sized in this headless path, and is the more likely of the two.
+- `if ((capturePending || overBudget) && ...) { skipped++; return; }` — with
+  `framesInFlight: 2` against a low `MAX_FRAMES_IN_FLIGHT` at 6.6 fps, this is
+  also permanently true.
+
+I could not separate the two from the debug surface (`skipped` is not on the
+`stats()` hook, and `targetsW` is not exposed, so my probe of it returned
+`undefined` rather than a value). **Separating them is developer 1's one probe**:
+expose `skipped` and whether `this.targets` is set, and read both at the same
+frame. Everything else follows from that.
+
+## The handover, in one line
+
+The counter pair that disagrees is `stats.entityDrawCalls` (correct, 0) against
+`stats.entityTriangles` (an unbounded stale accumulator, `main.ts:438`). Until the
+exit stops firing, **no crowd has been drawn in any capture this session**, and
+every "the street is empty" observation in rounds 6-11 describes a draw-path
+fault, not an occupancy fault.
+
+## What the method could not see — the actual lesson
+
+Nine mechanisms were eliminated across rounds 5-9. Every one of them was a real
+mechanism in the code, measured with a control, and every one of them moved the
+metric by about one percent or not at all. All nine were investigating a crowd
+that was never submitted to the GPU.
+
+The failure was not the hypotheses. It was that **every measurement was taken
+upstream of the draw call.** Counts, ratios, distance profiles, funnel stages —
+all of them describe the simulation, and the simulation was healthy. The number
+that mattered was `entityDrawCalls: 0`, sitting in the capture JSON since round 7,
+in a field nobody had asked what it meant.
+
+Nine eliminations is a result, not an embarrassment, because each one narrowed
+the search and the tenth measurement was the one that ended it. It is worth
+recording precisely for that reason: **an instrument that only observes one side
+of a boundary will produce a coherent, well-controlled, entirely wrong theory.**
+`docs/OCCUPANCY.md` should be read as the proof of that, not as a list of
+mistakes to avoid repeating.
