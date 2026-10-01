@@ -381,6 +381,43 @@ reproduced on demand. Take the control, not the counter.
 
 ---
 
+## 19a. The light was behind the camera, and it took a round to notice
+
+**Symptom:** a night market pose aimed straight down at a lantern's pool. The pool
+was visible. The lantern was not, and neither was any warm ground. Reported across
+two rounds as "the bin is full of lights that are 140m away" — which was true, and
+was treated as the finding.
+
+`lightbin.wgsl` culls any light with `c.w <= 0`, and the camera stood directly
+*under* a lantern 3.58m above it looking down: **`c.w = -3.58`.** The subject was
+behind the camera, so the binner correctly refused to put it in any tile, and every
+measurement taken from that pose was structurally incapable of seeing the thing it
+was aimed at. The pool was in frame; the lantern was not; the diagnostic needed
+both.
+
+This is §16 again, with a light instead of a camera — and it is worse, because §16
+at least put the camera somewhere wrong while the *scene* was right. Here the whole
+frame was legitimate and the subject was outside it.
+
+**Rule: before trusting a targeted measurement, print the subject's clip-space
+coordinate.** One number — `c.w` — would have caught this on the first shot instead
+of two rounds later, and it is the cheapest check in the project: the projection is
+five lines and there is no excuse for skipping it when the pose is hand-picked
+specifically to look at something.
+
+The generalisation, which is the same lesson a fifth time in a different costume:
+**a diagnostic must point at its subject, and pointing at it is a claim you have to
+verify, not one you get to make.** Forms of this so far: the camera 975 units from
+its crowd (§16); the camera at ground level while the subject was 46m up (round 6);
+`c.w` negative for the subject (this); and the *coordinate* right but the world
+wrong — captures run on `seed=0` while every CPU probe measured `seed=0x5e7a17`,
+because `parseInt('0x5e7a17', 10)` is `0`. The last one is the purest form: both
+sides were internally correct about different cities.
+
+So the check, before any targeted measurement: **is the subject in this world, in
+front of this camera, at this LOD?** Print it. Three numbers, and every one of
+these would have been caught before a capture was spent.
+
 ## 19. A measurement taken mid-edit is not a measurement of the repository
 
 **Symptom:** a doc-sweep agent reported that the project's own verification gate
