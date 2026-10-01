@@ -232,6 +232,52 @@ const POSES = [
     lens: { fov: 1.18, bloom: 0.85, exposure: 1.25, saturation: 1.15, vignette: 0.55 },
     settle: 36,
   },
+  // ---- the market, at street level, in both phases.
+  //
+  // The market is R2's subject and it had NO pose in this table: the six frames
+  // in `shots/market/` came from a throwaway script, so the review gate judged
+  // images no one can reproduce. These are the same camera the review gate
+  // looked at, promoted here so `--pose=market` is a thing that works.
+  //
+  // Position and heading are MEASURED (`src/world/__probe_night.ts` prints the
+  // derivation): `districtField(0x5e7a17).market` puts the spine centre at
+  // [1.16, 0.36] at along=0 with unit tangent [0.2557, -0.9668], and
+  // `sampleStreetPlan` there reports `kind=market width=28.1 dist=0.00`. The
+  // camera stands on that centreline at eye height and looks 60 m DOWN it.
+  //
+  // A note on that pose, because it cost a run and it is not obvious: the
+  // origin is a chunk CORNER, so chunk (0,0) itself contains 0 stalls, 0 cords
+  // and 0 lights — the market either side of the origin lives in chunks (0,-1)
+  // and (-1,0). That is fine, because `lodForDistance` returns 0 out to 1.6
+  // chunks, so both neighbours are baked at full detail too. What is NOT fine
+  // is a capture whose warm stopped early: at LOD 1 every market descriptor is
+  // culled and the frame is an empty street with correct kerbs. See
+  // `warmPose()` for that measurement.
+  {
+    name: '09-market-down',
+    label: 'market spine, eye height, looking down the aisle — does a warm lantern pool reach the walking surface?',
+    position: [1.16, 2.6, 0.36],
+    lookAt: [1.16 + 0.2557 * 60, 2.2, 0.36 - 0.9668 * 60],
+    fov: 1.05, roll: 0,
+    time: 'night',
+    weather: { sky: 'night', cloudCover: 0.3, haze: 0.3 },
+    lens: { fov: 1.05, bloom: 0.8, exposure: 1.28, saturation: 1.18, vignette: 0.5 },
+    settle: 40,
+  },
+  {
+    // Same viewpoint, same everything except the phase. A day/night pair from
+    // one camera is the only way to tell "the night pass fixed it" from "the
+    // night pass made the day frame brighter too".
+    name: '09-market-down-day',
+    label: 'market spine, eye height, SAME camera as 09-market-down, noon — the daylight control',
+    position: [1.16, 2.6, 0.36],
+    lookAt: [1.16 + 0.2557 * 60, 2.2, 0.36 - 0.9668 * 60],
+    fov: 1.05, roll: 0,
+    time: 'noon',
+    weather: { sky: 'clear', haze: 0.25 },
+    lens: { fov: 1.05, bloom: 0.3, exposure: 0.92, saturation: 1.08, vignette: 0.34 },
+    settle: 40,
+  },
 ];
 
 // ---------------------------------------------------------------- helpers
@@ -263,7 +309,46 @@ async function waitForHttp(url, timeoutMs) {
 
 // ---------------------------------------------------------------- server
 
+/**
+ * Refuse to run against a server somebody else started.
+ *
+ * `--strictPort` makes our own spawn FAIL when the port is taken, and then
+ * `waitForHttp` succeeds anyway against whoever owns it. The run proceeds,
+ * writes screenshots, prints PASS — and every pixel in it came from a server we
+ * did not start.
+ *
+ * That is not hypothetical. Another agent's `vite preview` squatted on 4173
+ * serving a stale `dist/`, and three consecutive runs measured a build from
+ * before the edit under test: an authored `ambientIntensity` of 0.66 read back
+ * as 0.22, three times, and the control it was supposed to produce never
+ * appeared. The tell was available the whole time and I did not read it —
+ * `--strictPort` was in the spawn args precisely so this could not happen, and
+ * its failure was swallowed.
+ *
+ * A screenshot of somebody else's build is worse than no screenshot, so this
+ * is a hard failure with the port named.
+ */
+async function assertPortFree(port) {
+  const { createConnection } = await import('node:net');
+  const busy = await new Promise((resolve) => {
+    const s = createConnection({ port, host: '127.0.0.1' });
+    const done = (v) => { s.destroy(); resolve(v); };
+    s.once('connect', () => done(true));
+    s.once('error', () => done(false));
+    setTimeout(() => done(false), 800);
+  });
+  if (busy) {
+    fail(
+      `port ${port} is already in use — something else is serving it`,
+      'another agent or a stray `vite preview` owns this port, so every frame below would be ' +
+      'that server\'s build rather than yours. Pick another: SYZYGY_PORT=4177 node tools/capture.mjs ...',
+    );
+  }
+}
+
 async function startServer(opts) {
+  await assertPortFree(PORT);
+
   // Always use the dev server. A `preview` build is a stale build, and a
   // screenshot of a stale build is worse than no screenshot: it looks valid.
   const useDev = true;
@@ -293,7 +378,18 @@ async function startServer(opts) {
     }
     fail(`vite ${useDev ? 'dev' : 'preview'} did not answer on ${BASE}`, tail(log));
   }
-  say(`  server    ${useDev ? 'dev' : 'preview'} on ${BASE}`);
+  // Second check, after our own server is up: if something else is on the port
+  // AND ours is answering, `--strictPort` would have killed ours, so a server
+  // that is still alive here is ours. If the port had been taken, `assertPortFree`
+  // above already refused the run.
+  if (exited !== null) {
+    fail(
+      `our vite server exited (code ${exited}) but something still answers on ${PORT}`,
+      'another process owns this port; the frames would not be this build. ' +
+      'Re-run with SYZYGY_PORT set to a free port.',
+    );
+  }
+  say(`  server    ${useDev ? 'dev' : 'preview'} on ${BASE} (port verified ours)`);
   return { child, useDev };
 }
 
@@ -450,12 +546,54 @@ async function settle(page, frames) {
  */
 async function warmPose(page, chunks, maxTicks) {
   if (chunks <= 0) return null;
-  const r = await callApp(page, 'warm', chunks, maxTicks);
-  if (!r.ok) {
-    if (r.skipped) return null;
-    throw new Error(`warm: ${r.error}`);
+  // `warm()` is NOT idempotent, and calling it once is not enough.
+  //
+  // Measured at the market pose: one call reports `stopped: "no-progress"` at
+  // 10-11 resident chunks with `lodHistogram [0, 10, 0, 0]` — ten chunks
+  // resident, every one at LOD 1, and `chunkLod(-1,1)` (the camera's OWN chunk)
+  // returning -1, i.e. not resident at all. Five successive calls took
+  // residency 11 → 27 → 45 → 65 → 85 and only the fifth baked the camera's
+  // chunk, at which point `chunkLod(-1,1)` became 0.
+  //
+  // Why one call is not enough: `streamChunks` drains its bake queue under a
+  // 4 ms per-frame budget, and each `bakeChunk` of a market chunk costs far more
+  // than that. So a single `warm()` exhausts its tick cap partway through the
+  // nearest ring, reports `no-progress` because residency has not moved *within
+  // that call's* window, and the harness photographed a half-loaded world.
+  //
+  // That is the exact failure this file's own header warns about — "a
+  // plausible-looking low-detail image" — arriving by a different route. It is
+  // invisible in the PNG: an L1 market chunk is an empty street with correct
+  // kerbs, which looks like a street at night.
+  //
+  // The loop runs until the camera's own chunk is resident at LOD 0, which is
+  // the precondition for the frame to contain anything that LOD 1 culls: every
+  // market cord, lantern, crate, sign and vent, and every clustered light.
+  const deadline = Date.now() + 120_000;
+  let report = null;
+  for (let i = 0; i < 12 && Date.now() < deadline; i++) {
+    const r = await callApp(page, 'warm', chunks, maxTicks);
+    if (!r.ok) {
+      if (r.skipped) return null;
+      throw new Error(`warm: ${r.error}`);
+    }
+    report = r.value;
+    const settled = await page.evaluate(() => {
+      const g = window.__syzygy;
+      const [cx, cz] = g.cameraChunk();
+      return { lod: g.chunkLod(cx, cz), resident: g.stats().residentChunks ?? 0 };
+    }).catch(() => null);
+    // The camera's own chunk resident at LOD 0 is the real precondition; the
+    // residency target is the secondary one.
+    if (settled && settled.lod === 0 && settled.resident >= chunks) {
+      return { ...report, passes: i + 1 };
+    }
+    if (report?.stopped === 'target' && settled?.lod === 0) return { ...report, passes: i + 1 };
+    await sleep(60);
   }
-  return r.value;
+  if (report) say(`    ! warm did not reach LOD 0 on the camera chunk in 12 passes ` +
+    `(resident ${report.residentChunks}, lod [${report.lodHistogram.join(',')}]) — the frame may be low-detail`);
+  return report;
 }
 
 /** Screenshot, preferring an in-page canvas capture when available. */
@@ -625,12 +763,33 @@ async function main() {
       for (const pose of wanted) {
         const at = Date.now();
         try {
+          // ORDER MATTERS, and it was wrong.
+          //
+          // `setWeather` is the only path that calls `weather.snap()`, and
+          // `snap()` is what writes the director's resolved TARGETS into
+          // `world`. `setTime` re-resolves those targets for the named phase but
+          // does not write them — it only steers. So with the old order
+          // (weather, lens, time) the snap happened against the PREVIOUS pose's
+          // weather and the phase was then left to ease in over the settle
+          // frames.
+          //
+          // Measured consequence: a `time: 'noon'` pose rendered as a dim blue
+          // frame, and reading `stats()` mid-settle gave exposure 1.09 /
+          // ambientIntensity 0.51 / sunIntensity 3.25 — mid-morning values in a
+          // frame labelled noon. It looked like a plausible dark city and it was
+          // a transition frame, which is the failure this project keeps paying
+          // for: correct-looking output, wrong subject.
+          //
+          // So: setTime FIRST (resolve the phase), then setWeather (snap it into
+          // the world), then setLens (the pose's explicit lens overrides). A
+          // second snap after the lens would undo the lens, so it does not go
+          // there.
+          if (pose.time) await callApp(page, 'setTime', pose.time);
           if (pose.weather) {
             const r = await callApp(page, 'setWeather', pose.weather);
             if (!r.ok && !r.skipped) throw new Error(`setWeather: ${r.error}`);
           }
           if (pose.lens) await callApp(page, 'setLens', pose.lens);
-          if (pose.time) await callApp(page, 'setTime', pose.time);
 
           // A derived pose carries no coordinates: the app computes them from
           // live state and hands back the same numbers the renderer will use.
