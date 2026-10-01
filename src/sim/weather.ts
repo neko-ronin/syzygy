@@ -228,16 +228,38 @@ const PHASE_LOOK: Record<string, PhaseLook> = {
     warp: 0.3, distortion: 0.09, horizonBend: 0.26,
     colorGrade: [1.06, 0.99, 0.94], windowGlow: 0.85,
   },
+  // Night. Measured, not guessed — `docs/NIGHT_REPORT.md` has the numbers and
+  // the controls behind each of these.
+  //
+  // `ambientIntensity` 0.22 -> 0.66 is a 3x lift on the ambient floor, which
+  // R2 asks for and which measurably moves the frame: mean luma 6.21 -> 8.84,
+  // aisle 3.56 -> 3.99. It is a real gain and it is a SMALL one, which is the
+  // point worth keeping in mind: ambient lights everything uniformly, so it
+  // cannot make a POOL. The warm pool under a lantern needs that lantern's
+  // light to exist in the clustered buffer, and the market grammar's 365 lights
+  // currently reach it as zero. See NIGHT_REPORT.md cause 2.
+  //
+  // `exposure` 1.28 -> 1.6 is the strongest authoring lever measured here: at
+  // 3x the frame reached mean luma 17.31 and maxLuma 106.6 with
+  // `hotPixelPct` still 0, so there was real headroom and 1.6 spends some of it
+  // without approaching the roll-off. Night-only, so daylight is untouched.
+  //
+  // `windowGlow` is deliberately NOT raised. It looks like the obvious knob —
+  // it is named for exactly this job — and R2 proposes raising "the
+  // window-emissive multiplier". It is a PHANTOM: `grep -rn windowGlow src/`
+  // returns weather.ts and its own self-test and nothing else. No shader reads
+  // it, no uniform carries it, and changing it has been measured to change no
+  // pixel. It is left at 0.72 and flagged in COVERAGE.md.
   night: {
     azimuth: 3.49, elevation: -0.45,
     sunColor: g('#6a86e0'), intensity: 0.5,
-    ambient: g('#1d2547'), ambientIntensity: 0.22,
+    ambient: g('#1d2547'), ambientIntensity: 0.66,
     bounce: g('#241f38'), bounceIntensity: 0.12,
     sky: 'night', precip: 'none',
     cloudCover: 0.34, storminess: 0, haze: 0.26, hazeFalloff: 0.06,
     windSpeed: 3.0, wetness: 0.14, aerialHaze: 0.34, godRays: 0.28, motes: 0.28,
     bloomStrength: 0.74, scatter: 0.42,
-    fov: 56 * D2R, chroma: 0.5, grain: 0.3, exposure: 1.28, saturation: 1.18,
+    fov: 56 * D2R, chroma: 0.5, grain: 0.3, exposure: 1.6, saturation: 1.18,
     bloom: 0.78, vignette: 0.56, tiltShift: 0.7, focusWidth: 0.24, bokeh: 0.62,
     warp: 0.24, distortion: 0.07, horizonBend: 0.2,
     colorGrade: [0.96, 1.0, 1.08], windowGlow: 0.72,
