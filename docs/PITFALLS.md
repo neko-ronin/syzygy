@@ -381,6 +381,50 @@ reproduced on demand. Take the control, not the counter.
 
 ---
 
+## 19b. Two representations of one value, one of which parses to a different number
+
+**Symptom:** `capture.mjs` wrote `?seed=0x5e7a17`. `main.ts` read it with
+`Number.parseInt(q.get(k) ?? '', 10)`. **`parseInt('0x5e7a17', 10)` is `0`** — with
+an explicit radix of 10 it stops at the `x`. It is finite, so the `0x5e7a17` default
+at the call site was never used and `BOOT.seed` was 0.
+
+Every capture in a session rendered **seed 0**. Every CPU-side probe written against
+those captures measured **seed 0x5e7a17**. The market spine derived on the CPU was at
+`[1.16, 0, -9.97]`; in the rendered city the nearest market lantern to it measured
+**47.5m** away. Both numbers were correct about their own city, and neither was
+about the city in the frame.
+
+The cost: every coordinate anyone aimed at in that session was a coordinate from
+elsewhere, so every "the renderer disagrees with my measurement" conclusion drawn
+from them was a comparison across worlds. Six ABI fixes survived — they are in
+shared code paths and are real — but none of the *evidence* for them did.
+
+**Rule: a value crossing a boundary has one representation, and a round-trip test
+is not optional.** The fix went on the writing side (decimal, because the same parser
+also reads decimal keys) rather than in the parser, because a hex-aware `int()` has
+to special-case one key and a writer that emits hex has to be right every time. The
+test is three assertions: one named constant, no `0x` in any query string, and the
+written value parses back to itself.
+
+### The same lesson at two depths
+
+This is §19a one level down, and the pair is worth keeping together:
+
+- **§19a** — the *coordinate* was wrong. `c.w = -3.58` for the very lantern a pose
+  was aimed at, so the measurement was structurally unable to see its subject.
+- **§19b** — the *world* was wrong. The coordinate was fine; it belonged to a
+  different city.
+
+Both are "the diagnostic and its subject were not the same thing", and the second
+is worse because it invalidates the frame rather than the measurement — the two
+things being compared were never the same subject at all. A measurement can be
+checked against its own arithmetic; a frame cannot be checked that way.
+
+**So the check, before trusting any targeted comparison: is the subject in this
+world, in front of this camera, at this LOD?** Print all three. Every instance of
+this family in one session would have been caught by those three numbers before a
+capture was spent.
+
 ## 19a. The light was behind the camera, and it took a round to notice
 
 **Symptom:** a night market pose aimed straight down at a lantern's pool. The pool
