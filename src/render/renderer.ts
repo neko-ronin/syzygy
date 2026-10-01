@@ -1070,6 +1070,8 @@ export class Renderer {
     // happens to come first can starve every light after it. Counting the
     // refusals is the only way to see that happen; a `break` is silent.
     let produced = 0, delivered = 0, starved = 0, rejectedFar = 0;
+    // Reported, not acted on. `dayPhase` still describes the frame, and a reader
+    // needs to know whether the lights it is looking at were gated by it.
     const byDay = this.world.dayPhase > 0.55;
     // Collect first, bin nearest-first.
     //
@@ -1092,9 +1094,28 @@ export class Renderer {
       produced += e.marketProduced;
       const d = Math.hypot(e.centre[0] - cam.position[0], e.centre[2] - cam.position[2]);
       if (d > (r + 1) * 320) { rejectedFar += e.lights.length; continue; }
-      // Night only: the sun out-competes them by day and the binning cost is
-      // not worth paying.
-      if (byDay) continue;
+      // NOT culled by day. The cull used to be here, and it was wrong on its own
+      // terms rather than merely at the wrong threshold.
+      //
+      // `dayPhase` is derived from a sun CLOCK (`integrateWorld` advances
+      // `sun.azimuth` continuously and derives elevation from it), while
+      // `setTime` sets a WEATHER phase once. They are two sources of truth and
+      // they disagree: a pose named `night-lanterns` reports
+      // `produced 48, delivered 0, culledByDay: true`, because the clock had
+      // carried the sun above `elevation 0.475` while the weather was still the
+      // night phase. Developer 2 lost a whole measurement cycle to that frame.
+      //
+      // But the deeper problem is that "is the sun up" and "should an authored
+      // light be visible" are different questions. A market lantern is a light
+      // source: it is visible at dusk, under an overcast afternoon, and in a
+      // canyon in daylight, where the sun out-competes it but does not erase it.
+      // Culling on a scalar means the lights snap off at one number and every
+      // measurement taken near that boundary describes a different city.
+      //
+      // The cost argument does not survive contact with the numbers: the binning
+      // pass is one dispatch over 5700 tiles x ~860 lights = 4.9M projection
+      // tests, and the renderer already pays it every night frame. So the lights
+      // are always binned, and the sun is left to win or lose on its own merits.
       delivered += e.lights.length;
       for (const l of e.lights) {
         cand.push({

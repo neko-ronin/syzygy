@@ -20,6 +20,11 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SHOTS = join(ROOT, 'shots');
 const PORT = Number(process.env.SYZYGY_PORT || 4173);
+/**
+ * The seed every capture renders, in DECIMAL because that is what `main.ts`
+ * parses it as. Must equal `0x5e7a17`; asserted in `src/render/__perftest.ts`.
+ */
+const DEFAULT_SEED = 0x5e7a17;
 const BASE = `http://localhost:${PORT}`;
 const GLOBAL_TIMEOUT_MS = Number(process.env.SYZYGY_TIMEOUT || 120_000);
 
@@ -665,7 +670,19 @@ async function main() {
 
     // `?chunks=N&warm=M` — resolve the seed and force the first N chunks
     // resident, baked synchronously before the first presented frame.
-    const q = [`seed=0x5e7a17`];
+    //
+    // DECIMAL, deliberately. This used to carry a 0x-prefixed hex literal, and
+    // `main.ts` reads it with `Number.parseInt(q.get(k) ?? '', 10)`. With an
+    // explicit radix of 10 parseInt stops at the `x`, so the value that reached
+    // the app was **0**, not 6191639 — every capture rendered seed 0 while every
+    // CPU-side probe measured the intended seed. Two cities, and both sides were
+    // internally correct about their own.
+    //
+    // The app also parses `chunks` and `warm` from this same string, and those
+    // are decimal, so the fix belongs on the writing side rather than in the
+    // parser: one representation, one parser. A hex-aware `int()` would have to
+    // special-case the key. See PITFALLS.md §19a.
+    const q = [`seed=${DEFAULT_SEED}`];
     if (opts.chunks > 0) { q.push(`chunks=${opts.chunks}`); q.push(`warm=${opts.warmTicks}`); }
     if (opts.query) q.push(opts.query);
     await page.goto(`${BASE}/?${q.join('&')}`, { waitUntil: 'domcontentloaded', timeout: 30_000 });

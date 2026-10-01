@@ -33,6 +33,8 @@ import lightbinWgsl from '../shaders/lightbin.wgsl?raw';
 import gbufferWgsl from '../shaders/gbuffer.wgsl?raw';
 import groundbakeSrc from './groundbake.ts?raw';
 import mainTsSrc from '../main.ts?raw';
+import stateTsSrc from '../core/state.ts?raw';
+import harnessSrc from '../../tools/capture.mjs?raw';
 import postWgsl from '../shaders/post.wgsl?raw';
 import { City, defaultCityConfig } from '../world/citygen';
 import { defaultWorld, sunDirection, type WorldState } from '../core/state';
@@ -482,10 +484,10 @@ function run(): void {
     // ------------------------------------------------------------------
     // THE SEED THE RENDERER ACTUALLY USES.
     //
-    // `capture.mjs` passes `?seed=0x5e7a17` and `main.ts` reads it with
+    // `capture.mjs` USED to write `?seed=0x5e7a17` and `main.ts` reads it with
     // `Number.parseInt(q.get('seed') ?? '', 10)`. parseInt with an explicit radix
     // of 10 stops at the `x`: `parseInt('0x5e7a17', 10) === 0`. It is finite, so
-    // the 0x5e7a17 default is never used and **every capture runs on seed 0**.
+    // the 0x5e7a17 default was never used and **every capture ran on seed 0**.
     //
     // This went unnoticed because seed 0 renders perfectly — it is a valid city,
     // it just is not the city every CPU-side probe was measuring. Round 9 aimed
@@ -502,13 +504,64 @@ function run(): void {
     check(/const int = \(k: string, d: number\)/.test(mainSrc) && /int\('seed', 0x5e7a17\)/.test(mainSrc),
       'main.ts parses the boot seed from the query string with a 0x5e7a17 default',
       'the boot-parsing block changed shape — re-derive which seed captures use');
-    const parsed = Number.parseInt('0x5e7a17', 10);
-    check(parsed === 0,
-      `the harness's "seed=0x5e7a17" parses to ${parsed}, not 6191639`,
-      'the seed parse changed — recheck which city captures actually render');
+    // The app side is radix 10 for every key, so the WRITER must be decimal.
+    // If a hex seed ever appears again this is the assertion that catches it.
+    check(!/seed=0x/.test(harnessSrc) && /DEFAULT_SEED/.test(harnessSrc),
+      'the harness writes a decimal seed the radix-10 parser reads correctly');
     check(/Number\.parseInt\(q\.get\(k\)/.test(mainSrc),
       'the boot int() helper parses query values with parseInt, which is where the hex trap lives',
       'the boot parser changed — recheck the radix');
+
+    // ------------------------------------------------------------------
+    // AUTHORED LIGHTS MUST NOT BE CULLED BY A DAY SCALAR.
+    //
+    // `gatherLights` used to `if (byDay) continue`, where `byDay` is
+    // `world.dayPhase > 0.55`. `dayPhase` is derived from a sun CLOCK
+    // (`integrateWorld` advances `sun.azimuth` continuously) while `setTime`
+    // sets a WEATHER phase once. Two sources of truth that disagree: a pose
+    // named `night-lanterns` reported `produced 48, delivered 0,
+    // culledByDay: true`, and developer 2 lost a measurement cycle to a night
+    // frame with no lights in it.
+    //
+    // This is not a threshold problem. "Is the sun up" and "should an authored
+    // light be visible" are different questions — a market lantern is a light
+    // source and is visible at dusk, under overcast, and in a daylight canyon.
+    const rs4 = rendererSrc;
+    check(!/if \(byDay\) continue;/.test(rs4),
+      'gatherLights does not cull authored lights by dayPhase',
+      'the day cull is back — a night pose will report delivered 0 again');
+    check(/const byDay = this\.world\.dayPhase > 0\.55/.test(rs4),
+      'byDay is still computed, because stats.lightDelivery.culledByDay reports it',
+      'the stat went away, and the field that caught this is the one to keep');
+    check(/culledByDay: byDay/.test(rs4),
+      'culledByDay is reported on the light-delivery stat');
+    // And the two clocks must be visible as two clocks, not conflated.
+    check(/w\.dayPhase = saturate\(\(w\.sun\.elevation \+ 0\.35\) \/ 1\.5\)/.test(stateTsSrc),
+      'dayPhase is derived from sun elevation, which the sun clock advances',
+      'the dayPhase derivation changed — re-read whether the weather and the clock agree');
+    check(/w\.sun\.azimuth = \(w\.sun\.azimuth/.test(stateTsSrc),
+      'sun.azimuth advances every tick, independent of the weather phase',
+      'the sun clock stopped advancing — the two-clock disagreement may be gone');
+
+    // ------------------------------------------------------------------
+    // SEED ROUND-TRIP. The harness writes `?seed=0x5e7a17`; the app parses with
+    // an explicit radix of 10, which stops at the `x` and yields 0.
+    const expectedSeed = 0x5e7a17;
+    // The harness must WRITE the decimal the app PARSES. Not the hex literal it
+    // used to: `parseInt('0x5e7a17', 10)` is 0.
+    check(/const DEFAULT_SEED = 0x5e7a17;/.test(harnessSrc),
+      'the harness names the seed once, as DEFAULT_SEED',
+      'the harness has no single seed constant — a second literal can drift again');
+    check(/const q = \[`seed=\$\{DEFAULT_SEED\}`\]/.test(harnessSrc),
+      'the harness writes seed=${DEFAULT_SEED} — decimal, which is what the app parses',
+      "the harness writes something other than the constant; if it is 'seed=0x...' it parses to 0 again");
+    check(!/seed=0x/.test(harnessSrc),
+      'no 0x-prefixed seed is written into a query string the app parses with radix 10',
+      'a hex seed in the query string parses to 0');
+    // And the round trip itself, so the two sides are pinned together.
+    const written = String(expectedSeed);
+    check(Number.parseInt(written, 10) === expectedSeed,
+      `the written seed ${written} round-trips to ${expectedSeed}`);
 
     // Whatever the axis is, the box must still be a square of the advertised
     // size, or the culling above is dropping casters.
