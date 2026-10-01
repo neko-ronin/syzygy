@@ -64,9 +64,31 @@ inside, and it is the mechanism behind both the collapsing profile and the
 1149-agent pile — replacements keep arriving into the same band ahead.
 
 So the fix is not more agents and not a wider place radius. It is that an
-agent's goal must not take it behind the view plane. Nothing here has been
-changed on the strength of that reading; it is the first measurement that names
-a mechanism rather than eliminating one.
+agent's goal must not take it behind the view plane.
+
+### And that fix was attempted, and it did not work
+
+Round 8b implemented `keepInFront`: four goal candidates drawn from the same
+distribution, the first lying in front of the view plane kept, the original
+returned unchanged if none qualify, so it could not make goal selection worse.
+
+```
+                    live at   live at   forward 20 m bins at the spine foot
+before (HEAD)         0 m      160 m     265  539 1149 250 165  85
+with keepInFront   2550/2550  1267/2550   273  544 1151 238 169  79
+before (HEAD)      2550/2550  1310/2550   265  539 1149 250 165  85
+```
+
+Unchanged, and marginally worse at 160 m. **Reverted.** That is a seventh
+elimination and an important one: the obvious fix that follows directly from the
+measurement above does not move the metric, which means the chain
+"goal behind the view plane -> retirement -> churn" is either incomplete or the
+`behind` retirements are a symptom rather than the cause.
+
+So the crowd is not yet understood well enough to change. Nine mechanisms have
+now been eliminated and one sink measured, and nothing has moved the profile.
+Continuing to ship design changes against a model that is demonstrably wrong is
+how R1 has survived three sessions of plausible-looking work.
 
 ## 3. Two corrections to my own earlier readings
 
