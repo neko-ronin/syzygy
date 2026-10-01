@@ -93,17 +93,48 @@ interface ChunkEntry {
 }
 
 export interface RendererStats {
+  /**
+   * Wall-clock milliseconds between frame starts. This includes GPU execution,
+   * because the loop is driven by presentation: if the GPU is the bottleneck
+   * the next rAF simply arrives late. This is the number a governor must act
+   * on. `cpuEncodeMs` is the JS-side encode cost and is NOT a frame time.
+   */
   frameMs: number;
+  cpuEncodeMs: number;
   fps: number;
+  cpuFps: number;
+  /**
+   * Draws and triangles submitted in ONE frame, summed over every pass.
+   * These used to be *assigned* per pass, so the four shadow passes each
+   * overwrote the last and the number that survived was the G-buffer pass
+   * alone — a plausible statistic reporting 1/3 of the real cost. A counter
+   * that under-reports cannot be optimised against.
+   */
   drawCalls: number;
   triangles: number;
+  /** Same totals, split by the pass that issued them. */
+  shadowDrawCalls: number;
+  gbufferDrawCalls: number;
+  postDrawCalls: number;
+  entityDrawCalls: number;
+  shadowTriangles: number;
+  gbufferTriangles: number;
+  postTriangles: number;
+  entityTriangles: number;
+  /** Per-cascade shadow draws, index = cascade. */
+  cascadeDrawCalls: number[];
+  cascadeTriangles: number[];
   residentChunks: number;
+  /** Chunk meshes drawn by the G-buffer pass. Not draws — draws are `visibleDraws`. */
   visibleChunks: number;
+  /** Every draw in the G-buffer pass, including ground, foliage and entities. */
+  visibleDraws: number;
   lights: number;
   vramMB: number;
   tier: QualityTier;
   bakeMs: number;
   uploadMs: number;
+  /** Chunks rejected by the camera frustum, summed over every pass this frame. */
   frustumCulled: number;
 }
 
@@ -171,16 +202,47 @@ export class Renderer {
 
   private frameIndex = 0;
   private lastCpu = 0;
+  /** `performance.now()` of the previous frame, for the wall-clock frame time. */
+  private lastFrameAt = 0;
+  /** EMA of wall-clock frame time. 0 means "no measurement yet". */
+  private wallAccum = 0;
   private bakeAccum = 0;
   private frameTimes: number[] = [];
   private lightWriter = makeInstanceWriter(MAX_LIGHTS);
   private pendingBakes: { cx: number; cz: number }[] = [];
 
   stats: RendererStats = {
-    frameMs: 16.7, fps: 60, drawCalls: 0, triangles: 0, residentChunks: 0,
-    visibleChunks: 0, lights: 0, vramMB: 0, tier: 'high', bakeMs: 0,
-    uploadMs: 0, frustumCulled: 0,
+    frameMs: 16.7, cpuEncodeMs: 0, fps: 60, cpuFps: 60,
+    drawCalls: 0, triangles: 0,
+    shadowDrawCalls: 0, gbufferDrawCalls: 0, postDrawCalls: 0, entityDrawCalls: 0,
+    shadowTriangles: 0, gbufferTriangles: 0, postTriangles: 0, entityTriangles: 0,
+    cascadeDrawCalls: Array.from({ length: CASCADE_COUNT }, () => 0),
+    cascadeTriangles: Array.from({ length: CASCADE_COUNT }, () => 0),
+    residentChunks: 0, visibleChunks: 0, visibleDraws: 0, lights: 0, vramMB: 0,
+    tier: 'high', bakeMs: 0, uploadMs: 0, frustumCulled: 0,
   };
+
+  /**
+   * Per-frame draw accounting. Reset at the top of `render()` and folded into
+   * `stats` at the bottom, so every pass *adds* and nothing is overwritten.
+   * Kept as a flat mutable object rather than fields on `stats` so that a pass
+   * mid-frame never publishes a partial total as if it were the whole frame.
+   */
+  private counter = {
+    shadow: 0, gbuffer: 0, post: 0, entity: 0,
+    shadowTris: 0, gbufferTris: 0, postTris: 0, entityTris: 0,
+    culled: 0, chunkMeshes: 0,
+    cascade: Array.from({ length: CASCADE_COUNT }, () => 0),
+    cascadeTris: Array.from({ length: CASCADE_COUNT }, () => 0),
+  };
+
+  private resetCounter(): void {
+    const c = this.counter;
+    c.shadow = c.gbuffer = c.post = c.entity = 0;
+    c.shadowTris = c.gbufferTris = c.postTris = c.entityTris = 0;
+    c.culled = 0; c.chunkMeshes = 0;
+    for (let i = 0; i < CASCADE_COUNT; i++) { c.cascade[i] = 0; c.cascadeTris[i] = 0; }
+  }
 
   private constructor(gpu: GPUContext, world: WorldState, city: City) {
     this.gpu = gpu;
@@ -697,6 +759,7 @@ export class Renderer {
   render(cam: FlightCamera, dt: number): void {
     if (!this.targets) return;
     const t0 = performance.now();
+    this.resetCounter();
     this.resize();
     this.updateCascades(cam);
     this.writeFrameUniforms(cam);
@@ -716,20 +779,70 @@ export class Renderer {
     this.lastCpu = this.lastCpu * 0.9 + cpu * 0.1;
     this.frameTimes.push(cpu);
     if (this.frameTimes.length > 60) this.frameTimes.shift();
-    const avg = this.frameTimes.reduce((a, b) => a + b, 0) / this.frameTimes.length;
-    this.stats.frameMs = this.lastCpu;
-    this.stats.fps = avg > 0.0001 ? 1000 / Math.max(avg, dt * 1000) : 60;
-    this.stats.visibleChunks = visible;
-    this.stats.residentChunks = this.chunks.size;
-    this.stats.tier = this.quality;
-    this.world.perf.frameMs = this.stats.frameMs;
-    this.world.perf.fps = this.stats.fps;
-    this.world.perf.drawCalls = this.stats.drawCalls;
-    this.world.perf.triangles = this.stats.triangles;
-    this.world.perf.residentChunks = this.chunks.size;
-    this.world.perf.visibleDraws = visible;
-    this.world.perf.tier = this.quality;
+    this.publishStats(visible);
     void dt;
+  }
+
+  /**
+   * Fold the frame's counters into `stats` and update the timing bases.
+   *
+   * Two timing numbers are published, deliberately, because they disagree and
+   * picking one silently is how the governor came to believe the machine was
+   * running at 1639 fps:
+   *
+   *   `cpuEncodeMs` — JS time spent building and submitting the command buffer.
+   *                   GPU execution is not included, and cannot be: submit is
+   *                   asynchronous, so it returns before the GPU has drawn a
+   *                   pixel. On a GPU-bound frame this is near zero.
+   *   `frameMs`      — wall-clock between consecutive frame starts. The loop is
+   *                   driven by presentation, so a GPU-bound frame shows up here
+   *                   as a late rAF. This is the frame time.
+   */
+  private publishStats(gbufferDraws: number): void {
+    const c = this.counter;
+    const now = performance.now();
+    const wall = this.lastFrameAt > 0 ? now - this.lastFrameAt : 16.7;
+    this.lastFrameAt = now;
+    this.wallAccum = this.wallAccum > 0 ? this.wallAccum * 0.88 + wall * 0.12 : wall;
+
+    const s = this.stats;
+    s.cpuEncodeMs = this.lastCpu;
+    s.frameMs = this.wallAccum;
+    s.fps = this.wallAccum > 0.0001 ? 1000 / this.wallAccum : 60;
+    s.cpuFps = this.lastCpu > 0.0001 ? 1000 / this.lastCpu : 60;
+
+    s.drawCalls = c.shadow + c.gbuffer + c.post + c.entity;
+    s.triangles = c.shadowTris + c.gbufferTris + c.postTris + c.entityTris;
+    s.shadowDrawCalls = c.shadow;
+    s.gbufferDrawCalls = c.gbuffer;
+    s.postDrawCalls = c.post;
+    s.entityDrawCalls = c.entity;
+    s.shadowTriangles = c.shadowTris;
+    s.gbufferTriangles = c.gbufferTris;
+    s.postTriangles = c.postTris;
+    s.entityTriangles = c.entityTris;
+    for (let i = 0; i < CASCADE_COUNT; i++) {
+      s.cascadeDrawCalls[i] = c.cascade[i];
+      s.cascadeTriangles[i] = c.cascadeTris[i];
+    }
+    s.frustumCulled = c.culled;
+    s.visibleChunks = c.chunkMeshes;
+    s.visibleDraws = gbufferDraws;
+
+    s.residentChunks = this.chunks.size;
+    s.tier = this.quality;
+
+    const w = this.world;
+    w.perf.frameMs = s.frameMs;
+    w.perf.cpuMs = s.cpuEncodeMs;
+    w.perf.gpuMs = Math.max(0, s.frameMs - s.cpuEncodeMs);
+    w.perf.fps = s.fps;
+    w.perf.drawCalls = s.drawCalls;
+    w.perf.triangles = s.triangles;
+    w.perf.residentChunks = this.chunks.size;
+    w.perf.residentDraws = s.drawCalls;
+    w.perf.visibleDraws = gbufferDraws;
+    w.perf.tier = this.quality;
   }
 
   private recordShadow(enc: GPUCommandEncoder, cam: FlightCamera): void {
@@ -782,13 +895,28 @@ export class Renderer {
     return visible;
   }
 
-  /** Issue one indexed draw per visible chunk. Shared by the shadow and g-buffer passes. */
+  /**
+   * Issue one indexed draw per visible chunk. Shared by the shadow and g-buffer
+   * passes.
+   *
+   * Every counter here ADDS into `this.counter`. The previous version assigned
+   * `stats.drawCalls` and `stats.triangles`, so each of the four shadow passes
+   * overwrote the last and the number the HUD showed was the G-buffer pass only
+   * — it reported 232 while the frame really submitted 780. That is worse than
+   * no counter: it was a plausible statistic for the wrong quantity, and it hid
+   * the fact that the shadow passes were the largest single cost in the frame.
+   *
+   * `cascade` is -1 for the G-buffer pass and the cascade index for a shadow
+   * pass, which is how per-cascade culling knows which box to test against.
+   */
   private drawChunks(
-    pass: GPURenderPassEncoder, cam: FlightCamera, shadowOnly: boolean, _cascade: number,
+    pass: GPURenderPassEncoder, cam: FlightCamera, shadowOnly: boolean, cascade: number,
   ): number {
+    const c = this.counter;
     let draws = 0;
     let tris = 0;
     let culled = 0;
+    let chunkMeshes = 0;
     const planes = cam.frustumPlanes;
 
     // The street deck goes down first with depth writes off, so it only fills
@@ -796,7 +924,7 @@ export class Renderer {
     // street-level view has a void under the buildings.
     if (this.ground.indexCount > 0) {
       pass.setVertexBuffer(0, this.ground.vbo);
-      pass.setVertexBuffer(1, shadowOnly ? this.groundInst : this.groundInst);
+      pass.setVertexBuffer(1, this.groundInst);
       pass.setIndexBuffer(this.ground.ibo, this.ground.indexFormat);
       pass.drawIndexed(this.ground.indexCount);
       draws++;
@@ -813,6 +941,7 @@ export class Renderer {
       pass.drawIndexed(e.mesh.indexCount);
       draws++;
       tris += e.mesh.indexCount / 3;
+      chunkMeshes++;
       if (!shadowOnly && e.foliage && this.q.foliageEnabled) {
         pass.setVertexBuffer(0, e.foliage.vbo);
         pass.setIndexBuffer(e.foliage.ibo, e.foliage.indexFormat);
@@ -821,9 +950,19 @@ export class Renderer {
         tris += e.foliage.indexCount / 3;
       }
     }
-    this.stats.drawCalls = draws;
-    this.stats.triangles = tris;
-    this.stats.frustumCulled = culled;
+
+    // --- account for this pass
+    if (shadowOnly && cascade >= 0) {
+      c.shadow += draws;
+      c.shadowTris += tris;
+      c.cascade[cascade] += draws;
+      c.cascadeTris[cascade] += tris;
+    } else {
+      c.gbuffer += draws;
+      c.gbufferTris += tris;
+      c.chunkMeshes += chunkMeshes;
+    }
+    c.culled += culled;
     return draws;
   }
 
@@ -858,9 +997,16 @@ export class Renderer {
     const mesh = this.entities[name];
     if (!mesh) return;
     const n = this.uploadInstances(data, count);
+    // A zero-instance set submits nothing. Counting it anyway inflated the
+    // draw total by one per empty entity set every frame — a phantom in a
+    // counter that is supposed to be the ground truth for the whole frame.
+    if (n <= 0) {
+      this.entityDraws.push(`${name}:0`);
+      return;
+    }
     this.drawEntity(pass, mesh, n);
-    this.stats.drawCalls++;
-    this.stats.triangles += (mesh.indexCount / 3) * n;
+    this.counter.entity++;
+    this.counter.entityTris += (mesh.indexCount / 3) * n;
     this.entityDraws.push(`${name}:${n}/${mesh.indexCount}`);
   }
 
@@ -889,6 +1035,8 @@ export class Renderer {
     pass.setBindGroup(1, bg);
     pass.draw(3);
     pass.end();
+    this.counter.post++;
+    this.counter.postTris++;
   }
 
   /**
@@ -944,6 +1092,10 @@ export class Renderer {
       p.setBindGroup(1, this.postBg(label, target, src, prev));
       p.draw(3);
       p.end();
+      // The post chain is ~11 full-screen triangles per frame. Small, but it
+      // was not counted at all before, so "total draws" did not mean total.
+      this.counter.post++;
+      this.counter.postTris++;
     };
 
     // --- depth of field, half res
