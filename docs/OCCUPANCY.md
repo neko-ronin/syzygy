@@ -858,3 +858,86 @@ second, which turns a continuous band into a *longer* continuous band.
 `PITFALLS.md` §9 is the trap and the histogram is the detector: a clump shows up
 as mass in the `[0-2)` bin, a uniform band as the empty `[40-inf)` bin seen here.
 Both must be watched; only the second is currently wrong.
+
+
+---
+
+# Round 13 — the two standing measurements, and how to re-measure them
+
+Appended, not rewritten. Everything above is what was measured when it was
+measured. This section says how to reproduce the two numbers that matter and what
+they currently are.
+
+## Reproduce
+
+```
+npx vite-node src/sim/__selftest_density.ts
+```
+
+`src/sim/__selftest_density.ts` is a **measurement, not a regression test**. It
+asserts that the measurement is well formed — instances projected, pairs found,
+histogram bins summing to the pair count, no agent beyond `viewRadius` — and it
+prints everything else. It deliberately does **not** assert the value of the gap
+bin: `0.0%` is an open defect, not an invariant, and pinning it would make a
+future fix look like a regression.
+
+## The two numbers
+
+**1. `viewRadius` is the seeding limit.**
+
+```
+viewRadius 160 m   target 2550   live 2550   submitted 2534   inside the cone 1483
+depth along view   p50 56 m   p90 88 m   p99 146 m   max 160 m
+agents by 40 m bin to 320 m
+  0-40:361  40-80:703  80-120:399  120-160:20  160-200:0  200-240:0  240-280:0  280-320:0
+```
+
+The furthest agent is at exactly `viewRadius`, and every bin past it is empty.
+The street recedes to ~400 m. **So the empty far end is a seeding limit, not a
+placement one** — there is nothing out there because nothing is seeded out there.
+
+**2. The `>= 40 px` gap bin is empty.**
+
+```
+20-30 px band   492 figures, 17772 pairs   p10 1.1   p50 6.7 px
+  [0-2) 17.5%  [2-4) 14.9%  [4-6) 13.2%  [6-8) 12.0%
+  [8-12) 18.8% [12-20) 21.0% [20-40) 2.6% [40-inf) 0.0%
+  merged (<2 px) 17.5%   gap mode (>=40 px) 0.0%   ->  NO GAP MODE
+```
+
+All in-frame, 1483 figures / 47,425 pairs, agrees: `[40-inf) 0.0%`.
+
+The `>= 40 px` bin is the bin the finding rests on. Pairs that far apart are not
+neighbours at all, so **a non-empty top bin is the signature of groups with
+deliberate gaps and an empty one is the signature of a continuous band** — which
+is what the vision gate asks for and what four rounds of reading pixels kept
+seeing. `PITFALLS.md` §9 is the other failure and the histogram detects it too: a
+clump shows as mass in `[0-2)`, and that bin is at 17.5%.
+
+### A caution about this measurement, recorded because I got it wrong first
+
+The first version of `__selftest_density.ts` ended the histogram edges at `40`,
+which folds the gap-mode bin into `[20-40)` and prints **"gap mode present"** for
+a distribution that has none. It did exactly that on its first run. The
+`[40-inf)` bin has to exist or the number this round is recording does not exist.
+This is the same class as every other error in this file: a diagnostic that
+reports something other than the thing it names.
+
+## Cross-link: R12
+
+`docs/ROADMAP.md` R12 ("Living systems: crowd dynamics and locomotion") is the
+behaviour work, and it is deliberately separate from R1's density question.
+**R1 asks whether streets read occupied. R12 asks whether the occupants read
+alive.** The `[40-inf) = 0.0%` finding is the standing number cited there.
+
+## Cause is split, and both halves are open
+
+Gate 5 measured **isolated** silhouettes at 22x9 and 23x11 px with 20 clear pixel
+columns — those **clear** the separation target — while **packed** rows merge into
+counter-like bands. So the density failure is two causes, not one:
+
+- **overlapping placement**, which the empty gap bin above measures, and which
+  the reviewer states will not be resolved by rebuilding alone; and
+- **silhouette**, handed to developer 1 as a written spec (see R13.2 above).
+
+Fixing the mesh alone will not move the `[40-inf)` bin.
