@@ -529,3 +529,73 @@ expectations from the same seed the baker uses.
 - **`windowGlow`**, R2's night luma (11.4 vs a noon of 125.75 — worth
   re-measuring now that the market emits light, but it is `weather.ts`, not mine),
   and the duplicate `PHASE_LOOK`.
+
+---
+
+## 4f. Round 10: the day cull, and which recorded numbers are void
+
+### The day cull
+
+`gatherLights` did `if (byDay) continue` on `world.dayPhase > 0.55`. `dayPhase` is
+derived from a sun **clock** (`integrateWorld` advances `sun.azimuth` every tick);
+`setTime` sets a **weather phase** once. Two sources of truth. A pose named
+`night-lanterns` reported `produced 48, delivered 0, culledByDay: true`.
+
+Removed rather than re-thresholded, because "is the sun up" and "should an authored
+light be visible" are different questions. Measured on the harness's own pose:
+`delivered 0 -> 1414`, `binned 1414`, `starved 0`.
+
+### The pool, measured on the fixed seed
+
+Seed is now `6191639` (the parse bug is fixed, so the city changed again). Spine
+re-derived on CPU; lantern `c.w +20.05` at px(800,290), pool `c.w +19.97` at
+px(800,543) — **both verified before the shot.**
+
+| | |
+|---|---|
+| nearest warm lantern to the pool | **6.9m** |
+| warm lanterns within 30m | 7 |
+| tile at the pool | `count 69, stored 69` |
+| `culledByDay` | **false** |
+| `binned / starved` | 973 / **0** |
+| `aisleWarmPixelPct` | **26.78** |
+
+And the comparison that resolves §4e's caveat:
+
+| sample | RGB |
+| --- | --- |
+| **deck at the pool** | **`[41.8, 29.9, 7.5]` — red-dominant** |
+| deck 20m off, one side | `[40.1, 68.1, 99.5]` — blue-dominant |
+| deck 20m off, other side | `[64.0, 79.3, 104.0]` — blue-dominant |
+
+Round 9 recorded the pool as a streak with the deck *brighter elsewhere* than at the
+lantern. That is no longer true: the deck at the pool is warm-dominant and the deck
+around it is blue-dominant. **The pool is a warm region, not a level change.**
+
+### Which recorded measurements are void
+
+Every CPU-derived coordinate in §1–§4e was computed against `0x5e7a17` while the
+frames were seed 0. They are **cross-world and cannot be compared to their frames**:
+
+| § | measurement | status |
+| --- | --- | --- |
+| §3 | 365 produced / 0 harvested | cross-world, but the *shape* (nothing harvested) is a code fact and stands |
+| §3 | aisleWarmPixelPct 0.000 -> 0.225 -> 0.073 | **void** — three different cities, not a series |
+| §4 | ultra 0.073 vs default 0.225 | **void** — cross-world comparison |
+| §4c | bin `count 74`, max index 385 | valid — read from the GPU buffer, not derived on CPU |
+| §4d | deck irradiance 0.000 vs 1.197 | cross-world, but both figures are code arithmetic on the same chunk, so the *ratio* stands |
+| §4e | aisleWarmPixelPct 5.72 | **void as a comparison**; valid as an absolute for seed 0 |
+| §4f | 26.78, pool red-dominant | **current**, seed 6191639 |
+
+The pattern worth keeping: **GPU-read numbers are valid regardless of seed, because
+they come from the frame.** Every measurement that went wrong went wrong on the CPU
+side. Where a number is quoted from a CPU derivation, it describes the city that
+derivation used.
+
+## 5. Status
+
+The aisle has a measurable warm pool on a frame with lights in it, verified with
+`c.w` on both subjects before the shot. **Whether it satisfies gate 3 is the
+reviewer's call.** The `08-night-lanterns` pose is separately misnamed — it is an
+aerial daylight (`culledByDay: true`, phase `clear`), not a night street — and its
+definition is in `capture.mjs`, not mine.
