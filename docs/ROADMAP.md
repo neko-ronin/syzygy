@@ -338,6 +338,8 @@ R7 (water)         ──  cheap once R1 makes streets matter
 R9 (districts)     ──  polish
 R8 (WebGL 2)       ──  CLOSED: shelved by decision 2026-10-01, not work (D1)
 R10 (iteration)    ──  partly done: compare.mjs landed, warm boot is F6
+R12 (living)       ──  R1 makes streets read occupied; this makes the occupants
+                         read alive. Independent of R1's density work.
 ```
 
 ## What "spectacle" means here
@@ -384,3 +386,61 @@ correct alone while the city has quietly become one place.
 
 **Per section, also add a close-focus capture pose.** The doctrine requires
 detail at 3 m and no such pose exists for any section yet.
+
+---
+
+## R12 — Living systems: crowd dynamics and locomotion
+
+**Status: todo** · **Priority: high** · *Vision: "realistically active living city
+of pedestrians and traffic"*
+
+**R1 asks whether streets read as inhabited. This asks whether the inhabitants
+are alive.** R1's done-when is a density and a framing; it does not require that
+the people in it do anything. That is the gap this row owns, and it is why the
+two must not be closed together.
+
+The reference frames are full of pedestrian traffic whose *organisation* is
+visible even where individual bodies are a few pixels tall: streams parting
+around an obstacle, groups walking together, people slowing at a stall,
+queues, density varying between a crossing and a quiet block. Read at that
+distance the city reads as inhabited by something with intent. A uniform field
+of agents at a fixed speed never does, however dense it gets.
+
+Sub-problems, roughly in order:
+
+1. **Locomotion realism.** Gait is a per-agent phase on a fixed loop; nobody
+   reacts to anybody. A crowd where every agent walks a straight line at the
+   same speed reads as a conveyor. Minimum: speed distribution rather than one
+   value, and a stride whose contact phase correlates with speed.
+2. **Local avoidance.** Agents currently overlap freely, which is what makes
+   packed rows merge into a single band — the failure gate 5 recorded as
+   "counter-like masses". Separation steering or a density field, so a body does
+   not end up inside another body. **This is the same defect as the placement
+   problem R1 names, seen from the simulation side**, and both sides must move:
+   the reviewer was explicit that "rebuilding alone will not resolve
+   overlapping placement".
+3. **Grouping and flow.** Agents move as independent points; reference crowds
+   have cliques, lanes and counter-flow. Needs a lightweight flow field or
+   lane preference so the crowd acquires streams rather than noise.
+4. **Interaction with the city.** Nobody reacts to the city they are in. Stall
+   browsing, waiting at a crossing, queueing — the behaviours that make a market
+   read as a market rather than a corridor.
+5. **Traffic as agents.** R1/F4 puts vehicles on rails. The same question
+   applies: do they queue, yield, stop, and do pedestrians react to them?
+
+**Watch out.** R1 already taught this once, in the expensive direction: the
+crowd's two visibility predicates reported 250 and 0 in the same frame, and two
+sessions misread that as a winding bug and then a culling bug. Piled on top of
+movement, a density change is *unreadable* — you cannot tell a distribution
+problem from a locomotion one, because both move the pixels. So: **measure
+distribution before moving anything**, and keep `viewRadius` and the gap
+histogram (R1, `LEGIBILITY_TARGETS.md`) as the standing numbers.
+
+**Done when:** a street-level pose shows visible stream structure — agents
+parting around obstacles, groups co-moving, a density gradient between two
+locations — and the same pose shows no body intersecting another. Verified by a
+histogram of pairwise separation and by a frame, **not** by a screenshot of a
+still crowd alone. A still crowd can be produced by a uniform lattice, and has
+been.
+
+---

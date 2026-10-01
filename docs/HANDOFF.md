@@ -557,6 +557,16 @@ people spread across the streets within 160 m would be thin on any single avenue
 regardless, and the street deck is a featureless grey slab (F5). This is the gap
 most visible against the reference frames. Fixes: F1, F2, F4, F5.
 
+**1b. The pedestrians that do render are inert.** Density and legibility are
+R1. Whether the crowd *behaves* is R12 (living systems: locomotion, avoidance,
+grouping, interaction) — a separate row on purpose, so closing "the street reads
+occupied" cannot be mistaken for "the occupants read alive". Current evidence:
+gate 5 measured isolated silhouettes clearing the 20-24 px separation target
+while packed rows merge into counter-like bands, and dev2 measured the empty
+≥40 px gap bin. Two causes, both open — the mesh proportions in `citymesh.ts`
+and the placement/locomotion in `crowd.ts`. The reviewer was explicit that
+"rebuilding alone will not resolve overlapping placement".
+
 **2. Traffic is invisible.** `TrafficSim` produces vehicles and 64 lights, but
 only pedestrians are submitted through the instanced draw path. `Renderer
 .drawEntitySet` already exists and works; traffic needs its instances built and
