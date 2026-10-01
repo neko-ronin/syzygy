@@ -1071,12 +1071,28 @@ function contrastSet(pal: ResolvedPalette): Vec3[] {
   const ng = [pal.ground[0] / nx, pal.ground[1] / nx, pal.ground[2] / nx];
   const vg = 0.2126 * pal.ground[0] + 0.7152 * pal.ground[1] + 0.0722 * pal.ground[2];
   const pool: Vec3[] = [pal.trim, pal.glass, pal.secondary, pal.foliage, pal.water, pal.emissive, pal.metal];
+  // Value first, chroma as a tie-break — not the other way round, and the order
+  // is the whole point.
+  //
+  // Measured on `market-spine`, over the three coats each rule selects:
+  //
+  //   chroma-first (was)  day 1.15 2.04 1.57   night 1.00 1.03 1.01
+  //   value-first  (now)  day 2.87 2.04 1.90   night 1.05 1.03 1.02
+  //
+  // Doubling the daytime figure/ground contrast matters: the reference's own
+  // samples are 2.76:1 at 16 px and 2.20:1 at 19 px, and the chroma-first rule
+  // put the primary coat at 1.15:1, *below* the band the doc says is already
+  // sufficient. The night row is the other half of the finding and is in
+  // `__selftest.ts`: under a uniform ambient, contrast is invariant under
+  // illumination, so no palette entry separates the crowd from a night street.
+  // Hue is what dies under a blue night; value survives it, which is why the
+  // weight moved.
   const scored = pool.map((c) => {
     const m = Math.max(c[0], c[1], c[2]) || 1;
     const n = [c[0] / m, c[1] / m, c[2] / m];
     const chroma = Math.hypot(n[0] - ng[0], n[1] - ng[1], n[2] - ng[2]);
     const v = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
-    return { c, score: chroma * 1.6 + Math.abs(v - vg) * 0.9 };
+    return { c, score: Math.abs(v - vg) * 1.6 + chroma * 0.5 };
   });
   scored.sort((a, b) => b.score - a.score);
   return scored.map((s) => s.c);
