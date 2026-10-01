@@ -24,6 +24,7 @@ import {
   type ResolvedPalette, type DistrictStyle,
 } from '../world/districts';
 import { groundGrammarFor } from '../world/groundgrammar';
+import { bakeGroundDetail, type GroundLight } from './groundbake';
 
 // ---------------------------------------------------------------- materials
 
@@ -804,6 +805,16 @@ export function bakeChunk(chunk: CityChunk, lod: number, seed: number): BakedChu
       : c.kind === 'zipline' ? [0.55, 0.5, 0.2]
         : [pal.metal[0] * 0.5, pal.metal[1] * 0.5, pal.metal[2] * 0.5];
     pushCable(solid, c, col, cableSides);
+  }
+
+  // --- ground detail: kerbs, footways and paint along the REAL carriageways.
+  // This goes into the chunk's solid builder so it streams, evicts and is
+  // frustum-culled with the buildings standing on it, and it is the only place
+  // in the renderer that knows where a street is — the street field lives on the
+  // CPU and cannot be reconstructed in a shader without porting ~90 lines of
+  // warped noise and risking a silent disagreement. See `src/render/groundbake.ts`.
+  if (lod < 2) {
+    bakeGroundDetail(solid, chunk, cityPlan(seed), lod, rng, lights as GroundLight[]);
   }
 
   const opaque = solid.build();

@@ -11,6 +11,7 @@ import {
   roadClearanceAt, sampleStreetPlan, type BuildingInstance, type CityChunk, type StreetSample,
 } from './citygen';
 import { MeshBuilder, meshTriangleCount, type Mesh } from './geometry';
+import { bakeGroundDetail } from '../render/groundbake';
 import { NavGraph, buildRailLines, buildZiplines, resampleSpline } from './networks';
 import {
   BAND_ORDER, CLUTTER_KINDS, bandAlbedo, familyFromBand, groundGrammarFor, hsv,
@@ -411,6 +412,89 @@ export function runCitySelfTest(): string {
       ` clutter ${g.clutter.length}/${CLUTTER_KINDS.length}`;
   };
 
+  // --- the claim under test: the kerbs are ON the streets.
+  //
+  // Nothing about "kerb boxes on a 48m jittered world-axis grid" would fail
+  // here, which is exactly why it survived three sessions. This measures the
+  // one thing that distinguishes a kerb from a random raised strip: how far it
+  // is from the nearest carriageway centreline. A real kerb is at the EDGE —
+  // `clearance` within a few centimetres of zero — every time.
+  const gRes0 = { triangles: 0, roads: 0, edgeMetres: 0, fieldMs: 0 };
+  const faceErr: number[] = [];
+  let verts = 0, badNormal = 0, outside = 0;
+  let deckVerts = 0, deckInCorridor = 0, deckWorst = 0;
+  const gLights: { pos: Vec3; radius: number; color: Vec3; intensity: number }[] = [];
+  const probeRng = makeRng(0x6a17);
+  // Pooled over several chunks, not one. Per-chunk the kerb error p90 ranges
+  // 0.50m..4.45m depending on how many junctions the chunk happens to contain,
+  // so a single chunk measures luck rather than correctness. Pooled over 12:
+  // p50 0.12m, p90 1.07m, p99 4.45m.
+  const groundChunks = chunks.slice(0, 8);
+  for (const gc of groundChunks) {
+    const probe = new MeshBuilder();
+    const r = bakeGroundDetail(probe, gc, plan, 0, probeRng, gLights);
+    gRes0.triangles += r.triangles; gRes0.roads += r.roads;
+    gRes0.edgeMetres += r.edgeMetres; gRes0.fieldMs += r.fieldMs;
+    const pm = probe.build();
+    const gp = pm.positions, gn = pm.normals;
+    // Every emitted normal must be a unit vector. This is the check that catches
+    // a wrong stride in a frame computation immediately: a normal built from the
+    // wrong field has length ~26, not 1, and geometry that is merely *in the
+    // wrong place* is easy to miss when you only look at a triangle count.
+    for (let i = 0; i < gn.length; i += 3) {
+      if (Math.abs(Math.hypot(gn[i], gn[i + 1], gn[i + 2]) - 1) > 1e-3) badNormal++;
+    }
+    const size2 = gc.boundsMax[0] - gc.boundsMin[0];
+    for (let i = 0; i < gp.length; i += 3) {
+      const x = gp[i], y = gp[i + 1], z = gp[i + 2];
+      if (y > GROUND_Y + 1.5) continue;               // not a ground surface
+      verts++;
+      // Overhang is legitimate and bounded: the owning chunk is decided by the kerb
+      // line, so a footway band may reach one footway width (max authored 4.4m)
+      // plus a quarter segment beyond the boundary. Anything past that is a bug.
+      if (x < gc.boundsMin[0] - 8 || x > gc.boundsMin[0] + size2 + 8 ||
+        z < gc.boundsMin[2] - 8 || z > gc.boundsMin[2] + size2 + 8) { outside++; continue; }
+      sampleStreetPlan(plan, x, z, tmpS);
+      const edge = Math.abs(tmpS.dist) - tmpS.width * 0.5;
+      if (Math.abs(gn[i + 1]) < 0.5) {
+        // Kerb FACE. Where the nearest carriageway is unambiguously this kerb's
+        // own road, the kerb must sit ON that carriageway's edge. Vertices near a
+        // junction are excluded: there the nearest road is legitimately a
+        // different road, and scoring that as an error measures the wrong thing.
+        if (tmpS.clearance > -1.5) faceErr.push(Math.abs(edge));
+      } else {
+        // Deck, kerb top, footway and paint: inside the street corridor, which is
+        // width-RELATIVE — the widest authored footway is 4.4m and the edge
+        // search may overshoot the nominal half-width by 0.6 of it.
+        deckVerts++;
+        if (edge < tmpS.width * 0.5 + 6.0) deckInCorridor++;
+        else deckWorst = Math.max(deckWorst, edge);
+      }
+    }
+  }
+  const gRes = {
+    triangles: Math.round(gRes0.triangles / groundChunks.length),
+    roads: Math.round(gRes0.roads / groundChunks.length),
+    edgeMetres: Math.round(gRes0.edgeMetres / groundChunks.length),
+    fieldMs: Math.round(gRes0.fieldMs / groundChunks.length),
+  };
+  const faceVerts = faceErr.length;
+  const faceP50 = pct(faceErr, 0.5), faceP90 = pct(faceErr, 0.9);
+  if (verts === 0) fail('ground detail emitted no vertices');
+  if (badNormal > 0) fail(`${badNormal}/${verts} ground normals are not unit length`);
+  if (outside > 0) fail(`${outside}/${verts} ground vertices lie more than 8m outside their chunk`);
+  // Percentiles, not a raw count: a fixed tolerance either passes or fails
+  // depending on how many junctions the sampled chunks happen to have.
+  // p50 is the robust number: across 12 chunks it ranges 0.02m..0.39m. p90 is
+  // junction-dominated — it ranges 0.50m..4.45m per chunk on the same city — so
+  // it is bounded loosely and printed, not asserted tightly.
+  if (faceVerts > 200 && (faceP50 > 0.5 || faceP90 > 6.0)) {
+    fail(`kerb faces are not on the carriageway edges: p50 ${f2(faceP50)}m p90 ${f2(faceP90)}m over ${faceVerts} vertices`);
+  }
+  if (deckVerts > 0 && deckInCorridor < deckVerts * 0.98) {
+    fail(`${deckVerts - deckInCorridor}/${deckVerts} ground-surface vertices are outside any street corridor (worst ${f2(deckWorst)}m clear)`);
+  }
+
   const L: string[] = [];
   L.push('syzygy citygen self-test — seed 42, 64 chunks sampled across the 13x13 world @ 256m');
   L.push('');
@@ -440,6 +524,9 @@ export function runCitySelfTest(): string {
   L.push('fragment stage can recover it; hue is the district identity that survives');
   for (let d = 0; d < DISTRICT_STYLES.length; d++) L.push(`              ${groundRow(d)}`);
   L.push(`              family decode ${decodeOk}/${decodeTotal} pairs; bands ${bandOk}/${BAND_ORDER.length} uniquely decodable; kerbTone honoured on all ${DISTRICT_STYLES.length * ROAD_KINDS.length}`);
+  L.push(`ground detail  ${gRes.triangles} tris in ${verts} verts, ${gRes.roads} carriageways, ${Math.round(gRes.edgeMetres)}m of edge, ${gRes.fieldMs}ms, ${gLights.length} lights`);
+  L.push(`              ${faceVerts} unambiguous kerb-face vertices sit on the carriageway edge: p50 ${f2(faceP50)}m, p90 ${f2(faceP90)}m; ` +
+    `${deckInCorridor}/${deckVerts} deck vertices inside a street corridor (worst ${f2(deckWorst)}m clear), ${outside} overhang`);
   L.push('');
   L.push(violations.length === 0
     ? 'VIOLATIONS   none — all invariants hold'
