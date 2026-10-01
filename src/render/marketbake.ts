@@ -39,7 +39,7 @@ import type { GroundBakeCtx } from '../world/groundgrammar';
 import {
   COUNTER_TOP, MARKET_LOD_GONE, RIGGING_LOD, SAG_ACROSS, SAG_ALONG,
   marketCatenary, marketGrammarFor,
-  type MarketCloth, type MarketCrate, type MarketLanternString, type MarketLight, type MarketStall,
+  type MarketCloth, type MarketCrate, type MarketLanternString, type MarketStall,
 } from '../world/marketgrammar';
 
 // ---------------------------------------------------------------- the build
@@ -282,19 +282,6 @@ export function bakeMarketDetail(bld: MeshBuilder, ctx: GroundBakeCtx): void {
     bakeCloth(bld, c);
   }
 
-  // Hand the lantern lights to whoever is collecting them.
-  //
-  // `GroundBakeCtx` has no light sink yet, so this reads the field structurally
-  // and does nothing if it is absent — which is the point. The review gate's
-  // single biggest gap is "warm market lantern illumination does not visibly
-  // reach the aisle", and the grammar has been producing these lights since
-  // round 2 with nowhere to put them: 365 measured, 0 delivered.
-  //
-  // Written so it starts working the moment the destination lands on the ctx,
-  // without needing this file to change again. If the field is named something
-  // other than `lights` this silently no-ops, which is why the self-test prints
-  // whether the sink was found rather than assuming it.
-  const sink = (ctx as unknown as { lights?: MarketLight[] }).lights;
-  if (sink) for (const l of desc.lights) sink.push(l);
+
 }
 

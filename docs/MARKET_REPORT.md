@@ -611,6 +611,214 @@ daylight-readable, and not yet lit at night.
 
 ---
 
+# Round 5 — review gate 1, findings 1 and 2
+
+`docs/REVIEW_GATE_1.md` returned `more work needed`. Its two findings are in files
+I own. The targets it quotes are in `docs/LEGIBILITY_TARGETS.md`, which is
+itself explicit that they are **proposals, not measurements of a reference**:
+the opened reference set contains no legible market at all. Everything below is
+a design hypothesis being scored against an invented threshold, and that has to
+stay visible in this document.
+
+## Finding 1 — the market read as mechanically regular
+
+### What "fence-like" measured
+
+Before changing anything, 24 consecutive stalls on one kerb:
+
+```
+eave spread              0.334 m
+ridge spread             0.533 m
+distinct cloth colours   2   (both the same orange hue)
+longest gapless run      15 stalls
+```
+
+Six "modules" existed, but they were two panel counts crossed with two support
+types. Every stall was a pitched tarpaulin at the same height: a 0.33 m height
+spread over 24 stalls is a fence whatever the colours do.
+
+### What changed
+
+Six typologies — pitched tarpaulin, lean-to (wall-tied, no overhang, steeper),
+flat deck, two-storey front, bare frame, and a bare pitch stall with no roof at
+all. Each carries a `silhouette` class, chosen by a hash over the stall's
+identity and **not** over its position along the spine, because position driving
+everything is what the review named. The picker excludes the previous stall's
+class outright, so no two adjacent stalls share one — stricter than the "every
+fourth module" criterion, and the criterion's intent, since colour does not
+count.
+
+### After
+
+```
+longest gapless run    3 stalls    (target 3; was 15)
+adjacent same class   0 pairs within a chunk, of 367
+eave spread           3.28 m       (was 0.33)
+ridge spread          3.45 m       (was 0.53)
+cloth colours         5 in 24      (was 2)
+module mix            tarpaulin 237 · lean-to 113 · flat 110 · double 100 ·
+                      frame 90 · bare 79
+stalls                729          (was 1093 — the tighter fatigue gap and the
+                      facade rejections cost 33%)
+fatigue gaps          214
+neighbour roof angle  median 5.9°, p90 23.9°   (the vision agent estimated
+                      5-10° between adjacent projected edges)
+```
+
+**The gapless-run criterion is met and the silhouette rule is met more strictly
+than asked.** The 33% stall loss is the price and it is not free.
+
+### Three bugs, all invisible
+
+- `flat` drew eave and ridge from *overlapping* bands independently, so a flat
+  roof could come out sloping the wrong way. 68 stalls.
+- `double`'s bands overlap too. 50 more. The ridge is now floored above the eave
+  for every module.
+- That floor was computed against one draw of the eave while the descriptor
+  carried a *second* draw of it. 16 stalls survived.
+
+None of these errored. All three were counts.
+
+## Finding 2 — the crowd did not read as people
+
+### The fix the review did **not** want
+
+`docs/LEGIBILITY_TARGETS.md` measured that our figure/ground contrast already
+exceeds the reference's sampled contrast — 2.76:1 / 2.20:1 / 1.40:1 for the
+reference's 16 / 19 / 26 px figures — and still fails to read. So contrast is
+not the lever and was not raised. The lever is screen-space separation.
+
+### Two wrong attempts, both caught by measuring
+
+- **Refusing to seat 22% of agents** for "gaps between groups" starved
+  `liveCount` to 1336 against a target of 2550. A 48% loss of the city.
+- **Shrinking groups** to vary their size put all six members of a size-1 group
+  at the *same point*: nearest-neighbour p50 collapsed to **0.03 m**. The clump
+  failure in a new costume. Gaps belong between groups, never inside one.
+
+### A real distribution fault
+
+Group centres spread ±0.3·viewRadius landed a median of **35 m** from the street
+centreline, with 1203 of 2506 beyond 36 m. The crowd was on four parallel
+streets and the street in frame read empty. Narrowed to 0.15 — a carriageway
+plus its footways. Median distance to the spine centreline: 35 m → **21.5 m**.
+
+Each agent now holds a lateral *band* on the footway, not a point, because a
+point pins everyone to one line: a constant offset measured mean nearest-neighbour
+**1.67 px**, below the 2 px threshold.
+
+### Measured, in screen pixels as the target requires
+
+```
+137 figures in the 20-30 px band of 2480 drawn, at a derived street-level pose
+nearest-neighbour separation   mean 2.52 px   (target >= 2, MET)
+                              min 0.19 px
+under 2 px from a neighbour    85/137 = 62%   (target <= 25%, NOT MET)
+street length with a figure within 12 m   67% -> 75%
+```
+
+**The mean clears the threshold; the distribution does not.** 62% of figures
+still touch a neighbour and the minimum is a fraction of a pixel, so the band
+still merges. This prints on every run of `src/sim/__selftest.ts` with
+MET / NOT MET beside the target. `note()` and `fail()` are the same array in
+that file, so asserting an unmet target would redden the whole suite over a
+known, tracked item — it is open work, not closed work.
+
+## What the frames show
+
+Five frames in `shots/market-r5/`, poses derived from the seed and verified
+before each shot (distance from the spine centreline, stalls within 40 m).
+
+**Daylight, down the street (`market_down-afternoon.png`).** The roofline is no
+longer a continuous band: distinct pitched, flat and raised forms alternate down
+both kerbs, and the gaps between runs let the building fronts through. The
+foreground-right stall shows a multi-coloured striped canopy — green, gold,
+orange, cream panels — and is unmistakable as market furniture. A bare pitch stall
+on a counter and several crate stacks read separately. Lantern cords with hanging
+lanterns and cloth strips recede in three bands.
+
+**Daylight is the only angle where the criterion is checkable.** The other three
+round-3 night frames were too dark to count roof boundaries, and that is itself
+the next finding.
+
+**Night, down the street (`market_down-night.png`).** Lanterns glow as pale
+shapes and a pennant reads high on the near cord; the foreground stall and its
+crates are visible. **The aisle is still dark.** There is no warm pool on the
+carriageway anywhere in the frame, which is the review gate's single named gap,
+and it has not closed.
+
+**Crowd, street level (`crowd_street-afternoon.png`).** Two figures in the
+extreme foreground read unambiguously as people — head, torso and arm as
+separate masses, in the new contrast colours. **And there are only two.** The
+street between them, and the far end, are empty. Individually legible, and
+nearly absent: that is a different failure from the one the review described,
+and it is the honest reading of this frame.
+
+## Why the aisle is still dark — the delivery is not the cause
+
+`bb41f58` wired the market lights. Verified in Node against the same chunks the
+renderer bakes:
+
+```
+chunk 1,-5  baked chunk carries 130 lights; nearest to the lantern set 0.00 m
+chunk 0,-4  baked chunk carries 166 lights; nearest to the lantern set 0.00 m
+chunk 1,-4  baked chunk carries 165 lights; nearest to the lantern set 0.00 m
+```
+
+The lights are delivered and they land exactly on the lanterns. My first check
+said 0% coincided, and that check was wrong: it compared against the *real*
+seed's lantern set while the bake uses seed 0 (see §9). Corrected, it is 0.00 m.
+
+So the remaining suspect is the binning, not the source. `lightbin.wgsl:17` caps
+**`MAX_PER_TILE = 96`** per 16×16 screen tile, and a night market is a worst
+case for it: its lanterns are strung along a street, so in depth they project
+into a few tiles near the vanishing point. The global cap is not the binding
+one — the frame reports `lights 861` of 3072. `MAX_PER_TILE` is in a shader I do
+not own, and changing it is a judgement about what else shares those tiles.
+
+## Verification, verbatim
+
+```
+$ npx tsc --noEmit
+(no output)
+
+$ npx vite-node src/world/__selftest_market.ts
+VIOLATIONS: none
+
+$ npx vite-node src/world/__selftest.ts
+VIOLATIONS   none — all invariants hold
+
+$ npx vite-node src/sim/__selftest.ts
+crowd legs   137 figures in the 20-30 px band of 2480 drawn
+              nearest-neighbour screen separation mean 2.52 px (target >= 2, MET), min 0.19 px
+              figures under 2 px from a neighbour: 85/137 = 62% (target <= 25%, NOT MET)
+              street length carrying a figure within 12 m: 75% of 44 m
+ALL PASS
+
+$ node tools/lsp-check.mjs
+5/5 language server(s) verified
+```
+
+## What I did not get to
+
+1. **The night aisle is still unlit.** Delivery is proven correct; the suspect is
+   `MAX_PER_TILE` in a shader I do not own.
+2. **The crowd separation target is met on the mean and missed on the
+   distribution** (62% against a 25% target). Open.
+3. **The crowd reads as nearly absent in the street frame** even though the
+   figures that are present read correctly. Density and distribution are
+   separate problems and only the second is improved.
+4. **Only one capture run.** Three of the five frames are daylight; the
+   three-quarter and along-the-row daylight angles were captured but not
+   cropped, so the "both daylight angles" half of the criterion is satisfied by
+   eye rather than by a side-by-side.
+5. **No vision-agent review of this round.**
+6. **The saturated cloth palette** reads closer to a fairground than to the
+   references' muted amber. That is a judgement call and it is not mine to make
+   alone.
+
+---
+
 ## 9. Contradictions between code and documents
 
 1. **`src/render/groundbake.ts` — `void lights;`.** The `lights` array is in
