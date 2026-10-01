@@ -301,7 +301,13 @@ class App {
       `<span class="k">crowd</span> ${this.crowd.visibleCount} &nbsp; <span class="k">traffic</span> ${this.traffic.activeCount}`,
       `<span class="k">chunks</span> ${s.visibleChunks}/${s.residentChunks} &nbsp; <span class="k">draws</span> ${s.drawCalls}`,
       `<span class="k">tris</span> ${(s.triangles / 1000).toFixed(0)}k &nbsp; <span class="k">lights</span> ${s.lights}`,
-      `<span class="k">quality</span> ${s.tier} &nbsp; <span class="k">bake</span> ${s.bakeMs.toFixed(1)}ms`,
+      // Both timing bases, side by side. When they diverge the machine is
+      // GPU-bound and `cpu` is the number that is lying.
+      `<span class="k">frame</span> ${s.frameMs.toFixed(1)}ms &nbsp; <span class="k">cpu</span> ${s.cpuEncodeMs.toFixed(1)}ms`,
+      `<span class="k">shadow</span> ${s.shadowDrawCalls} &nbsp; <span class="k">gbuf</span> ${s.gbufferDrawCalls}` +
+      ` &nbsp; <span class="k">lod</span> ${s.lodHistogram.join('/')}`,
+      `<span class="k">quality</span> ${s.tier} &nbsp; <span class="k">bake</span> ${s.bakeMs.toFixed(1)}ms` +
+      (s.rebakePending ? ` &nbsp; <span class="k">rebake</span> ${s.rebakePending}` : ''),
       w.events.length
         ? `<span class="k">event</span> <span style="color:var(--accent)">${w.events[0].label}</span>`
         : '',
@@ -310,24 +316,55 @@ class App {
   }
 
   /**
-   * Quality governor. Hysteresis is wide on purpose: oscillating between tiers
-   * is far more objectionable than a steady 40fps, so we only step down after
-   * sustained pressure and step back up only with real headroom.
+   * Quality governor.
+   *
+   * It reads `renderer.stats.frameMs`, which is wall-clock time between frame
+   * starts and therefore includes GPU execution. That is a change of basis: it
+   * used to read `lastCpu * 0.9 + cpu * 0.1`, the JS-side command-buffer encode
+   * time, which excludes the GPU entirely because `queue.submit` is
+   * asynchronous and returns before a pixel is drawn. On a GPU-bound machine
+   * that reported 0.61ms — 1639 fps — while the real frame time was 66ms at
+   * 15fps. The governor therefore read the machine as having enormous headroom
+   * and stepped *up* into a heavier tier, which is the exact opposite of what a
+   * governor is for. Measured on an idle laptop; see the commit message.
+   *
+   * Hysteresis is wide on purpose: oscillating between tiers is far more
+   * objectionable than a steady 40fps, so we only step down after sustained
+   * pressure and step back up only with real headroom.
    */
   private governQuality(): void {
+    // One basis, one meaning. `stats.fps` is the reciprocal of the same
+    // wall-clock number; deriving it here from frameMs keeps a single source.
     const fps = 1000 / Math.max(this.renderer.stats.frameMs, 0.01);
     const order: QualityTier[] = ['potato', 'low', 'medium', 'high', 'ultra'];
     const cur = order.indexOf(this.renderer.quality);
-    if (fps < 34 && cur > 0) {
-      this.qualityHold = (this.qualityHold ?? 0) + 1;
-      if ((this.qualityHold ?? 0) > 2) {
-        this.renderer.setQuality(order[cur - 1]);
-        this.qualityHold = 0;
-        toast(`quality → ${order[cur - 1]} (${fps.toFixed(0)} fps)`);
+
+    // A harness-requested tier is a measurement instruction, not a preference.
+    // `capture.mjs --quality ultra` exists so a capture is taken at a known
+    // tier. The downgrade branch used to ignore `qualityOverride`, so a machine
+    // below 34fps was silently demoted mid-run and the capture was not at the
+    // tier that was asked for — and nothing said so, because the capture still
+    // produced a valid-looking PNG of a different quality setting. That is the
+    // class of silent failure this repository keeps paying for.
+    if (this.qualityOverride) {
+      if (this.qualityOverride !== this.renderer.quality) {
+        this.renderer.setQuality(this.qualityOverride);
       }
-    } else if (fps > 58 && cur < order.length - 1 && !this.qualityOverride) {
-      this.qualityHold = (this.qualityHold ?? 0) - 1;
-      if ((this.qualityHold ?? 0) < -6) {
+      this.qualityHold = 0;
+      return;
+    }
+
+    if (fps < 34 && cur > 0) {
+      this.qualityHold++;
+      if (this.qualityHold > 2) {
+        const next = order[cur - 1];
+        this.renderer.setQuality(next);
+        this.qualityHold = 0;
+        toast(`quality → ${next} (${fps.toFixed(0)} fps)`);
+      }
+    } else if (fps > 58 && cur < order.length - 1) {
+      this.qualityHold--;
+      if (this.qualityHold < -6) {
         this.renderer.setQuality(order[cur + 1]);
         this.qualityHold = 0;
       }
@@ -451,6 +488,30 @@ class App {
         app.qualityOverride = tier as QualityTier;
         app.renderer.setQuality(tier as QualityTier);
       },
+      /**
+       * Drive the governor with a synthetic frame time and report what it does.
+       *
+       * The governor is otherwise only reachable through 1.5s of real wall clock,
+       * which makes "does it step down on a slow frame" untestable on demand —
+       * and an untestable governor is one that rots. `governQuality` reads
+       * `renderer.stats.frameMs`, so overwriting that value is enough to present
+       * it with an arbitrary frame time without touching the render loop.
+       */
+      governor: (frameMs: number, ticks = 4) => {
+        const before = app.renderer.quality;
+        for (let i = 0; i < ticks; i++) {
+          app.renderer.stats.frameMs = frameMs;
+          app.governQuality();
+        }
+        return {
+          syntheticFrameMs: frameMs,
+          fps: +(1000 / frameMs).toFixed(1),
+          before,
+          after: app.renderer.quality,
+          override: app.qualityOverride,
+        };
+      },
+      clearQualityOverride: () => { app.qualityOverride = null; },
       step: (n: number) => { for (let i = 0; i < n; i++) app.tick(performance.now()); },
       capture: () => app.refreshCapture(),
       probe: (t: string) => app.renderer.probe(t as never),
