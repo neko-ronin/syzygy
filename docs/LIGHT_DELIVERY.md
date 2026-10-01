@@ -103,9 +103,11 @@ Runtime, at the market spine `[1.16, 2.6, 0.36]`, night, camera LOD 0:
 | default | 18 | 288 | 219 | 219 | 0 | **0.225** |
 | `ultra` | 79 | 1592 | 5990 | 3072 | **2918** | **0.073** |
 
-`aisleWarmPixelPct` moved off zero — 0.000 → 0.225 — so light is reaching the
-frame that did not before. It is not yet a *pool*, and the second row explains
-why.
+`aisleWarmPixelPct` moved off zero — 0.000 → 0.225 — so light was reaching the
+frame. It was still not a *pool*, and §4b explains why: none of these lights was
+being read by a pixel. The 0.073-at-ultra inversion was real and was caused by the
+eviction order (§4), but fixing it moved a number that was measuring the wrong
+quantity.
 
 ## 4. The trade, measured: the bin was evicting by accident
 
@@ -127,6 +129,67 @@ capped light buffer and the only ordering that matches what the frame can see.
 
 **This is committed with the measurement above and one open question: the
 ordering change is not yet confirmed against a frame.** See §6.
+
+## 4b. The actual cause: two ABIs that agreed with each other
+
+Round 5 delivered lights. Round 6 found they had never reached a pixel, for two
+reasons that are both silent and both upstream of everything in §1-4.
+
+**The buffer stride.** `gatherLights` packed lights through `makeInstanceWriter`,
+which strides 24 floats because it packs a mat4, then patched floats 12..15 and 19
+of each record. `lightbin.wgsl` reads `struct Light { posRadius, colorInt }` =
+8 floats = 32 bytes. Light 0's position went to **byte 48**; the shader read bytes
+0..32 and found the identity matrix. The upload length was `count * 8` floats, so
+only the first third of the buffer was written. And `bin` skips any light with
+`colorInt.w <= 0` — the intensity slot, which was never given one — so **every**
+light was rejected on the survival test.
+
+**The reader.** `lighting.wgsl` declared `struct TileLight { offset, count, _pad }`
+(16-byte stride) over the buffer `lightbin.wgsl` wrote as `array<Bin>` (400-byte
+stride). It read `offset` from where `lights[0]` — a light *index* — and used it
+as a base offset into the light array, and `count` from `lights[1]` — the second
+light *index* — as the loop trip count. Both shaders bound the same buffer and
+agreed on its address while disagreeing about its contents.
+
+Plus a third, found while instrumenting: **`tileBuf` was `16 * 16 * 400` bytes —
+256 bins.** `TILE_DIM` is a tile's side in *pixels*, so the grid is
+`ceil(w/16) x ceil(h/16)`: 5700 bins at 1600x900, 10260 at ultra. Both compute
+passes derived their tile count from the screen, so they agreed with each other and
+disagreed with the allocation. Out-of-bounds storage access is legal WebGPU —
+stores drop, loads read zero — so **clustered lights could only appear in roughly
+the top 32 pixels of the frame**, which on the market street is the sky.
+
+### Why none of it errored
+
+| What a number said | What was true |
+| --- | --- |
+| `stats.lights` 219-3072 | lights handed to the binner, none of them binned |
+| `delivered 772, starved 0` | delivery was genuinely fine — it never was the problem |
+| probe `bins 5700, capacity 5700` | the allocation, which had been 256 a moment earlier |
+| probe `meanCount 15.87` | the bins were genuinely full — the *reader* was wrong |
+
+The project had no counter for "what did a **pixel** receive". Every number it
+owned counted up to the handoff. That is the same failure as the phantom rows in
+`COVERAGE.md`: a name, a counter, and no pixels.
+
+### Per-tile cap: instrumented, and deliberately not raised
+
+`probe('tiles')` reads the bins back to the CPU. Market spine, night, tier high:
+
+```
+maxPerTile 270   cap 96   refused 4682   fullTiles 64   meanCount 17.4
+```
+
+So the cap **does** bite, and it bites hardest in the top tile rows (0,0), (1,0),
+(2,0), (0,1) — which is where the market's lantern strings recede toward the
+vanishing point, as predicted. `MAX_PER_TILE` is left at 96.
+
+The reason is ordering, not caution. The stride and reader bugs sat *upstream* of
+the cap: before them, no light was binned at all, so the cap could not have been
+the thing keeping the aisle dark. Raising it now would lengthen the binning pass
+and every pixel's light loop on an 8-core laptop already at 5.2M triangles, to
+address a second-order effect whose first-order cause was a byte offset. Re-measure
+once the pool is visible at all.
 
 ## 5. Why the acceptance test is still not demonstrated
 
@@ -159,6 +222,35 @@ frames show an open plaza with a crowd and stalls off to the right, with no
 lanterns in view. **I have not yet found the camera that puts a lantern and its
 pool in the same frame.** That is the outstanding piece of work, and it is a
 question about where the market is, not about whether light is delivered.
+
+### Round 6, the before/after arms
+
+Same pose `[1.16, 2.6, 0.36]` → `[2.30, 3.47, -11.59]`, same seed, night, tier
+high, only the code differing. `bbf36ef` is the pre-fix tree, stashed and captured,
+then restored.
+
+| arm | `lights` | `aisleWarmPct` | mean luma | max luma | frameMs | `probe('tiles')` |
+| --- | --- | --- | --- | --- | --- | --- |
+| before `bbf36ef` | 772 | 1.316 | 33.07 | 195 | 140.4 | n/a (bins were 256 of 5700) |
+| after `6636f3d` | 772 | **1.509** | 33.28 | 191 | 129.5 | `maxPerTile 270, refused 4682, fullTiles 64, meanCount 17.4` |
+
+**I am not claiming the gate closes, and the reason is the counter.** The aisle is
+marginally warmer (1.316 → 1.509) and the frame is not slower. But `aisleWarmPct`
+counted 1.316 *before* the fix too, at a pose where the bins were 22x too small and
+the reader read the wrong words. So the counter is dominated by crowd and facade
+warm pixels and **cannot distinguish "the aisle is lit" from "something else
+nearby is orange."** A counter that cannot fail is not evidence, and this one
+cannot fail.
+
+The arithmetic that says the pool *should* exist: the nearest lantern is 6.3 m up
+with r=15, I=3, so deck irradiance directly beneath it computes to
+`I * (1-d²/r²)² / (1+d²·0.05)` = **0.68–0.82**, against a night ambient of 0.5.
+That is a 1.4–1.6:1 ratio against ambient and should be plainly visible. It is not
+obviously so in either frame, and I have not explained that. Next suspect, stated
+but untested: at r=15 with a 6.3 m mounting height the pool is broad and shallow
+rather than a defined pool — a 15 m radius from 6.3 m up is a disc ~28 m across,
+so "a visible warm pool" may need a smaller radius and a higher intensity, not
+more lights.
 
 ### A seed discrepancy worth knowing about
 
