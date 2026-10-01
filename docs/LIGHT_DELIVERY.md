@@ -851,3 +851,117 @@ cord/drop geometry all live in `src/world/marketgrammar.ts`, which this agent do
 not own, and lowering the cords changes the skyline silhouette of the district —
 which is a decision about the look, not a bug fix. It needs the owner and a frame
 to judge, and this agent is out of capture budget.
+
+---
+
+## 4i. Round 14: the fix is baked, and my prediction is refuted by the render
+
+### What is actually in the frame
+
+Both frames, seed 6191639, tier **high**, camera `[1.16, 2.44, 0.36]` (night) and
+`[1.16, 2.47, 0.36]` (day) — the same viewpoint, differing only in phase.
+
+| | night | day |
+| --- | --- | --- |
+| `dayPhase` | 0 | 0.96 |
+| lights / delivered / binned | 933 / 933 / 933 | 933 / 933 / 933 |
+| starved / rejectedFar | **0** / 0 | **0** / 0 |
+| market lanterns in view | 144 | 144 |
+| hang height above deck | min 2.81 · **median 3.85** · max 5.10 | identical |
+
+Every market lantern in view carries intensity **2.0**, which is the new
+`LANTERN_LIGHT_INTENSITY`. **The drop-height fix is genuinely baked into the
+render** — 3.85 m median against 6.3 m, not a constant that only the self-test
+sees.
+
+### The prediction, and the refutation
+
+§4h predicted a stall face at **byte 77** with a 1.50× vertical penalty. Measured
+from the render, same screen points in both frames:
+
+| surface | NIGHT byte | R−B | luma | DAY byte | DAY luma |
+| --- | --- | --- | --- | --- | --- |
+| deck under a lantern, 10.0 m | `[61.6, 37.0, 23.3]` | **+38.3** | 42.8 | `[132, 128, 129]` | 129 |
+| deck, left pool | `[50.1, 29.0, 14.8]` | +35.3 | 33.7 | `[113, 109, 109]` | 110 |
+| deck, right of frame | `[4.8, 5.1, 9.1]` | −4.3 | 5.5 | `[109, 114, 122]` | 113 |
+| **right stall flank** | `[7.5, 8.5, 15.7]` | **−8.2** | **9.0** | `[100, 117, 115]` | 112 |
+| **stall canopy frame** | `[5.4, 12.6, 44.7]` | **−39.3** | **14.1** | `[106, 130, 136]` | 124 |
+| **centre stall pole** | `[5.0, 6.5, 21.4]` | **−16.4** | **7.8** | `[156, 176, 178]` | 170 |
+
+**The prediction is refuted by roughly a factor of ten.** Predicted flank byte 77;
+measured 8–15. And the flank is not merely dim, it is **cold** — R−B −8 against
+the deck's +38. It is receiving blue ambient and essentially no warm light at all.
+
+The hang height did what it was supposed to do. The deck beneath a lantern is now
+byte 62 and warm-dominant by 38. What it did **not** do is put a lantern over a
+vertical face.
+
+### Exposure is ruled out
+
+The `09-market-down` pose pins `exposure: 1.28`, below the night phase's 1.60 —
+worth checking, because it underexposes night by 20%. Inverting the display chain
+and re-applying at 1.60:
+
+| surface | at 1.28 | at 1.60 |
+| --- | --- | --- |
+| deck under lantern | 62 | **88** |
+| right stall flank | 8 | **14** |
+| canopy frame | 5 | 10 |
+| centre pole | 5 | 9 |
+
+Re-exposing lifts the deck 62 → 88 and the flank 8 → **14**. **Exposure is not the
+mechanism.** Half the stop buys the ground and does nothing for the structures.
+
+### Verdict: the gap is NOT closed
+
+The reviewer's request was for a bounded footprint that reveals paving joints,
+counter edges and a person against cool shade, repeated along the aisle. In the
+night frame there is **one** warm footprint, on the deck, bottom-left — and every
+vertical structure above the deck line is a silhouette. The canopy frame in the
+crop reads only because it is darker than the blue buildings behind it.
+
+The day control at identical screen points measures luma 112–170 on exactly those
+structures. **The geometry, the crates, the counter edges, the paving joints and a
+figure are all present and all resolvable.** Night reveals none of them.
+
+### The single remaining mechanism
+
+**The lanterns hang over the carriageway, and the stalls do not stand under them.**
+`STRING_ANCHOR_OUT` puts each cord 1.7 m outboard of the kerb and `STRING_PITCH`
+spaces cords 17–31 m apart, so a stall flank is laterally offset from the nearest
+lantern rather than beneath it. Lowering the hang fixed the N·L ratio for a surface
+directly under a lamp — which is exactly why the deck improved and nothing else
+did. A surface 2 m to the side and at grazing incidence loses most of what little
+solid angle it has, and there is no second warm source at counter height: emissive
+windows and signs *look* lit but emit no light, and ambient is blue.
+
+**Confidence: medium, and stated as such.** This measurement establishes that warm
+light reaches the ground plane and nothing reaches the verticals — it does *not*
+establish lateral distance as the cause, because the vertical sample points were
+chosen by eye from a dark frame and may have missed geometry. The measurement that
+would settle it is to place a probe on a known stall flank and print its distance
+and bearing to the nearest lantern. That is the next capture, and it was not
+bought.
+
+### Also found: `--pose` silently failed to apply the pose
+
+`node tools/capture.mjs --pose=09-market-down --quality high` reported
+**`PASS 1 shot(s)`** and rendered **a rooftop vista from 444 m up**, at
+`[1058.15, 444.17, 337.13]`, with `requested: null` in the provenance. The pose is
+defined at `[1.16, 2.6, 0.36]`. Both captures in that invocation were of the wrong
+place and the requested-vs-held check that is supposed to fail the run did not fire.
+
+Two frames were spent discovering this. Both usable frames in this section were
+taken through `--eval` with an explicit `setPose`, which is the path that
+demonstrably reaches the market. **This is the exact failure `PROCESS.md` and the
+harness's own round-11 comment describe — a pose that was asked for is not a pose
+that was rendered — and the guard against it is not working.** It needs its own
+round; the fix is in `tools/capture.mjs`, and diagnosing why `setPose` reported ok
+while the camera was untouched is the work.
+
+### Moiré — parked, and visible
+
+Unchanged and still unexplained: **3.638 of high-frequency energy remains at
+grain 0 and chroma 0.** It is severe in this frame, which is dark and therefore
+grain-dominated, but it is not what makes the stalls unreadable — the stalls are
+at byte 8–15, far below anything grain can account for.
