@@ -197,6 +197,13 @@ export class Renderer {
    */
   private cascadePlanes: Float32Array[] = Array.from(
     { length: CASCADE_COUNT }, () => new Float32Array(24));
+  /**
+   * Diagnostic: when false, every cascade falls back to the camera frustum and
+   * the renderer reverts to submitting the full chunk set to all of them. This
+   * exists so "does per-cascade culling change the picture?" can be answered by
+   * diffing two frames instead of by staring at one and forming an opinion.
+   */
+  shadowCullEnabled = true;
   private cascadeSplits = new Float32Array([60, 220, 700, 2400]);
 
   private frameIndex = 0;
@@ -906,10 +913,12 @@ export class Renderer {
     s.gbufferTriangles = c.gbufferTris;
     s.postTriangles = c.postTris;
     s.entityTriangles = c.entityTris;
-    for (let i = 0; i < CASCADE_COUNT; i++) {
-      s.cascadeDrawCalls[i] = c.cascade[i];
-      s.cascadeTriangles[i] = c.cascadeTris[i];
-    }
+    // Fresh arrays, not the counter's own. `__syzygy.stats()` shallow-spreads
+    // this object, so a held snapshot would otherwise alias the live array and
+    // quietly change under the caller — which is how a before/after comparison
+    // ends up comparing a number with itself.
+    s.cascadeDrawCalls = c.cascade.slice();
+    s.cascadeTriangles = c.cascadeTris.slice();
     s.frustumCulled = c.culled;
     // Histogram of baked detail levels. This is the stat that makes 'LOD is
     // wired' a measurement rather than a claim: if every entry is level 0, the
@@ -1009,7 +1018,7 @@ export class Renderer {
     let tris = 0;
     let culled = 0;
     let chunkMeshes = 0;
-    const planes = shadowOnly && cascade >= 0
+    const planes = shadowOnly && cascade >= 0 && this.shadowCullEnabled
       ? this.cascadePlanes[cascade]
       : cam.frustumPlanes;
 

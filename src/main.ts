@@ -512,6 +512,14 @@ class App {
         };
       },
       clearQualityOverride: () => { app.qualityOverride = null; },
+      /** A/B the per-cascade shadow culling. See `renderer.shadowCullEnabled`. */
+      shadowCull: (on: boolean) => { app.renderer.shadowCullEnabled = on; },
+      /** Raw pixels from the renderer's own readback path, for diffing. */
+      pixels: async () => {
+        const img = await app.renderer.captureRGBA();
+        if (!img) return null;
+        return { w: img.width, h: img.height, d: Array.from(img.data) };
+      },
       step: (n: number) => { for (let i = 0; i < n; i++) app.tick(performance.now()); },
       capture: () => app.refreshCapture(),
       probe: (t: string) => app.renderer.probe(t as never),
