@@ -8,7 +8,7 @@
  * resolution, and this is that table with the maths attached.
  */
 
-import { m4lookAt, v3cross, v3norm, type Mat4, type Vec3 } from '../core/math';
+import { m4lookAt, type Mat4, type Vec3 } from '../core/math';
 
 /** World up. Shadow boxes cannot use the camera's up; roll would rotate them. */
 const UP: Vec3 = [0, 1, 0];
@@ -76,16 +76,12 @@ export interface CascadeBox {
  *   which interacts with the defect immediately below. Both belong to the same
  *   piece of work, not to a performance fix.
  *
- * KNOWN DEFECT, measured, not fixed here — see `src/render/__perftest.ts`:
- * the light view's depth axis is `lx`, which is perpendicular to the sun, not
- * `lz`, which points along it. The eye offset is `centre + lx * radius`, and
- * `m4lookAt` then derives its z axis from `eye - centre`. So the shadow map is
- * projected along a direction 65-114 degrees away from the sun. The line
- * `v3cross(lz, lx)` was clearly an attempt to re-orthogonalise the basis;
- * `v3cross` returns a new vector rather than mutating, so the result was
- * discarded and the line is dead. The one-line fix is to offset the eye along
- * `lz` instead of `lx`. It changes every shadow in the project and is a visual
- * change, so it is not being made inside a performance commit.
+ * FIXED. The defect this note used to carry: the light view's depth axis was
+ * `lx`, which is perpendicular to the sun by construction, so the shadow map was
+ * projected 65-114 degrees away from the light. The eye is now offset along `-lz`
+ * — the sun side — and `__perftest.ts` measures the angle between the light's
+ * depth axis and the sun. It is committed alone because it changes every shadow
+ * in the project, and it needs the vision gate rather than a self-assertion.
  */
 export function cascadeParams(
   camPos: Vec3, camForward: Vec3, sun: Vec3, near: number, far: number, shadowRes: number,
@@ -93,19 +89,38 @@ export function cascadeParams(
   const centre = v3scaleAdd(camPos, camForward, (near + far) * 0.5);
   const radius = (far - near) * 0.62 + 40;
   const up: Vec3 = Math.abs(sun[1]) > 0.98 ? UP_ALT : UP;
-  // See the KNOWN DEFECT note above: `lx` is not the sun axis and is being used
-  // as the depth axis. Preserved deliberately so this commit changes no pixels.
-  const lz = v3norm([
-    centre[0] - sun[0] * radius * 2,
-    centre[1] - sun[1] * radius * 2,
-    centre[2] - sun[2] * radius * 2,
-  ]);
-  const lx = v3norm(v3cross(UP_ALT, lz));
-  const eye: Vec3 = [
-    centre[0] + lx[0] * radius,
-    centre[1] + lx[1] * radius,
-    centre[2] + lx[2] * radius,
-  ];
+// The light view's depth axis must run along the sun. `m4lookAt` derives its z
+// axis from `eye - centre`, so the ONLY way to control the projection axis is
+// to choose the eye along the sun and let the subtraction do the rest. The eye
+// goes on the far side of the box from the light: `centre - sun * d`, where
+// `sunDirection()` returns the direction TOWARD the sun and is already unit
+// (state.ts:98), so `eye - centre` is exactly `-d * sun` with no normalisation
+// and no dependence on where `centre` happens to be.
+//
+// It used to sit at `centre + lx * radius`, where `lx = cross(UP_ALT, lz)` is
+// perpendicular to the sun by construction. The shadow map was therefore
+// projected 65.7 degrees off the sun in cascade 0 and 114.3 degrees off in
+// cascades 1-3 (`__perftest.ts` measures all four), which is not a subtle
+// inaccuracy: it is a different set of occluders. Anything standing in the open
+// could be shadowed by whatever happened to lie between it and a sideways
+// light, which is the most likely reason pedestrians read as dark bars against a
+// sunlit deck in `shots/2026-10-01T02-57-44/01d-street-crowd.png`.
+//
+// Going via `lz` instead — `centre - lz * radius`, which reads like the obvious
+// minimal edit — gets to 34.7/36.6/45.2/82.6 degrees rather than 0, because
+// `lz = normalise(centre - sun * radius * 2)` is only `-sun` when `centre` is
+// the world origin, and it never is. Measured, not reasoned: that was the first
+// attempt and the perftest said so immediately.
+//
+// VISUAL CHANGE. This alters every shadow in the project. It is committed alone,
+// on purpose, and it needs the vision gate rather than a self-assertion: the
+// previous behaviour was wrong, but "wrong" is not a reason to trust an
+// unrendered fix.
+const eye: Vec3 = [
+  centre[0] - sun[0] * radius * 2.2,
+  centre[1] - sun[1] * radius * 2.2,
+  centre[2] - sun[2] * radius * 2.2,
+];
   const lightView = m4lookAt(m4Alloc(), eye, centre, up);
 
   return {

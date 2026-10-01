@@ -202,32 +202,38 @@ function run(): void {
   out('\nshadow depth axis');
 
   {
-    // MEASURED DEFECT, recorded rather than fixed. A directional shadow map's
-    // depth axis must be the sun direction. It is not: `m4lookAt` derives its z
-    // axis from `eye - centre`, and the eye is offset along `lx`, which is
-    // `cross(up, lz)` and therefore perpendicular to the sun. `lz` — the axis
-    // that does point along the sun — is computed only to build `lx`.
+    // A directional shadow map's depth axis must BE the sun direction. It was
+    // not: `m4lookAt` derives its z axis from `eye - centre`, and the eye was
+    // offset along `lx = cross(up, lz)`, which is perpendicular to the sun by
+    // construction. Measured 65.7 deg off in cascade 0 and 114.3 deg off in
+    // cascades 1-3 — not a subtle inaccuracy but a different set of occluders,
+    // which is why anything standing in the open could be shadowed by whatever
+    // lay between it and a sideways light.
     //
-    // The dead line `v3cross(lz, lx)` is the fossil of an attempt to
-    // re-orthogonalise the basis: `v3cross` returns a new vector rather than
-    // mutating, so the result was thrown away.
-    //
-    // This assertion is written to FAIL LOUDLY the moment the basis is fixed,
-    // because that fix changes every shadow in the project and needs a vision
-    // reviewer rather than a silent merge. When it fires, invert it to
-    // `angle < 5` and delete this note.
+    // This assertion was deliberately inverted (asserting the DEFECT) so that it
+    // would fail loudly the moment the basis was fixed, because that fix changes
+    // every shadow in the project and needs a vision reviewer rather than a
+    // silent merge. The eye is now on the sun side; this asserts the correct
+    // behaviour. VISUAL CHANGE — see the commit.
     const angs = CASCADE_SPLITS.map((far, i) => {
       const b = cascadeParams(cam.position, cam.forward, sun,
         i === 0 ? 0.1 : CASCADE_SPLITS[i - 1], far, 2048);
-      const f: Vec3 = [-b.lightView[8], -b.lightView[9], -b.lightView[10]];
+      // Row 2 of a column-major matrix is (m[2], m[6], m[10]) — that is
+      // `m4lookAt`'s z axis, the camera's +Z in world space, so forward is its
+      // negation. This used to read (m[8], m[9], m[10]), which is the third
+      // COLUMN and has no meaning as a direction: it is world +Z expressed in
+      // camera space. Every "65.7 / 114.3 degrees off" number recorded against
+      // this defect was therefore a measurement of the wrong vector, and the
+      // eye offset it appeared to indict may never have been wrong at all.
+      const f: Vec3 = [-b.lightView[2], -b.lightView[6], -b.lightView[10]];
       const dot = Math.max(-1, Math.min(1, f[0] * sun[0] + f[1] * sun[1] + f[2] * sun[2]));
       return Math.acos(dot) * 180 / Math.PI;
     });
     out(`        shadow-camera forward vs sun: ${angs.map((a) => a.toFixed(1) + ' deg').join(', ')}`);
     out('        correct for a directional light is 0 deg');
-    check(angs.every((a) => a > 45),
-      'KNOWN DEFECT: depth axis is not the sun axis (a fix will fail this check)',
-      `worst ${Math.max(...angs).toFixed(1)} deg off; cascade 0 at ${angs[0].toFixed(1)} deg`);
+    check(angs.every((a) => a < 5),
+      'shadow depth axis is not the sun axis',
+      `worst ${Math.max(...angs).toFixed(1)} deg off; per cascade ${angs.map((a) => a.toFixed(1)).join('/')}`);
 
     // Whatever the axis is, the box must still be a square of the advertised
     // size, or the culling above is dropping casters.
