@@ -140,16 +140,24 @@ lingers — visible from a kilometre away, since the camera is a drone.
 
 ## R6 — Atmosphere: volumetric light and weather
 
-**Status: todo** · **Priority: medium** · *Vision: "atmostpheric lighting and
-atmostphere effects are vey important" (repeated in the prompt)*
+**Status: shafts done (`6a47405`) · precip still a PHANTOM** · **Priority: medium**
+· *Vision: "atmostpheric lighting and atmostphere effects are vey important"
+(repeated in the prompt)*
 
-`godRays` and `precip` exist in state and drive **nothing**. The reference frames
-lean on shafts of light cutting through canyons, and on rain.
+**Shipped.** A half-resolution radial scatter march from the sun's screen
+position, occluded by the depth buffer, driven by `weather2.y`, composited
+after the temporal resolve. Plain WGSL, no froxel volume, no reflection probe —
+see [`WATER_AND_VOLUMETRICS.md`](WATER_AND_VOLUMETRICS.md) for the design, the
+cost, and the two bugs that had to be found before any of it was measurable.
 
-Shafted volumetric fog is the single most recognisable element of the reference
-material and is currently missing entirely. `WeatherDirector` already models
-sunbreak, fog-bank and lightning, which are exactly the events that should drive
-it.
+The open half is `precip`: `weather3.w` is still written every frame and read by
+nothing, and the reference frames lean on rain. `WeatherDirector` models
+sunbreak, fog-bank and lightning, which is what drove the shafts and should
+drive it.
+
+**Known gap:** no pose in `references/sections.json` frames the sun, so the
+comparison grid cannot currently show this working. A dusk pose with the sun
+in-frame is a prerequisite for reviewing it, not a follow-up.
 
 ## R7 — Water and the canal
 

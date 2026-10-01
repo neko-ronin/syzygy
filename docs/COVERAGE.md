@@ -86,13 +86,19 @@ in `DECISIONS.md`:
 Found during the audit by checking each row against the source instead of
 against a filename. Each has a name, wiring, or a tool that makes it look done.
 
+`godRays` was closed in `6a47405` and its row is struck through rather than
+deleted, because the failure mode is worth remembering: **it stayed invisible
+because every reference pose frames the city with the sun off-screen**, so even
+a correct pass would have been absent from the comparison grid. A feature that
+no pose can see is a feature nothing will ever ask you to finish.
+
 None of these were caught in three sessions. Everything in the doc set was
 organised around *what to do next*; nothing was checking *what was planned and
 where it went*.
 
 | Subsystem | What exists | What is missing |
 | --- | --- | --- |
-| `godRays` | A weather field, written to the `weather2` uniform (`common.wgsl:25`, `renderer.ts:522`). Set by poses and by the LLM's `set_weather` | **No shader reads `weather2.y`.** No volumetric pass exists anywhere in `src/` |
+| ~~`godRays`~~ **RETIRED** | A weather field, written to the `weather2` uniform. Set by poses and by the LLM's `set_weather` | **Closed `6a47405`.** `shafts` in `post.wgsl` reads `weather2.y`; half-res radial scatter occluded by the depth buffer, composited after the resolve. `stats.shafts` and a static guard in `__perftest.ts` keep it honest. See [`WATER_AND_VOLUMETRICS.md`](WATER_AND_VOLUMETRICS.md) |
 | `precip` | `weather3.w` (`common.wgsl:26`) | **No shader reads `weather3.w`.** No precipitation renderer |
 | `structure-collapse` | An `EventKind` in `core/state.ts:177`; a tool in `agent/tools.ts:132,162` | No fracture renderer. **You can ask the LLM to collapse a structure and it will report success** |
 | `debrisChunk()` | Defined at `citymesh.ts:900` | Never called. The GPU debris field R5 depends on does not exist |
@@ -168,7 +174,7 @@ clean. Neither agent was wrong; they ran different compilers.
 
 ## Adding rows
 
-The three phantoms above were all found by asking "what did the plan include,
+The phantoms above were all found by asking "what did the plan include,
 and is each part actually there?" The checklist had 13 items and the map found
 gaps inside 5 of them. The sub-details are where the real growth is:
 
