@@ -117,6 +117,48 @@ PASS); daylight verified unaffected from the same camera.
 *Verification that matters, unchanged:* night must become the brightest frame in
 the set, not merely a brighter purple murk. It is not there yet.
 
+### OPEN — needs the owner's eyes on a frame, not a number
+
+**The luma inversion is undecided, and must not be decided by an agent.**
+
+Measured now: night ≈ **11.4** luma against a noon of **125.75**. On the raw
+number night is nowhere near being the brightest frame. But a raw mean-luma
+comparison is the wrong instrument, and the owner has made the point directly:
+
+> In reality a city is dark at night but perceptually it may be perceived as the
+> brightest thing. I can't make a judgement without seeing it.
+
+So the criterion above — *"night must become the brightest frame in the set"* — is
+**provisional**. It is a useful forcing function for stopping night being a
+purple murk. It is not established as the target. Three separate things are true
+at once and this entry conflates them:
+
+1. Night must not be near-black. Settled, and being fixed.
+2. Night must read as *lit* — warm point sources, visible pools, a legible
+   walking plane. This is the review gate's named gap and it is the current work.
+3. Whether night out-reads *daylight* in a given frame is an **aesthetic
+   judgement that requires looking at both frames together**, and depends on
+   composition rather than on a mean.
+
+**Queue for the next visual review session.** When the team is ready to produce
+visuals for the owner, produce these as a set and ask:
+
+- one daylight and one night frame of the **same pose and seed, side by side**,
+  not as two separate stills;
+- a night market frame, once the aisle lighting lands — that is where the
+  question is sharpest;
+- the wide skyline at both phases, since that is where an inversion either reads
+  or does not.
+
+Then either ratify the criterion or replace it with one that can be measured.
+**Do not tune toward the number in the meantime.** Optimising for "night > day"
+as a raw luma target would push the whole night rig bright and wash out the very
+point sources the frame depends on. The related acceptance test that *is*
+established is `docs/LEGIBILITY_TARGETS.md` §4: a luminous lantern core with a
+visible warm pool on the adjacent walking surface.
+
+---
+
 ## R3 — Kill the aliasing
 
 **Status: todo** · **Priority: high** · *Vision: "near or surpasses the

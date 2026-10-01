@@ -381,6 +381,53 @@ reproduced on demand. Take the control, not the counter.
 
 ---
 
+## 19. A measurement taken mid-edit is not a measurement of the repository
+
+**Symptom:** a doc-sweep agent reported that the project's own verification gate
+was broken on a fresh clone:
+
+```
+npx tsc --noEmit        3 errors in src/render/gpuutil.ts
+```
+
+and attributed the errors to commit `81f34ba`, months earlier — concluding that
+"the repo's documented 'must be clean' gate fails on a fresh clone", which is
+`PROCESS.md` rule 3's exact shape: a check that reports a result nobody reads.
+
+**It was not broken.** `gpuutil.ts` had not been modified since `81f34ba`, and
+with a clean working tree `npx tsc --noEmit` produces no output at all. The
+errors were real *at the moment they were measured* and they were real for the
+wrong reason: another agent was mid-edit in a caller, TypeScript resolved an
+overload mismatch at the **declaration** in `gpuutil.ts`, and the report read the
+declaration's file as the culprit. Stashing the reporter's own change and
+re-running — which it did, correctly — reproduced the errors, because the other
+agent's half-finished edit was still on disk.
+
+**Rule.** In a repository with more than one agent writing to it concurrently,
+establish three things before reporting that the tree is broken:
+
+1. **Is the working tree clean?** `git status`. Uncommitted changes are somebody
+   mid-flight; that is the default explanation, not the alternative.
+2. **Is the file you are blaming actually modified?** `git log -1 -- <file>`.
+   If it has not moved since an old commit, a new error *in* it came from
+   somewhere else.
+3. **Did you attribute the error to a commit, or to a caller?** TypeScript
+   reports overload failures at the declaration. The blame usually belongs to the
+   call site, which is the file that is actually being edited.
+
+**This is the general lesson of every entry in this file, applied to the
+measuring instrument rather than to the measured.** A silent wrong result looks
+exactly like a real one, and concurrency manufactures silent wrong results
+routinely and for free. The discipline that catches it is the same as always —
+*check the artifact against a source you know differs*, and distrust any
+measurement whose result is convenient enough to need explaining.
+
+Concretely, here: `git status` was clean and `tsc` was silent. Two commands,
+both of which the reporting agent could have run and neither of which it did,
+because it had already decided what the errors were.
+
+---
+
 ## Working norms that held up
 
 - **Measure before theorising.** Every bug above cost far less time to measure
