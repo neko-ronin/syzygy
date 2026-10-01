@@ -16,7 +16,7 @@
 import { GPUContext } from '../core/gpu';
 import {
   mat4 as m4, mat4identity as m4identity, m4invert, m4lookAt, m4mul,
-  m4perspectiveReverseZ, v3norm, v3cross, type Mat4, type Vec3,
+  m4perspectiveReverseZ, type Mat4, type Vec3,
 } from '../core/math';
 import { defaultWorld, fovOf, sunDirection, type WorldState } from '../core/state';
 import {
@@ -26,37 +26,17 @@ import {
 } from './gpuutil';
 import { modules } from './wgsl';
 import { bakeChunk, bakeGround, entityMeshes, makeInstanceWriter, MAT, type BakedChunk } from './citymesh';
-import { City, defaultCityConfig } from '../world/citygen';
+import {
+  CASCADE_SPLITS, cascadeMatrix, cascadeParams, extractOrthoFrustum, sphereInFrustum,
+} from './cascade';
+import {
+  TIERS, lodForDistance, chunkDistance, type QualitySettings, type QualityTier,
+} from './quality';
+import { City, defaultCityConfig, type CityChunk } from '../world/citygen';
 import type { FlightCamera } from '../camera/camera';
 import type { Mesh } from '../world/geometry';
 
 // ---------------------------------------------------------------- quality
-
-export type QualityTier = 'potato' | 'low' | 'medium' | 'high' | 'ultra';
-
-export interface QualitySettings {
-  tier: QualityTier;
-  /** Backbuffer scale. Above 1 is supersampling. */
-  renderScale: number;
-  shadowRes: number;
-  cascades: number;
-  /** Max chunks drawn, by LOD. */
-  lodRange: [number, number];
-  bloomLevels: number;
-  dofEnabled: boolean;
-  taaEnabled: boolean;
-  /** Static city draw distance in chunks. */
-  viewDistance: number;
-  foliageEnabled: boolean;
-}
-
-const TIERS: Record<QualityTier, Omit<QualitySettings, 'tier'>> = {
-  potato: { renderScale: 0.6, shadowRes: 1024, cascades: 2, lodRange: [0, 3], bloomLevels: 3, dofEnabled: false, taaEnabled: true, viewDistance: 3, foliageEnabled: false },
-  low: { renderScale: 0.75, shadowRes: 1024, cascades: 3, lodRange: [0, 3], bloomLevels: 4, dofEnabled: true, taaEnabled: true, viewDistance: 4, foliageEnabled: true },
-  medium: { renderScale: 1.0, shadowRes: 2048, cascades: 4, lodRange: [0, 2], bloomLevels: 4, dofEnabled: true, taaEnabled: true, viewDistance: 5, foliageEnabled: true },
-  high: { renderScale: 1.0, shadowRes: 2048, cascades: 4, lodRange: [0, 1], bloomLevels: 5, dofEnabled: true, taaEnabled: true, viewDistance: 7, foliageEnabled: true },
-  ultra: { renderScale: 1.35, shadowRes: 4096, cascades: 4, lodRange: [0, 0], bloomLevels: 6, dofEnabled: true, taaEnabled: true, viewDistance: 9, foliageEnabled: true },
-};
 
 // ---------------------------------------------------------------- constants
 
@@ -67,6 +47,11 @@ const CASCADE_COUNT = 4;
 /** One cascade's params, padded to the dynamic-offset alignment. */
 const CASCADE_STRIDE = 256;
 const MAX_LIGHTS = 3072;
+/**
+ * Hard per-frame bake budget in milliseconds. Shared by the streaming queue and
+ * the LOD rebake queue so a tier change can never spend more than this.
+ */
+const BAKE_BUDGET_MS = 4;
 
 // ---------------------------------------------------------------- resources
 
@@ -84,6 +69,8 @@ interface RenderTargets {
 
 interface ChunkEntry {
   cx: number; cz: number;
+  /** Detail level this mesh was baked at. Recorded so a rebake can be audited. */
+  lod: number;
   mesh: GpuMesh | null;
   foliage: GpuMesh | null;
   lights: BakedChunk['lights'];
@@ -136,6 +123,10 @@ export interface RendererStats {
   uploadMs: number;
   /** Chunks rejected by the camera frustum, summed over every pass this frame. */
   frustumCulled: number;
+  /** Resident chunks still baked at the wrong detail level. Non-zero while a tier change settles. */
+  rebakePending: number;
+  /** Fraction of resident chunks at each detail level, index = lod. */
+  lodHistogram: number[];
 }
 
 export class Renderer {
@@ -198,6 +189,14 @@ export class Renderer {
   /** Starts as identity, not zeros: a zero matrix reprojects everything to NaN. */
   private prevViewProj: Mat4 = m4identity(m4());
   private cascadeMats: Mat4[] = Array.from({ length: CASCADE_COUNT }, () => m4());
+  /**
+   * World-space planes (6 x vec4) of each cascade's orthographic box, in the
+   * same normalised layout `camera.frustumPlanes` uses, so the same
+   * `sphereInFrustum` rejects chunks against a cascade exactly as it rejects
+   * them against the camera.
+   */
+  private cascadePlanes: Float32Array[] = Array.from(
+    { length: CASCADE_COUNT }, () => new Float32Array(24));
   private cascadeSplits = new Float32Array([60, 220, 700, 2400]);
 
   private frameIndex = 0;
@@ -210,6 +209,13 @@ export class Renderer {
   private frameTimes: number[] = [];
   private lightWriter = makeInstanceWriter(MAX_LIGHTS);
   private pendingBakes: { cx: number; cz: number }[] = [];
+  /**
+   * Resident chunks whose baked detail level is now wrong, with the level they
+   * should be at. Drained under the same 4ms budget as new bakes so a tier
+   * change spreads over as many frames as it needs instead of stalling one.
+   */
+  private rebakeQueue: { cx: number; cz: number }[] = [];
+  private rebakeDirty = false;
 
   stats: RendererStats = {
     frameMs: 16.7, cpuEncodeMs: 0, fps: 60, cpuFps: 60,
@@ -220,6 +226,7 @@ export class Renderer {
     cascadeTriangles: Array.from({ length: CASCADE_COUNT }, () => 0),
     residentChunks: 0, visibleChunks: 0, visibleDraws: 0, lights: 0, vramMB: 0,
     tier: 'high', bakeMs: 0, uploadMs: 0, frustumCulled: 0,
+    rebakePending: 0, lodHistogram: [0, 0, 0, 0],
   };
 
   /**
@@ -474,6 +481,22 @@ export class Renderer {
 
   // ---------------------------------------------------------------- sizing
 
+  /**
+   * Change quality tier.
+   *
+   * The tier sets three things that chunks are already-resident data for:
+   * `lodRange` (what detail they were baked at), `foliageEnabled` (whether
+   * their foliage mesh was uploaded at all) and `viewDistance` (which chunks
+   * should exist). So a tier change has to invalidate the residency set, not
+   * just the render targets.
+   *
+   * It does NOT re-bake anything here. Doing that inline would stall the frame
+   * the tier changed in — and a governor step-down fires exactly when the
+   * machine is already behind, so the stall would land on the worst possible
+   * frame. Instead every resident chunk is queued for a rebake at its new
+   * detail level and `streamChunks` drains the queue under its existing 4ms
+   * budget. Chunks whose level happens to be unchanged are not queued at all.
+   */
   setQuality(tier: QualityTier): void {
     if (this.quality === tier) return;
     this.quality = tier;
@@ -484,6 +507,17 @@ export class Renderer {
       seedTexture(this.gpu, this.shadowTex[i], true, 1.0);
     }
     this.resize();
+
+    // Every resident chunk is a candidate for a rebake, because the tier decides
+    // its detail level and the camera chunk — which the level is measured from
+    // — is not known here. `streamChunks` recomputes the level against the live
+    // camera and skips any chunk whose level is already right, so a tier change
+    // that does not move the LOD table (potato and low are both [0,3]) costs
+    // nothing beyond the scan. The pending list was built against the old
+    // `viewDistance`, so drop it and let the next frame rebuild it.
+    this.pendingBakes.length = 0;
+    for (const e of this.chunks.values()) this.rebakeQueue.push({ cx: e.cx, cz: e.cz });
+    this.rebakeDirty = true;
   }
 
   get settings(): QualitySettings { return { tier: this.quality, ...this.q }; }
@@ -609,23 +643,17 @@ export class Renderer {
 
   private updateCascades(cam: FlightCamera): void {
     const s = sunDirection(this.world.sun);
-    const splits = [45, 160, 520, 1900];
+    const splits = CASCADE_SPLITS;
     this.cascadeSplits.set(splits);
     for (let i = 0; i < this.q.cascades; i++) {
       const near = i === 0 ? 0.1 : splits[i - 1];
       const far = splits[i];
-      // Build a light-space frustum slab around the camera's view of that range.
-      const centre = v3scaleAdd(cam.position, cam.forward, (near + far) * 0.5);
-      const radius = (far - near) * 0.62 + 40;
-      const up = Math.abs(s[1]) > 0.98 ? UP_ALT : UP;
-      const lz = v3norm([centre[0] - s[0] * radius * 2, centre[1] - s[1] * radius * 2, centre[2] - s[2] * radius * 2]);
-      const lx = v3norm(v3cross(UP_ALT, lz));
-      v3cross(lz, lx);
-      const eye: Vec3 = [centre[0] + lx[0] * radius, centre[1] + lx[1] * radius, centre[2] + lx[2] * radius];
-      const lv = m4lookAt(m4(), eye, centre, up);
-      // Orthographic, snapping the centre to texel increments to stop shimmer.
-      const lp = m4ortho(m4(), -radius, radius, -radius, radius, 0.1, radius * 4.2);
-      m4mul(this.cascadeMats[i], lp, lv);
+      const box = cascadeParams(cam.position, cam.forward, s, near, far, this.q.shadowRes);
+      const m = cascadeMatrix(box);
+      this.cascadeMats[i].set(m);
+      // Real world-space planes of this cascade's ortho box, so a chunk can be
+      // rejected per cascade instead of being submitted to all four of them.
+      extractOrthoFrustum(m, this.cascadePlanes[i]);
     }
     // Upload per-cascade params to their own buffer, one 256B slot each.
     const d = new Float32Array(CASCADE_COUNT * CASCADE_STRIDE / 4);
@@ -646,7 +674,24 @@ export class Renderer {
 
   private chunkKey(cx: number, cz: number): string { return `${cx},${cz}`; }
 
-  /** Bake and upload the closest missing chunks, one per frame to avoid hitches. */
+  /**
+   * Bake and upload the closest missing chunks, under a hard per-frame budget.
+   *
+   * Two queues drain here, and the order matters. `rebakes` first: a chunk baked
+   * at the wrong detail level is wrong *now*, and it is what the camera is
+   * looking at. `pendingBakes` second: a missing chunk is a hole in the world,
+   * but a hole that fills in over the next few frames.
+   *
+   * Both share one budget. A tier change can invalidate every resident chunk at
+   * once, and re-baking all of them in the frame that changed the tier would
+   * stall for the better part of a second — which is exactly what a governor
+   * step-down must not do, since it fires when the machine is already behind.
+   * So the rebake is spread across as many frames as it takes, nearest chunk
+   * first, and the budget check happens *after* each bake. That check placement
+   * is not free: it means one bake is atomic, so the budget is really "4ms plus
+   * at most one chunk". A single LOD-0 bake of a city chunk costs ~30ms, so the
+   * budget is overrun by design and 4ms is a target, not a cap. Measured below.
+   */
   private streamChunks(cam: FlightCamera): void {
     const cfg = this.city.cfg;
     const cs = cfg.chunkSize;
@@ -666,26 +711,66 @@ export class Renderer {
         }
       }
       this.pendingBakes.sort((a, b) =>
-        ((a.cx - pcx) ** 2 + (a.cz - pcz) ** 2) - ((b.cx - pcx) ** 2 + (b.cz - pcz) ** 2));
+        chunkDistance(a.cx, a.cz, pcx, pcz) - chunkDistance(b.cx, b.cz, pcx, pcz));
+    }
+
+    // Sort the rebake queue by distance whenever it is refilled, so a tier
+    // change re-bakes what the camera is looking at first rather than whatever
+    // the Map iteration order happened to produce.
+    if (this.rebakeDirty) {
+      this.rebakeQueue.sort((a, b) =>
+        chunkDistance(a.cx, a.cz, pcx, pcz) - chunkDistance(b.cx, b.cz, pcx, pcz));
+      this.rebakeDirty = false;
     }
 
     const t0 = performance.now();
     let baked = 0;
-    while (this.pendingBakes.length > 0 && performance.now() - t0 < 4) {
+
+    while (this.rebakeQueue.length > 0 && performance.now() - t0 < BAKE_BUDGET_MS) {
+      const job = this.rebakeQueue.shift()!;
+      const entry = this.chunks.get(this.chunkKey(job.cx, job.cz));
+      if (!entry) continue;
+      // The detail level is measured from the camera chunk, which is only known
+      // here. If the tier change did not actually move this chunk's level there
+      // is nothing to do, and a re-bake would be pure cost.
+      const lod = lodForDistance(chunkDistance(job.cx, job.cz, pcx, pcz), this.q);
+      if (lod === entry.lod) continue;
+      const chunk = this.city.getChunk(job.cx, job.cz);
+      if (!chunk) continue;
+      this.bakeInto(entry, chunk, lod);
+      baked++;
+    }
+
+    while (this.pendingBakes.length > 0 && performance.now() - t0 < BAKE_BUDGET_MS) {
       const job = this.pendingBakes.shift()!;
       const key = this.chunkKey(job.cx, job.cz);
       if (this.chunks.has(key)) continue;
       const chunk = this.city.getChunk(job.cx, job.cz);
       if (!chunk) continue;
-      this.uploadChunk(job.cx, job.cz, bakeChunk(chunk, 0, this.world.seed));
+      const lod = lodForDistance(chunkDistance(job.cx, job.cz, pcx, pcz), this.q);
+      const bakedChunk = bakeChunk(chunk, lod, this.world.seed);
+      this.uploadChunk(job.cx, job.cz, bakedChunk, lod);
       baked++;
     }
+
     const ms = performance.now() - t0;
     if (ms > 0.05) { this.bakeAccum = this.bakeAccum * 0.88 + ms * 0.12; this.stats.bakeMs = this.bakeAccum; }
     if (baked) this.evictChunks(r);
+    this.stats.rebakePending = this.rebakeQueue.length;
   }
 
-  private uploadChunk(cx: number, cz: number, baked: BakedChunk): void {
+  /** Re-bake an already-resident chunk at a given detail level, in place. */
+  private bakeInto(entry: ChunkEntry, chunk: CityChunk, lod: number): void {
+    const baked = bakeChunk(chunk, lod, this.world.seed);
+    const prev = this.chunks.get(this.chunkKey(entry.cx, entry.cz));
+    if (prev) {
+      destroyMesh(prev.mesh);
+      destroyMesh(prev.foliage);
+    }
+    this.uploadChunk(entry.cx, entry.cz, baked, lod);
+  }
+
+  private uploadChunk(cx: number, cz: number, baked: BakedChunk, lod: number): void {
     const key = this.chunkKey(cx, cz);
     const existing = this.chunks.get(key);
     if (existing) {
@@ -708,7 +793,7 @@ export class Renderer {
       baked.boundsMax[2] - baked.boundsMin[2],
     );
     this.chunks.set(key, {
-      cx, cz, mesh, foliage, lights: baked.lights, radius, centre, lastUsed: this.frameIndex,
+      cx, cz, lod, mesh, foliage, lights: baked.lights, radius, centre, lastUsed: this.frameIndex,
     });
   }
 
@@ -826,6 +911,13 @@ export class Renderer {
       s.cascadeTriangles[i] = c.cascadeTris[i];
     }
     s.frustumCulled = c.culled;
+    // Histogram of baked detail levels. This is the stat that makes 'LOD is
+    // wired' a measurement rather than a claim: if every entry is level 0, the
+    // policy is not running, whatever the call site says it passes.
+    s.lodHistogram = [0, 0, 0, 0];
+    for (const e of this.chunks.values()) {
+      if (e.lod >= 0 && e.lod < s.lodHistogram.length) s.lodHistogram[e.lod]++;
+    }
     s.visibleChunks = c.chunkMeshes;
     s.visibleDraws = gbufferDraws;
 
@@ -917,7 +1009,9 @@ export class Renderer {
     let tris = 0;
     let culled = 0;
     let chunkMeshes = 0;
-    const planes = cam.frustumPlanes;
+    const planes = shadowOnly && cascade >= 0
+      ? this.cascadePlanes[cascade]
+      : cam.frustumPlanes;
 
     // The street deck goes down first with depth writes off, so it only fills
     // pixels nothing else claims. Without it, a top-down view is all sky and a
@@ -1305,31 +1399,11 @@ export class Renderer {
   get frameUboSize() { return FRAME_UNIFORM_SIZE; }
 }
 
-// ---------------------------------------------------------------- helpers
-
-const UP: Vec3 = [0, 1, 0];
-const UP_ALT: Vec3 = [0, 0, 1];
 function upFromRoll(roll: number): Vec3 {
   return [Math.sin(roll), Math.cos(roll), 0];
 }
 
-function v3scaleAdd(base: Vec3, dir: Vec3, s: number): Vec3 {
-  return [base[0] + dir[0] * s, base[1] + dir[1] * s, base[2] + dir[2] * s];
-}
-
-function m4ortho(out: Mat4, l: number, r: number, b: number, t: number, n: number, f: number): Mat4 {
-  out.fill(0);
-  out[0] = 2 / (r - l);
-  out[5] = 2 / (t - b);
-  out[10] = 1 / (n - f);
-  out[12] = -(r + l) / (r - l);
-  out[13] = -(t + b) / (t - b);
-  out[14] = n / (n - f);
-  out[15] = 1;
-  return out;
-}
-
-/** IEEE-754 half → float, for readback of rgba16float targets. */
+/** IEEE-754 half -> float, for readback of rgba16float targets. */
 function halfToFloat(h: number): number {
   const s = (h & 0x8000) >> 15;
   const e = (h & 0x7c00) >> 10;
@@ -1339,17 +1413,13 @@ function halfToFloat(h: number): number {
   return (s ? -1 : 1) * Math.pow(2, e - 15) * (1 + f / 1024);
 }
 
-function sphereInFrustum(planes: Float32Array, c: Vec3, r: number): boolean {
-  for (let i = 0; i < 6; i++) {
-    const o = i * 4;
-    if (planes[o] * c[0] + planes[o + 1] * c[1] + planes[o + 2] * c[2] + planes[o + 3] < -r) return false;
-  }
-  return true;
-}
-
 const PRECIP_IDS: Record<string, number> = {
   none: 0, rain: 1, drizzle: 2, snow: 3, pollen: 4, ash: 5, spores: 6,
 };
 function precipId(p: string): number { return PRECIP_IDS[p] ?? 0; }
 
 export type { Mesh };
+export { TIERS } from './quality';
+export type { QualitySettings, QualityTier } from './quality';
+export { CASCADE_SPLITS, cascadeParams, extractOrthoFrustum, sphereInFrustum } from './cascade';
+export { LOD_CHUNK_STEP, chunkDistance, lodForDistance } from './quality';
