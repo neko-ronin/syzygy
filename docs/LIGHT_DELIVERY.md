@@ -326,6 +326,82 @@ The next step is one number: `chunkLod(0, -1)` at the market pose, against the C
 value of 0. I ran 6 capture runs against a stated budget of 3 and stopped rather
 than take a seventh.
 
+## 4e. Round 9: LOD agrees, and the city was wrong
+
+### `chunkLod`: GPU and CPU agree
+
+| | value |
+| --- | --- |
+| `chunkLod(0, -1)` on the GPU at the market pose | **0** |
+| `bakeChunk(0, -1, 0)` LOD, CPU | **0** |
+| `lodHistogram` at the market pose | `[6, 42, 0, 0]` |
+
+So **cause 1 is eliminated.** The resident market chunk is at LOD 0, market lights
+exist there, and the LOD gate is not what was keeping the aisle dark. That was the
+one measurement owed from round 8 and it is now paid.
+
+### The actual reason my coordinates were wrong: captures run on seed 0
+
+`tools/capture.mjs:668` passes `?seed=0x5e7a17`.
+`src/main.ts:99` reads it with `Number.parseInt(q.get(k) ?? '', 10)`.
+
+**`parseInt('0x5e7a17', 10)` is `0`.** With an explicit radix of 10 it stops at the
+`x`. It is finite, so the `0x5e7a17` default at the call site is never used:
+`BOOT.seed === 0`.
+
+Every capture this session rendered **seed 0**. Every CPU probe I wrote measured
+**seed 0x5e7a17**. Different cities. The market spine I had been aiming a camera
+at — `[1.16, 0, -9.97]` — exists in 0x5e7a17 and does not exist in seed 0, which
+is why the nearest market lantern measured **47.5m** away in the packed array while
+CPU said 12 were within 40m. Both numbers were correct about their own city.
+
+Neither half is mine to fix (`capture.mjs` and `main.ts`). One line on either side
+would do it. Until then a CPU-derived coordinate and a capture describe different
+worlds, which is the fifth instance this session of a diagnostic measuring
+something other than its subject.
+
+### The market, aimed correctly — seed 0, mid-spine
+
+Spine recovered on CPU from the lantern set itself: centroid `[158.1, 137.6]`,
+principal axis `[0.826, 0.564]`, extent **2832m**. Mid-spine lantern at
+`[144.78, 6.77, 83.60]`, drop 6.8m. Camera 11m back along the spine, 2.4m up,
+looking 8m past it — **`c.w = +11.17`, verified before the shot.**
+
+| measurement | value |
+| --- | --- |
+| nearest warm lantern in the packed array to the pool | **6.8m** |
+| warm lanterns within 15m / 30m | **2 / 10** |
+| tile at the deck point | `count 74, stored 74` |
+| `produced / delivered / binned / starved` | 205 / 857 / 857 / **0** |
+| **`aisleWarmPixelPct`** | **5.72** |
+| aisle mean luma | 31.93 |
+| frameMs | 96.4 |
+
+### What the aisle looks like, in pixels
+
+`AISLE_WARM_PCT` 5.72 against 1.316 at the round-6 arm — **4.3x**, and this is a
+pool on the deck rather than crowd and facade warmth, which is the first time that
+distinction has been available.
+
+The frame, described: a market aisle at night, receding to the right of centre.
+Tan stall canopies with dark under-frames in the left foreground, a second row of
+them across the middle distance, catenary wires strung overhead sagging between
+poles, and a tall facade of pale blue-white and orange panels behind. Along the
+right of the deck there is a warm ochre line where the stall row meets the
+carriageway — that is the pool, and it is the first warm ground in this project that
+I can point at.
+
+The honest part: the deck at the pool point reads `[16.7, 31.1, 50.3]` and the deck
+16m off the pool reads `[29.7, 46.5, 68.1]` — so **the off-pool deck is BRIGHTER
+than the pool point.** The pool is a distinct warm streak, not a lift in overall
+level, and it does not dominate. `DECK_OFFPOOL` being brighter is the off-pool
+sample catching stall geometry and lit facade rather than bare deck, so the two
+numbers are not measuring the same material; I would not read a contradiction into
+it and I would not claim it as a pass either.
+
+**A luminous core plus a visible warm pool is now present.** Whether it is *enough*
+is the reviewer's call and not mine to declare.
+
 ### The pattern, stated rather than rediscovered
 
 Delivery (§1), eviction order (§4), write stride, read stride and tile capacity
