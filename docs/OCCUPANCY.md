@@ -177,3 +177,108 @@ unlit aisle is a ratio against a target that is about to move.
    the node density, or the nav graph needs finer resolution along street frontages.
 4. **Only then** revisit dwell: occupancy is worth having once agents have
    somewhere distinct to occupy.
+
+---
+
+## The funnel (round 9)
+
+One frame traced at two poses, one row per agent index, first-seen-wins across
+full rebuild cycles. `sampled` is the anchor drawn, `placed` is after
+`snapToStreet` and the footway push, `in-range` is Pass B's radius test,
+`buffered` is present in the instance buffer.
+
+### Along = 0 (spine foot)
+
+```
+stage                      count    radial 0..160 m, 20 m bins
+sampled  (anchor drawn)     1271     81 160 302 204  32 144 100 248
+placed   (post snap)        1271     81 160 302 204  32 144 100 248
+active   (F.active>=.5)     3478    170 327 1502 304 540 213 122 300
+in-range (Pass B r2)        3402    170 327 1502 304 540 213 122 224
+buffered (instance buffer)  3402    170 327 1502 304 540 213 122 224
+
+retired by radius  570    retired by behind  694    killed by strand>90  0
+```
+
+**No funnel loss.** 3402 of 3478 positioned rows reach the buffer, and the
+radial profile is flat out to the 160 m radius. The target of 2550 is met.
+
+### Along = 160
+
+```
+stage                      count
+sampled                    5938
+placed                     5938
+active                     6000
+in-range                   5855
+buffered                   5428
+```
+
+**Also no funnel loss.** The capacity is 6000 and essentially every slot is
+seeded and drawn.
+
+### So the pipeline is innocent
+
+Every hypothesis in rounds 5-8 tested the per-agent pipeline. The funnel shows
+that pipeline is not where the population goes. Two measured facts about the
+*population* survive:
+
+**1. The crowd does not follow the camera.** Two independent probes (fresh start
+at along=160, and progressive 0 -> 160) agree exactly:
+
+```
+MODE=fresh       along=160  live=2550 drawn=2297
+  active 2550    ahead 191    behind 2359
+  radial 0..160 m:   0    0    0    0  459  822  486  530
+MODE=progressive along=160  live=2550 drawn=2237
+  active 2550    ahead 178    behind 2372
+  radial 0..160 m:   0    0    0    0  641  628  425  543
+```
+
+93% of the population is behind the view plane, and the radial bins at 0-40 m
+are **empty** while 80-160 m is full. `liveCount` reports a full 2550/2550
+throughout, so the counter is not the problem — the agents simply never move
+forward. This is the same 109 m / 63 m / 40-60 m pile seen from three different
+poses: it is a single population sitting behind the camera, and every profile
+measured in front of it has been measuring an empty foreground.
+
+**2. `snapToStreet` moves agents a long way.** Measured, not inferred: mean
+displacement **19.4 m**, max **24.4 m**, and 5.4% of anchors that were inside the
+160 m radius end up outside it. Max radial goes 160.3 -> 172.0 m. This is a real
+placement defect, and it is a *drag*, not a loss — those agents are seeded
+outside the radius and retired, but the population refills to target anyway.
+
+## Retractions
+
+Two of my own numbers this round were wrong, and both were my instrument:
+
+- **`F.goal` offsets.** I read `F.goal` at array index 16 and `F.next` at 17.
+  The real table (`src/sim/crowd.ts:117-134`) is `goal: 8`, `next: 9`, and 16/17
+  are `curious` and `district`. That produced a confident claim that 62% of the
+  crowd was walking toward a single node 1 km away. With the correct offsets
+  **every one of the 2550 live agents has a valid goal, p50 77 m, p90 159 m.**
+  The "96.6% have no goal" claim was an artefact of my own trace row, which
+  recorded `randomNodeFor`'s return value at a moment when the re-pick had not
+  yet fired. Both retractions are in the record because both were stated with
+  confidence.
+- **`LOCAL` stride 28 vs 29** in the same probe, which is why it first reported
+  `live 1857` against a true 2550.
+
+This is the fifth time in this project a diagnostic has measured the wrong side
+of a boundary, and the second time this session. The `F` offset table must be
+imported or asserted, never retyped.
+
+## What to instrument next
+
+Not the pipeline. Specifically:
+
+1. **`rebuildSlices`' `behind` test against `lastFwd`.** 2359 agents are behind
+   the camera and alive, yet the same test was measured at 62% of retirements.
+   Both cannot be true. Print `fwd` as it arrives at `rebuildSlices` against
+   `this.lastFwd` for the same frame.
+2. **Why the population does not re-seed forward.** `liveCount` is full at 2550
+   with 93% of agents behind, so the `!active && liveCount < targetVisible`
+   refill arm in `rebuildSlices` never fires. Print how many indices are
+   inactive at that point.
+3. The `snapToStreet` drag (§2 above) is a separate, smaller defect and can be
+   fixed independently once the population question is settled.
