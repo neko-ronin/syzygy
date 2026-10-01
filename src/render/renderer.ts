@@ -842,7 +842,12 @@ export class Renderer {
     put(fovOf(w), cam.roll, w.lens.warp, w.lens.speedFov);
     put(w.lens.tiltShift, w.lens.focusCenter, w.lens.focusWidth, w.lens.bokeh);
     put(w.lens.distortion, w.lens.chroma, w.lens.vignette, w.lens.horizonBend);
-    put(w.lens.colorGrade[0], w.lens.colorGrade[1], w.lens.colorGrade[2], 0);
+    // grade.w carries the packed local-light count for lightbin.wgsl. It was
+    // written as a literal 0 and documented "unused" — verified unused, with
+    // `F.grade` read only as `.rgb` in post.wgsl. Reading the count from the
+    // uniform rather than `arrayLength(&lights)` is what stops the binner walking
+    // 3072 entries and binning last frame's leftovers; see lightbin.wgsl.
+    put(w.lens.colorGrade[0], w.lens.colorGrade[1], w.lens.colorGrade[2], this.stats.lights);
     put(this.q.cascades, 1 / this.q.shadowRes, 0.0016, 2400);
     d[o] = this.cascadeSplits[0]; d[o + 1] = this.cascadeSplits[1];
     d[o + 2] = this.cascadeSplits[2]; d[o + 3] = this.cascadeSplits[3];
@@ -1183,9 +1188,14 @@ export class Renderer {
     this.resetCounter();
     this.resize();
     this.updateCascades(cam);
+    // gatherLights BEFORE writeFrameUniforms, because the packed light count now
+    // rides in the frame uniform (`grade.w`) and the binner reads it. Written in
+    // the other order it would carry LAST frame's count — a one-frame lag that
+    // costs nothing on a steady scene and mis-bins every light on the frame a
+    // light appears or disappears, which is exactly when it matters.
+    const lightCount = this.gatherLights(cam);
     this.writeFrameUniforms(cam);
     this.streamChunks(cam);
-    const lightCount = this.gatherLights(cam);
 
     const enc = this.gpu.device.createCommandEncoder({ label: 'frame' });
     this.recordShadow(enc, cam);

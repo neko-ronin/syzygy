@@ -51,7 +51,25 @@ fn bin(@builtin(global_invocation_id) gid: vec3u) {
   let pmin = vec2f(f32(tx * TILE_DIM), f32(ty * TILE_DIM));
   let pmax = min(pmin + vec2f(f32(TILE_DIM)), F.screen.xy);
 
-  let n = arrayLength(&lights);
+  // The count of lights actually packed this frame, NOT `arrayLength(&lights)`.
+  //
+  // `lightBuf` is allocated for `MAX_LIGHTS` and the CPU uploads only what
+  // `gatherLights` produced, so every entry past the count is whatever the
+  // PREVIOUS frame left there. `arrayLength` therefore walks 3072 entries and
+  // bins stale lights: measured, the bin at a market pool centre named indices
+  // up to 385 while `stats.lights` was 296, and every one of the 74 it held was
+  // 140m away and outside its own radius.
+  //
+  // Stale entries are worse than empty ones. A zeroed light is skipped by
+  // `colorInt.w <= 0`, so it costs nothing — but a light that was real last frame
+  // and is not this one still passes that test, gets binned, and is then
+  // evaluated against a pixel it no longer belongs to. It cannot be culled by
+  // distance because its own radius says it should reach. That is how a bin
+  // becomes 74/96 full of lights that are all in the wrong place.
+  //
+  // The count rides in `F.grade.w`, which was documented as unused. Checked:
+  // `F.grade` is read only as `.rgb` in post.wgsl.
+  let n = min(u32(F.grade.w), arrayLength(&lights));
   for (var i = 0u; i < n; i++) {
     let l = lights[i];
     if (l.colorInt.w <= 0.0) { continue; }

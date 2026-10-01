@@ -409,6 +409,39 @@ function run(): void {
       'the deck multiplier is 1.0 for paving families (0.82 only for dirty road)',
       'deckMul changed — re-read §deckMul before attributing uniformity to it');
 
+    // ------------------------------------------------------------------
+    // THE BINNER MUST NOT WALK THE WHOLE LIGHT BUFFER.
+    //
+    // `lightBuf` is allocated for MAX_LIGHTS and the CPU uploads only what
+    // gatherLights produced. `arrayLength(&lights)` is therefore 3072 every frame
+    // regardless, and everything past the count is LAST frame's leftovers: still
+    // non-zero, so still passing `colorInt.w <= 0`, so still binned. Measured at
+    // a market pool centre: the bin named indices up to 385 with `stats.lights`
+    // at 296, and all 74 lights it held were 140m away and outside their own
+    // radius. A zeroed stale entry would be harmless; a real one from the
+    // previous frame is binned and then evaluated against a pixel it no longer
+    // belongs to, and its own radius says it should reach.
+    const lb2 = lightbinWgsl;
+    check(!/let n = arrayLength\(&lights\);/.test(lb2),
+      'the binner does not walk arrayLength(&lights)',
+      'it walks all MAX_LIGHTS entries and bins stale lights from previous frames');
+    check(/let n = min\(u32\(F\.grade\.w\), arrayLength\(&lights\)\)/.test(lb2),
+      'the binner bounds its walk by the packed light count in the frame uniform');
+    // The count has to be in the uniform BEFORE it is written, which is why
+    // gatherLights moved ahead of writeFrameUniforms.
+    const rs3 = rendererSrc;
+    const gi = rs3.indexOf('this.gatherLights(cam)');
+    const wi = rs3.indexOf('this.writeFrameUniforms(cam)');
+    check(gi > 0 && wi > 0 && gi < wi,
+      'gatherLights runs before writeFrameUniforms, so grade.w carries this frame\'s count',
+      'grade.w carries LAST frame\'s count and the binner lags by a frame');
+    check(/put\(w\.lens\.colorGrade\[0\], w\.lens\.colorGrade\[1\], w\.lens\.colorGrade\[2\], this\.stats\.lights\)/.test(rs3),
+      'grade.w is written from stats.lights, not a literal 0');
+    // And grade.w must not be read as a colour anywhere.
+    check(!/F\.grade\.w/.test(gb) && !/F\.grade\.w/.test(postWgsl),
+      'no shader reads grade.w as a colour — it is free for the light count',
+      'a shader now depends on grade.w, so it is no longer a spare slot');
+
     // Whatever the axis is, the box must still be a square of the advertised
     // size, or the culling above is dropping casters.
     const b0 = boxes[0];
