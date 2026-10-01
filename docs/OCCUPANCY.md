@@ -41,11 +41,32 @@ forward** in a 160 m `viewRadius`, on any frame, including frame 1.
 | `liveCount` reaching `targetVisible` stops seeding | `live` reaches 2550/2550 by frame 30 and stays; the cap never binds | **disproved** |
 | goals reach past the view radius, so agents walk out and are retired | bounded `randomNodeFor` to `viewRadius * 0.8`; `live` at 160 m stayed **473**, depth histogram unchanged | **disproved** |
 
-The search is bounded to four functions between `seedAgent` returning and
-`buildInstances` reading the buffer: the tail of `rebuildSlices`, `HashGrid.build`,
-Pass B's `stepAgent`, and `buildInstances`' own radius test. The `behind` test in
-`rebuildSlices` is the live candidate — any agent whose goal crosses the view
-plane is retired on the next pass — and it is **uninstrumented**.
+### The sink, measured
+
+`rebuildSlices`' `behind` test was the live candidate and is now instrumented
+(round 8; the instrumentation was reverted, the numbers kept). Over 240 settled
+frames at the spine foot:
+
+```
+retired total                6196
+  by radius only             2367   (38%)
+  by behind only             3829   (62%)
+  by both                       0
+seeded total                 8746   mean radial 81.5 m  (viewRadius 160)
+```
+
+**`behind` is the larger sink, and it is 2.6x the radius test.** At 16
+retirements and 36 seedings per frame against a target of 2550, the population
+is in constant *replacement* rather than accumulation: agents walk across the
+view plane and are destroyed, and replacements appear where the camera is
+looking. That is what a crowd that never accumulates looks like from the
+inside, and it is the mechanism behind both the collapsing profile and the
+1149-agent pile — replacements keep arriving into the same band ahead.
+
+So the fix is not more agents and not a wider place radius. It is that an
+agent's goal must not take it behind the view plane. Nothing here has been
+changed on the strength of that reading; it is the first measurement that names
+a mechanism rather than eliminating one.
 
 ## 3. Two corrections to my own earlier readings
 
@@ -125,8 +146,9 @@ unlit aisle is a ratio against a target that is about to move.
 
 ## 7. What would actually fix it, in order
 
-1. **Instrument `rebuildSlices`' `behind` test.** It is the only surviving
-   candidate and it is a reading, not a measurement. Count retirements by cause.
+1. **Keep an agent's goal in front of the view plane.** The `behind` test is the
+   measured larger sink at 62% of retirements (§2). This is the one change the
+   evidence actually points at, and it has not been attempted.
 2. **Find what the 63 m pile is.** It is not the market. Until that is named,
    every placement change is a guess at a target nobody has located.
 3. **Give the market more places than six.** Either the place radius must exceed
