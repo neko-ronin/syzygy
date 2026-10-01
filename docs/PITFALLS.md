@@ -480,6 +480,39 @@ returns `(indexCount / 3) * count` and only after calling `drawIndexed`, so a
 nonzero `entityTriangles` is proof the GPU was told. Measured before the fix:
 `entityTriangles 356480`, `entityDrawCalls 0`.
 
+### The sibling: a counter that outlives the thing it was reporting
+
+`lightDelivery.culledByDay` said lights had been culled by a day test. The cull was
+removed in `cd7b7de`. The field was not, and every frame of a 12-frame presentation
+set reported `"culledByDay": true` beside `delivered 1083` — a **positive false
+claim**, in the provenance file a reviewer reads to decide whether a frame is real.
+
+This is the first instance in the class that actively misinforms rather than
+merely under-reports, and it is the most dangerous, because the two failure modes
+are not equally recoverable. A missing diagnostic is an absence a reader notices. A
+wrong one is a confident statement that agrees with nothing around it, and it will
+get correct frames rejected.
+
+The mechanism is always the same: the fix removed the *behaviour* and the
+diagnostic was not in the same commit as the behaviour. There is no code path where
+`culledByDay` could become true, and it was still true on every frame.
+
+**Rule: when you remove the thing a diagnostic was reporting, delete the diagnostic
+in the same commit.** `PROCESS.md` rule 6 — fix the document in the same change —
+applies to a published stat exactly as it applies to a document, and a stat is read
+more literally than prose because it looks like a measurement.
+
+Preferred over deletion, and what was done here: replace the claim with the
+quantity underneath it. `culledByDay: boolean` became `dayPhase: number`. The
+reviewer's question is "is this frame dark", the quantity answers it, and nothing
+reports a filter that does not exist.
+
+The counter is now `dayPhase`, the local that fed it is gone, and ten assertions
+in `src/render/__perftest.ts` cover it — including that every `lightDelivery` field
+is assigned in the one place the stat is built, which is the general shape of the
+check: *a declared field that is never assigned reads its initial value forever and
+looks deliberate.*
+
 ### The class
 
 | | counted | actually happened |
