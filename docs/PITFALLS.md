@@ -584,6 +584,63 @@ because it had already decided what the errors were.
 
 ---
 
+## 20. The check existed, in the branch nobody was in
+
+**Symptom:** `--pose=09-market-down` printed
+
+```
+PASS   1 shot(s) · 36.6s
+```
+
+and wrote a frame of a rooftop, 444 m above the ground, from a pose defined at
+2.6 m looking down a market aisle.
+
+**It was the tool lying, twice over, and the second lie is the one worth
+remembering.**
+
+`--pose=<substr>` pushed the substring onto `opts.poses`, and `opts.poses` is
+read in exactly one place — inside the `if (opts.sequence)` branch. A bare
+`--pose=` fell through to the single-shot branch, which never called `setPose`.
+It warmed, settled 45 frames, photographed wherever the free flight camera was
+parked, wrote `requested: null`, and printed PASS. Meanwhile the harness already
+had a requested-vs-held check, with tuned tolerances and a paragraph explaining
+why `fov` must not be compared — it just lived in the other branch.
+
+The frame also had the wrong weather. `09-market-down` is a night pose
+(`time: 'night'`, `exposure: 1.28`, night sky). The stats on the frame I had
+just been fooled by read `dayPhase 0.707`, `sky: clear`, `exposure 0.92` — the
+daylight control's values. The single-shot branch never called `setTime`,
+`setWeather` or `setLens` either. The sequence branch has applied that ordering
+in the sequence `time → weather → lens → pose` since a frame was once mislabelled
+noon, with the reason written in a comment directly above it. One branch got
+the lesson; the other was written before it and never revisited.
+
+**Why it survived so long.** `AGENTS.md`, `README.md` and `PROCEDURES.md` all
+present `--pose=canyon` as the one-shot command, and every agent working
+street-level visuals is instructed to use it. The cheapest diagnostic in the
+harness was the one that could not fail. Rule 4's mechanical check had been
+added, extended to a second class (`PITFALLS.md` §16), and still left a whole
+code path uncovered — because rule 4 was implemented *per call site* rather
+than *per capture*.
+
+**The generalisation.** A guard is only as good as its coverage, and coverage is
+not the same as existence. When a check is correct, the question to ask next is
+"which paths reach the frame without passing it?" — not "is the check right?".
+A rule enforced at one call site is a rule with an exception you have not
+noticed.
+
+**Second lesson, smaller and more general: read the stats off the frame you are
+about to believe.** The `requested: null` in the sidecar was visible in the
+output and was not read, because a `PASS` had already been interpreted as
+"the tool worked". A null there is a statement about the harness's own
+bookkeeping, and it is worth more than the pixels next to it.
+
+Fixed in `b2ea352`: the branch resolves the pose, applies phase → weather → lens
+→ pose, runs the same held-camera check with the same tolerances, and prints the
+agreement next to the frame rather than only on failure.
+
+---
+
 ## Working norms that held up
 
 - **Measure before theorising.** Every bug above cost far less time to measure
