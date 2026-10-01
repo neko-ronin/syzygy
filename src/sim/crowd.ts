@@ -20,7 +20,7 @@ import {
 } from '../world/citygen';
 import { NavGraph, type NavNode } from '../world/networks';
 import { MAT, INSTANCE_FLOATS } from '../render/citymesh';
-import { districtAt, districtPaletteLinear, districtStyle } from '../world/districts';
+import { districtAt, districtField, districtPaletteLinear, districtStyle, spineHit, spinePoint, type SpineHit } from '../world/districts';
 
 const MAX_DT = 1 / 15;
 
@@ -33,6 +33,27 @@ const enum Need {
 const NEED_COUNT = 7;
 /** Baseline need weights. Events and agitation perturb these. */
 const NEED_WEIGHTS: number[] = [0.30, 0.18, 0.10, 0.08, 0.24, 0.07, 0.03];
+
+/**
+ * The Market attractor.
+ *
+ * `MARKET_ALONG_QUANTUM` is the lattice the attractor is pinned to, in metres of
+ * spine parameter. The candidate set is *the centreline itself*, so no amount
+ * of camera bias can put the attractor off the market — it can only choose
+ * which piece of the market is busy. Quantising means a camera creeping along
+ * the street does not drag the attractor with it continuously.
+ *
+ * `MARKET_REACH` is how far the attractor may sit from the camera before it is
+ * re-anchored. A crowd is only ever seeded within `viewRadius` (80-240 m), so an
+ * attractor further away than this is one nobody will ever walk to.
+ *
+ * `MARKET_HOLD` is the minimum dwell, seconds, between re-anchors. A rush that
+ * * relocates its destination every 2.5 s is a crowd that walks forever and
+ * arrives nowhere.
+ */
+const MARKET_ALONG_QUANTUM = 15;
+const MARKET_REACH = 320;
+const MARKET_HOLD = 25;
 
 /** Fields, one float per agent, in this order. */
 const F = {
@@ -182,6 +203,9 @@ export class CrowdSim {
   private market: Vec3 = [0, 0, 0];
   private hasMarket = false;
   private marketTimer = 0;
+  /** Lattice cell of the current anchor along the market spine. */
+  private marketCellAt = Number.NaN;
+  private spineOut: SpineHit = { dist: 0, px: 0, pz: 0, tx: 1, tz: 0, along: 0 };
 
   visibleCount = 0;
   /** Live diagnostic counters; surfaced through the automation stats(). */
@@ -234,6 +258,13 @@ export class CrowdSim {
 
     this.diag.frames++;
     this.seedRef = world;
+    // `world.events` is mutated in place (push/splice), never reassigned, so
+    // holding the reference is the cheap correct thing. This used to be
+    // declared and never assigned, which left the `Need.Event` branch in
+    // `randomNodeFor` unreachable: `bloom-festival` raised the Event weight
+    // 3.0x and every one of those agents silently fell through to the generic
+    // neighbourhood search instead. `WorldEvent.at` had no consumer at all.
+    this.events = world.events;
     this.lastCam[0] = camera.position[0];
     this.lastCam[2] = camera.position[2];
     // Derive the view direction from the look target rather than trusting a
@@ -707,13 +738,47 @@ export class CrowdSim {
     this.rebuildCursor = end >= this.capacity ? 0 : end;
   }
 
-  private maybeRebuild(_cam: Vec3, dt: number): void {
+  /**
+   * Put the Market attractor on the market spine, and decide when to move it.
+   *
+   * This used to be a uniform point in an 840 m square, re-rolled every 2.5 s.
+   * Measured at seed 42: mean 218 m off the market spine, worst 557 m, and in
+   * ten consecutive rebuilds it landed in the market district *zero* times — a
+   * `market-rush` walked several thousand people to a car park. Nothing
+   * reported it. The agents walked, the paths were valid, the counts looked
+   * right; the destination was simply wrong, which is the only kind of bug a
+   * counter cannot see.
+   *
+   * The attractor is now the point of the spine centreline nearest the camera.
+   * Candidates are restricted to the centreline, so the camera bias chooses
+   * *which* stretch of market is busy and can never push the attractor off the
+   * market. The parameter is quantised, so a drifting camera moves the
+   * attractor in 15 m steps instead of dragging it continuously, and a dwell
+   * timer stops it relocating every few seconds — a destination that moves
+   * faster than a person walks is a crowd that never arrives.
+   */
+  private maybeRebuild(cam: Vec3, dt: number): void {
     this.marketTimer -= dt;
-    if (this.marketTimer > 0) return;
-    this.marketTimer = 2.5;
-    this.market = [
-      this.rng.range(-420, 420), GROUND_Y, this.rng.range(-420, 420),
-    ];
+    const f = districtField(this.seedRef.seed);
+    // The spine parameter of the camera's perpendicular foot on the spine.
+    const cell = Math.round(
+      spineHit(f.market, cam[0], cam[2], this.spineOut).along / MARKET_ALONG_QUANTUM,
+    );
+    if (this.hasMarket && cell === this.marketCellAt) {
+      const reach = Math.hypot(this.market[0] - cam[0], this.market[2] - cam[2]);
+      // Hold this anchor: either the dwell has not expired, or it has and the
+      // camera has not travelled far enough along the market to justify moving.
+      if (reach <= MARKET_REACH || this.marketTimer > 0) {
+        if (this.marketTimer <= 0) this.marketTimer = MARKET_HOLD;
+        return;
+      }
+    }
+    this.marketTimer = MARKET_HOLD;
+    this.marketCellAt = cell;
+    const p = spinePoint(f.market, cell * MARKET_ALONG_QUANTUM);
+    this.market[0] = p[0];
+    this.market[1] = GROUND_Y;
+    this.market[2] = p[1];
     this.hasMarket = true;
   }
 
