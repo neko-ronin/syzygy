@@ -185,12 +185,36 @@ export const CLOTH_EVERY_STRING = 2;
 /** Spacing of lantern cords along the spine. */
 export const STRING_PITCH_MIN = 17;
 export const STRING_PITCH_MAX = 31;
-/** Height the cord is anchored at on each building face. */
-export const STRING_ANCHOR_MIN = 7.0;
-export const STRING_ANCHOR_MAX = 9.5;
+/**
+ * Height the cord is anchored at on each building face.
+ *
+ * These were 7.0..9.5, which put a lantern centre about 6.3 m over the deck. That
+ * is a correct height for a cord over a 15 m street and the wrong one for a
+ * market, because the readable geometry here is not the roadway — it is crates,
+ * stall flanks, tarpaulin returns and canopy frames at 1-2 m.
+ *
+ * The cost was measured, not guessed. `lighting.wgsl` multiplies by N.L, so a lamp
+ * at 6.3 m drops 0.227 of its energy on the deck beneath it (N.L = 1.000) but
+ * only 0.092 on a stall side panel 2 m back (N.L = 0.353) — a 2.28x penalty on
+ * precisely the surfaces a reader needs. Through night exposure 1.60 and ACES
+ * that is byte 42 on the deck and byte 19 on the stall face, and a warm/cool
+ * separation that halves from 32 bytes to 16. The frame reads as a lit floor with
+ * dark slabs standing on it, which is what it was judged to be.
+ *
+ * Lowering the lamp fixes the RATIO, which raising the intensity cannot: intensity
+ * scales both surfaces equally and preserves the 2.28x, so it only brightens the
+ * ground wash that was already called excessive. At 3.6 m the penalty is 1.47x,
+ * the stall face reaches byte 46, and the deck only moves 42 -> 63.
+ *
+ * The anchor range is also narrower (1.6 m, was 2.5 m) so lantern heights cluster
+ * instead of spanning 3.3 m. At the old anchor the low tail of that spread hung a
+ * lantern at 1.6 m, into the crates.
+ */
+export const STRING_ANCHOR_MIN = 4.4;
+export const STRING_ANCHOR_MAX = 6.0;
 /** Depth of the catenary belly. */
-export const STRING_SAG_MIN = 1.0;
-export const STRING_SAG_MAX = 2.1;
+export const STRING_SAG_MIN = 0.7;
+export const STRING_SAG_MAX = 1.5;
 /** How far outboard of the kerb line a cord is anchored. */
 export const STRING_ANCHOR_OUT = 1.7;
 /** Lanterns on one cord. */
@@ -215,14 +239,25 @@ export const LANTERN_DROP_MAX = 0.72;
  * capped market is dim everywhere rather than bright in one place.
  *
  * The radius and intensity are not guesses. `lighting.wgsl` attenuates a
- * clustered light by `(1 - d^2/r^2)^2 / (1 + d^2 * 0.05)`; a lantern 6 m above
- * the deck inside a 15 m sphere puts roughly 74x the night ambient on the
- * ground beneath it and roughly 21x at 6 m to the side (see
+ * clustered light by `(1 - d^2/r^2)^2 / (1 + d^2 * 0.05)`; a lantern 3.6 m above
+ * the deck inside a 15 m sphere puts roughly 109x the night ambient on the
+ * ground beneath it and roughly 41x at 4 m to the side (see
  * `__selftest_market.ts`, which does the arithmetic). The size of a pool was
- * never the problem. The number of them was.
+ * never the problem. The number of them was. Nor, as it turned out, was the
+ * pool's brightness on its own — see `STRING_ANCHOR_MIN` for the surface
+ * orientation problem that was.
  */
 export const LANTERN_LIGHT_RADIUS = 15;
-export const LANTERN_LIGHT_INTENSITY = 3.0;
+/**
+ * Was 3.0, and lowering the drop means this comes DOWN rather than up.
+ *
+ * The two changes trade against each other by design. Dropping the lamp from
+ * 6.3 m to 3.6 m brings it much closer to the deck, which raises deck radiance
+ * 2.44x on its own — so the intensity is cut to keep the ground wash where it
+ * already was rather than where it was already complained about. Net against the
+ * frame as reviewed: deck byte 42 -> 63, stall face byte 19 -> 46.
+ */
+export const LANTERN_LIGHT_INTENSITY = 2.0;
 /** Hard ceiling on market lights from one chunk, spread evenly along the walk. */
 export const MAX_MARKET_LIGHTS_PER_CHUNK = 48;
 
@@ -316,6 +351,24 @@ export interface ModuleForm {
   silhouette: 'pitched' | 'steep' | 'flat' | 'tall' | 'open' | 'none';
 }
 
+/**
+ * Gable rise above the eave, by silhouette class.
+ *
+ * These were inline literals in the stall loop, which meant the ceiling guard in
+ * `__selftest_market.ts` could not reference them and had to hardcode an
+ * equivalent. It hardcoded the wrong pair -- stall `RIDGE_MAX` and the cord
+ * anchor -- so the guard passed only because the anchor happened to sit at 9.5 m,
+ * above the 6.5 m shophouse peak. Lower the anchor and a 3.22 m violation appears
+ * out of nowhere with no geometry having changed.
+ *
+ * Exported so the guard derives the peak from the declaration instead of
+ * restating it. Keep the two in step and the guard stops being a coincidence.
+ */
+export const RISE_FLAT_MIN = 0.05;
+export const RISE_FLAT_MAX = 0.3;
+export const RISE_PITCHED_MIN = 0.25;
+export const RISE_PITCHED_MAX = 0.9;
+
 export const MODULE_FORMS: Record<MarketModule, ModuleForm> = {
   tarpaulin: { silhouette: 'pitched', eave: [2.25, 2.60], ridge: [2.85, 3.40], flat: false, overhang: [1.1, 2.3], depth: [1.7, 2.7], cloth: true, frame: 'poles', weight: 40 },
   'lean-to': { silhouette: 'steep', eave: [2.00, 2.35], ridge: [3.30, 4.00], flat: false, overhang: [0.0, 0.4], depth: [1.9, 2.8], cloth: true, frame: 'wall-tied', weight: 18 },
@@ -324,6 +377,17 @@ export const MODULE_FORMS: Record<MarketModule, ModuleForm> = {
   frame: { silhouette: 'open', eave: [2.60, 3.10], ridge: [2.70, 3.20], flat: true, overhang: [0.6, 1.4], depth: [1.7, 2.4], cloth: false, frame: 'poles', weight: 9 },
   bare: { silhouette: 'none', eave: [0, 0], ridge: [0, 0], flat: true, overhang: [0, 0], depth: [1.4, 2.0], cloth: false, frame: 'poles', weight: 9 },
 };
+
+/**
+ * Peak of the tallest shophouse module: its highest eave plus the largest gable
+ * rise for its silhouette class. This is the real ceiling of the market chunk --
+ * the stall `RIDGE_MAX` of 3.4 m is a market STALL, not the two-storey shophouses
+ * that stand behind them, and it understates the district by more than 3 m.
+ */
+export const SHOPHOUSE_PEAK_MAX = Math.max(
+  ...Object.values(MODULE_FORMS).map((f) =>
+    Math.max(...f.eave) + (f.flat ? RISE_FLAT_MAX : RISE_PITCHED_MAX)),
+);
 
   + MODULE_FORMS.flat.weight + MODULE_FORMS.double.weight + MODULE_FORMS.frame.weight
   + MODULE_FORMS.bare.weight;
@@ -854,7 +918,7 @@ export function marketGrammarFor(q: MarketQuery): MarketDesc {
         // flat ones: `double`'s bands overlap too (eave to 5.6, ridge from 4.6),
         // so an independent draw put the ridge under the eave on 50 stalls and
         // built roofs that slope the wrong way.
-        const rise = form.flat ? r.range(0.05, 0.3) : r.range(0.25, 0.9);
+        const rise = form.flat ? r.range(RISE_FLAT_MIN, RISE_FLAT_MAX) : r.range(RISE_PITCHED_MIN, RISE_PITCHED_MAX);
         const ridgeY = Math.max(
           GROUND_Y + r.range(form.ridge[0], form.ridge[1]), eaveY + rise,
         );

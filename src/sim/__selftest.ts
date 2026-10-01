@@ -248,7 +248,6 @@ export function runSimSelfTest(): string {
     const before = fieldVec(w);
     const beforeSky = w.weather.sky;
     const beforePrecip = w.weather.precip;
-    const glowBefore = d.windowGlow;
     d.fire(kind, [0, 120, 0]);
     let moved = false;
     let peak = 0;
@@ -258,11 +257,10 @@ export function runSimSelfTest(): string {
       d.update(1 / 60);
       const g = maxRelDiff(fieldVec(w), before);
       if (g > peak) { peak = g; peakAt = i / 60; }
-      if (g > 0.02 || w.weather.sky !== beforeSky || w.weather.precip !== beforePrecip ||
-          Math.abs(d.windowGlow - glowBefore) > 0.05) moved = true;
+      if (g > 0.02 || w.weather.sky !== beforeSky || w.weather.precip !== beforePrecip) moved = true;
     }
     if (!moved) note(`event ${kind} changed nothing within 10s`);
-    eventRows.push(`${kind.padEnd(19)} ${moved ? 'ok ' : 'FAIL'} peak ${(peak * 100).toFixed(0).padStart(4)}% at t+${f2(peakAt)}s  ${w.weather.sky}/${w.weather.precip}  glow ${f2(glowBefore)}→${f2(d.windowGlow)}`);
+    eventRows.push(`${kind.padEnd(19)} ${moved ? 'ok ' : 'FAIL'} peak ${(peak * 100).toFixed(0).padStart(4)}% at t+${f2(peakAt)}s  ${w.weather.sky}/${w.weather.precip}`);
   }
   L.push('');
   L.push('events (fired at afternoon, peak response over 10s):');

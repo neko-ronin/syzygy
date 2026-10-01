@@ -107,15 +107,25 @@ PASS); daylight verified unaffected from the same camera.
    315-322). The conductor's `set_time` and the renderer read different night
    rows today (`ambientIntensity` 0.35 vs 0.22 before this change). Two sources
    disagreeing is `PROCESS.md` rule 6; one of them is currently a trap.
-3. **Decide the window-emissive question properly** — either wire a real
-   multiplier through to the shader or delete `windowGlow`. A phantom named
-   exactly like a control will keep being tuned by people who believe it works.
-4. **Then re-judge.** The inversion may well arrive from the lights rather than
-   from the phase table, in which case the authoring pass above was still worth
-   doing but is not what makes the frame.
+3. ~~**Decide the window-emissive question properly.**~~ **DONE — deleted.**
+   `windowGlow` was removed along with the entire `glow` event channel that
+   existed only to carry it (`b.glow.v = look.windowGlow` was its sole source),
+   including the `power-cycle` event's `l.glow(...)` write, which also went
+   nowhere. Window emissive is synthesised in `gbuffer.wgsl` at 0.19..5.15 linear
+   and added unscaled in `lighting.wgsl`; there was never a multiplier to raise.
+   Do not reintroduce one under this name.
+4. ~~**Then re-judge.**~~ **DONE — the frame was re-judged, and the inversion
+   target was wrong.** Night is not required to be the brightest frame; it is
+   required to be *legible*. The cause was neither the phase table nor the light
+   count: 933 lights delivered, 0 starved, the pool measurably warm — and stall
+   faces still unreadable, because a lantern hung at 6.3 m puts byte 42 on the
+   deck and byte 19 on a vertical panel 2 m back. Fixed by dropping the cords to
+   ~3.6 m, which changes the ratio rather than the brightness. See
+   `docs/LIGHT_DELIVERY.md` §4h.
 
-*Verification that matters, unchanged:* night must become the brightest frame in
-the set, not merely a brighter purple murk. It is not there yet.
+*Verification that matters, changed:* night must be legible on its own terms —
+stalls, crates and canopy frames resolve, and the ground does not read as an
+orange wash. Not that it outshines noon.
 
 ### OPEN — needs the owner's eyes on a frame, not a number
 

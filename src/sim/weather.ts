@@ -58,18 +58,16 @@ const LENS_KEYS = [
 ] as const;
 type LensKey = (typeof LENS_KEYS)[number];
 
-const GLOW_KEYS = ['v'] as const;
-
 /** Sun and lens colours accumulate per channel, so their keys are `name0..2`. */
 const COL_KEYS: string[] = [];
 for (const k of SUN_COL_KEYS) for (let i = 0; i < 3; i++) COL_KEYS.push(`${k}${i}`);
 COL_KEYS.push('c0', 'c1', 'c2');
 
-type Group = 'wx' | 'sun' | 'sunC' | 'lens' | 'lensC' | 'glow';
-const GROUPS: readonly Group[] = ['wx', 'sun', 'sunC', 'lens', 'lensC', 'glow'];
+type Group = 'wx' | 'sun' | 'sunC' | 'lens' | 'lensC';
+const GROUPS: readonly Group[] = ['wx', 'sun', 'sunC', 'lens', 'lensC'];
 
 const KEYS_OF: Record<Group, readonly string[]> = {
-  wx: WX_KEYS, sun: SUN_KEYS, sunC: COL_KEYS, lens: LENS_KEYS, lensC: COL_KEYS, glow: GLOW_KEYS,
+  wx: WX_KEYS, sun: SUN_KEYS, sunC: COL_KEYS, lens: LENS_KEYS, lensC: COL_KEYS,
 };
 
 /**
@@ -93,7 +91,6 @@ const LENS_RATE: Record<LensKey, number> = {
   exposure: R(5), saturation: R(6), warp: R(10), breathe: R(12),
   speedFov: R(12), horizonBend: R(10),
 };
-const GLOW_RATE = R(6);
 const COL_RATE = R(9);
 
 const blank = (keys: readonly string[]): Record<string, number> => {
@@ -146,7 +143,6 @@ export interface PhaseLook {
   horizonBend: number;
   colorGrade: Vec3;
   /** Multiplier on lit windows. 1 = every window burning. */
-  windowGlow: number;
 }
 
 const D2R = Math.PI / 180;
@@ -170,7 +166,7 @@ const PHASE_LOOK: Record<string, PhaseLook> = {
     fov: 60 * D2R, chroma: 0.5, grain: 0.22, exposure: 1.06, saturation: 1.14,
     bloom: 0.72, vignette: 0.46, tiltShift: 0.62, focusWidth: 0.34, bokeh: 0.5,
     warp: 0.26, distortion: 0.07, horizonBend: 0.2,
-    colorGrade: [1.04, 1.0, 0.98], windowGlow: 0.6,
+    colorGrade: [1.04, 1.0, 0.98],
   },
   morning: {
     azimuth: 0.4115, elevation: 0.4,
@@ -184,7 +180,7 @@ const PHASE_LOOK: Record<string, PhaseLook> = {
     fov: 64 * D2R, chroma: 0.34, grain: 0.15, exposure: 1.0, saturation: 1.12,
     bloom: 0.45, vignette: 0.4, tiltShift: 0.6, focusWidth: 0.34, bokeh: 0.48,
     warp: 0.2, distortion: 0.05, horizonBend: 0.18,
-    colorGrade: [1.0, 1.02, 1.04], windowGlow: 0.3,
+    colorGrade: [1.0, 1.02, 1.04],
   },
   noon: {
     azimuth: 1.5708, elevation: 1.09,
@@ -198,7 +194,7 @@ const PHASE_LOOK: Record<string, PhaseLook> = {
     fov: 66 * D2R, chroma: 0.24, grain: 0.1, exposure: 0.92, saturation: 1.08,
     bloom: 0.3, vignette: 0.34, tiltShift: 0.58, focusWidth: 0.36, bokeh: 0.44,
     warp: 0.16, distortion: 0.035, horizonBend: 0.15,
-    colorGrade: [0.99, 1.01, 1.06], windowGlow: 0.18,
+    colorGrade: [0.99, 1.01, 1.06],
   },
   afternoon: {
     azimuth: 2.6722, elevation: 0.46,
@@ -212,7 +208,7 @@ const PHASE_LOOK: Record<string, PhaseLook> = {
     fov: 62 * D2R, chroma: 0.4, grain: 0.16, exposure: 1.02, saturation: 1.16,
     bloom: 0.5, vignette: 0.42, tiltShift: 0.62, focusWidth: 0.3, bokeh: 0.5,
     warp: 0.22, distortion: 0.06, horizonBend: 0.2,
-    colorGrade: [1.02, 1.01, 0.99], windowGlow: 0.35,
+    colorGrade: [1.02, 1.01, 0.99],
   },
   dusk: {
     azimuth: 3.0816, elevation: 0.009,
@@ -226,7 +222,7 @@ const PHASE_LOOK: Record<string, PhaseLook> = {
     fov: 52 * D2R, chroma: 0.62, grain: 0.26, exposure: 1.14, saturation: 1.2,
     bloom: 0.82, vignette: 0.5, tiltShift: 0.66, focusWidth: 0.26, bokeh: 0.56,
     warp: 0.3, distortion: 0.09, horizonBend: 0.26,
-    colorGrade: [1.06, 0.99, 0.94], windowGlow: 0.85,
+    colorGrade: [1.06, 0.99, 0.94],
   },
   // Night. Measured, not guessed — `docs/NIGHT_REPORT.md` has the numbers and
   // the controls behind each of these.
@@ -243,13 +239,6 @@ const PHASE_LOOK: Record<string, PhaseLook> = {
   // 3x the frame reached mean luma 17.31 and maxLuma 106.6 with
   // `hotPixelPct` still 0, so there was real headroom and 1.6 spends some of it
   // without approaching the roll-off. Night-only, so daylight is untouched.
-  //
-  // `windowGlow` is deliberately NOT raised. It looks like the obvious knob —
-  // it is named for exactly this job — and R2 proposes raising "the
-  // window-emissive multiplier". It is a PHANTOM: `grep -rn windowGlow src/`
-  // returns weather.ts and its own self-test and nothing else. No shader reads
-  // it, no uniform carries it, and changing it has been measured to change no
-  // pixel. It is left at 0.72 and flagged in COVERAGE.md.
   night: {
     azimuth: 3.49, elevation: -0.45,
     sunColor: g('#6a86e0'), intensity: 0.5,
@@ -262,7 +251,7 @@ const PHASE_LOOK: Record<string, PhaseLook> = {
     fov: 56 * D2R, chroma: 0.5, grain: 0.3, exposure: 1.6, saturation: 1.18,
     bloom: 0.78, vignette: 0.56, tiltShift: 0.7, focusWidth: 0.24, bokeh: 0.62,
     warp: 0.24, distortion: 0.07, horizonBend: 0.2,
-    colorGrade: [0.96, 1.0, 1.08], windowGlow: 0.72,
+    colorGrade: [0.96, 1.0, 1.08],
   },
 };
 
@@ -375,11 +364,6 @@ class Blend {
     for (let i = 0; i < 3; i++) { a[`c${i}`] += c[i] * weight; w[`c${i}`] += weight; }
   }
 
-  glow(weight: number, v: number): void {
-    this.acc.glow.v += v * weight;
-    this.wsum.glow.v += weight;
-  }
-
   sky(v: SkyState, weight: number): void {
     if (weight > this.skyW) { this.skyW = weight; this.skyVal = v; }
   }
@@ -398,7 +382,7 @@ class Blend {
   }
 
   /** Mix an accumulated group over the phase base, in place on `out`. */
-  resolveNum(grp: 'wx' | 'sun' | 'lens' | 'glow', out: Record<string, number>, base: Record<string, number>): void {
+  resolveNum(grp: 'wx' | 'sun' | 'lens', out: Record<string, number>, base: Record<string, number>): void {
     const a = this.acc[grp];
     const w = this.wsum[grp];
     for (const k of KEYS_OF[grp]) {
@@ -590,7 +574,6 @@ const EVENT_FX: Record<EventKind, (l: Blend, w: number, e: WorldEvent) => void> 
   'aurora-borealis': (l, w, e) => EVENT_FX.aurora(l, w, e),
   'power-cycle': (l, w) => {
     // Every lit window in the city goes out, then comes back.
-    l.glow(w, 0.04);
     l.sun(w, { intensity: 0.55, ambientIntensity: 0.06, bounceIntensity: 0.02 });
     l.sunColor(w, 'ambient', [0.05, 0.06, 0.11]);
     l.wx(w, { haze: 0.16, bloomStrength: 0.22, motes: 0.06 });
@@ -624,12 +607,11 @@ export class WeatherDirector {
   private phaseName: string;
 
   private readonly base = {
-    wx: blank(WX_KEYS), sun: blank(SUN_KEYS), lens: blank(LENS_KEYS), glow: blank(GLOW_KEYS),
+    wx: blank(WX_KEYS), sun: blank(SUN_KEYS), lens: blank(LENS_KEYS),
   };
   private readonly tw: Record<string, number> = blank(WX_KEYS);
   private readonly ts: Record<string, number> = blank(SUN_KEYS);
   private readonly tl: Record<string, number> = blank(LENS_KEYS);
-  private readonly tg: Record<string, number> = blank(GLOW_KEYS);
   private readonly sunC: Record<SunColKey, Vec3> = {
     color: [1, 1, 1], ambient: [0, 0, 0], bounce: [0, 0, 0],
   };
@@ -646,9 +628,6 @@ export class WeatherDirector {
   private clock = 0;
   /** Peak `blend` seen since construction, for diagnostics. */
   private blendPeak = 0;
-
-  /** Multiplier on lit windows. Read by the renderer when shading facades. */
-  windowGlow = 1;
 
   /** Azimuth steering: only active during a phase jump, then handed to the sun. */
   private azTarget = 0;
@@ -754,7 +733,6 @@ export class WeatherDirector {
     l.colorGrade[0] = this.grade[0];
     l.colorGrade[1] = this.grade[1];
     l.colorGrade[2] = this.grade[2];
-    this.windowGlow = this.tg.v;
 
     this.writeMirror();
     clampWeather(wx);
@@ -837,7 +815,6 @@ export class WeatherDirector {
     b.lens.distortion = look.distortion;
     b.lens.horizonBend = look.horizonBend;
 
-    b.glow.v = look.windowGlow;
     this.baseSun = {
       color: [look.sunColor[0], look.sunColor[1], look.sunColor[2]],
       ambient: [look.ambient[0], look.ambient[1], look.ambient[2]],
@@ -888,7 +865,6 @@ export class WeatherDirector {
     l.resolveNum('wx', this.tw, this.base.wx);
     l.resolveNum('sun', this.ts, this.base.sun);
     l.resolveNum('lens', this.tl, this.base.lens);
-    l.resolveNum('glow', this.tg, this.base.glow);
     l.resolveCol(this.sunC.color, this.baseSun.color, 'color');
     l.resolveCol(this.sunC.ambient, this.baseSun.ambient, 'ambient');
     l.resolveCol(this.sunC.bounce, this.baseSun.bounce, 'bounce');
@@ -1032,9 +1008,6 @@ export class WeatherDirector {
       l.colorGrade[i] = damp(l.colorGrade[i], this.grade[i], COL_RATE, dt);
       gap += Math.abs(l.colorGrade[i] - this.grade[i]);
     }
-    const glow = damp(this.windowGlow, this.tg.v, GLOW_RATE, dt);
-    this.windowGlow = glow;
-    gap += Math.abs(glow - this.tg.v);
 
     // `blend` is the summed normalised gap, floored by live event weight and
     // held briefly so a one-frame transient still registers as "steering".

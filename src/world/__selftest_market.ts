@@ -20,7 +20,7 @@ import { bakeMarketDetail } from '../render/marketbake';
 import { bakeChunk } from '../render/citymesh';
 import {
   CLOTH_EVERY_STRING, MODULE_FORMS, COOKING_EVERY, GAP_MAX_M, GAP_MIN_M, LANTERN_LIGHT_INTENSITY,
-  LANTERN_LIGHT_RADIUS, MARKET_LOD_GONE, MAX_MARKET_LIGHTS_PER_CHUNK,
+  LANTERN_LIGHT_RADIUS, MARKET_LOD_GONE, MAX_MARKET_LIGHTS_PER_CHUNK, SHOPHOUSE_PEAK_MAX,
   PITCH_MAX, PITCH_MIN, PITCH_NOISE_SCALE, RIDGE_MAX, RUN_FATIGUE, RUN_MAX_M, RUN_MIN_M,
   SAG_ACROSS, SAG_ALONG, SIGN_EVERY, STALL_SEPARATION, STRING_ANCHOR_MAX,
   marketCatenary, marketGrammarFor, type MarketQuery, type MarketStall,
@@ -437,9 +437,15 @@ const poolRed = (height: number, lateral: number, r: number, intensity: number):
   return (0.96 * 0.2 / Math.PI) * noL * intensity * atten;   // albedo 0.2, kd ~0.96
 };
 
-// A cord anchors at GROUND_Y + 7.0..9.5, sags 1.0-2.1, and the lantern drops a
-// further 0.34-0.72, so it hangs about 6 m over the deck.
-const LANTERN_HEIGHT = 6.0;
+// A cord anchors at GROUND_Y + 4.4..6.0, sags 0.7-1.5, and the lantern drops a
+// further 0.34-0.72, so it hangs about 3.6 m over the deck.
+//
+// This was 6.0, and it was not the pool that was wrong — at 6.0 m the ratios below
+// pass comfortably. It was the surfaces the pool does not land on. N.L is 1.000 on
+// the deck and 0.353 on a stall face 2 m back, so a lamp that puts a comfortable
+// 74x under itself puts 2.28x less on the stalls, which lands at byte 19 and does
+// not read. There is a separate check for that below.
+const LANTERN_HEIGHT = 3.6;
 const OFFSETS = [0, 2, 4, 6, 8, 10, 12];
 const ratios = OFFSETS.map((l) => poolRed(LANTERN_HEIGHT, l, LANTERN_LIGHT_RADIUS, LANTERN_LIGHT_INTENSITY) / ambientDiffuse[0]);
 const poolWidth = 2 * Math.sqrt(Math.max(1, LANTERN_LIGHT_RADIUS ** 2 - LANTERN_HEIGHT ** 2));
@@ -468,6 +474,48 @@ if (ratios[0] < 10) fail(`the pool directly under a lantern is only ${ratios[0].
 // from the far kerb is not a pool, it is a floodlight.
 if (legibleRadius < 6) fail(`the pool falls below 2x ambient at ${legibleRadius} m: a spot, not a pool`);
 if (legibleRadius > 14) fail(`the pool is still above 2x ambient at ${legibleRadius} m: that is a floodlight`);
+
+// ------------------------------------------------- 5b. the surfaces that failed
+//
+// Every check above looks at the DECK. That is why this file passed, cleanly, on
+// a frame a reviewer read as "a warm orange ground wash... no readable stalls".
+// The deck was never the problem and the deck is all this section could see.
+//
+// `lighting.wgsl` multiplies by N.L, so height above the deck decides how much of
+// a lamp lands on an up-facing surface versus a vertical one. A stall flank is a
+// vertical surface 1-2 m tall, packed close, and it is the geometry a reader
+// actually resolves. At the old 6.0 m hang it received 2.28x less than the deck
+// beside it, which through exposure 1.60 and ACES is byte 19 against byte 42.
+const STALL_FLANK_BACK = 2.0;   // metres back from directly under the lamp
+const STALL_FLANK_Y = 1.0;      // metres above the deck, mid-panel
+/** Red channel a lantern puts on a surface with this normal, `lateral` away. */
+const flankRed = (height: number, back: number, r: number, intensity: number): number => {
+  const dx = back, dy = height - STALL_FLANK_Y;
+  const d = Math.hypot(dx, dy), d2 = d * d;
+  const atten = (1 - d2 / (r * r)) ** 2 / (1 + d2 * 0.05);
+  const ndl = Math.max(0, dx / d);            // normal points back at the lamp
+  return (0.96 * 0.2 / Math.PI) * ndl * intensity * atten;
+};
+const flankRatio = flankRed(LANTERN_HEIGHT, STALL_FLANK_BACK, LANTERN_LIGHT_RADIUS, LANTERN_LIGHT_INTENSITY) / ambientDiffuse[0];
+const deckRatio = ratios[0];
+const flankPenalty = deckRatio / flankRatio;
+// The same filmic curve the frame goes through, so the number means something on
+// screen rather than only in units of ambient.
+const ACES = (x: number): number => Math.min(1, Math.max(0, (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14)));
+const srgb = (v: number): number => (v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055);
+const NIGHT_EXPOSURE = 1.6;
+const toByte = (v: number): number => Math.round(srgb(ACES(v * NIGHT_EXPOSURE)) * 255);
+
+console.log(`  stall flank ${STALL_FLANK_BACK} m back, N.L ${(STALL_FLANK_BACK / Math.hypot(STALL_FLANK_BACK, LANTERN_HEIGHT - STALL_FLANK_Y)).toFixed(3)}: pool/ambient ${flankRatio.toFixed(0)}x, byte ${toByte(flankRed(LANTERN_HEIGHT, STALL_FLANK_BACK, LANTERN_LIGHT_RADIUS, LANTERN_LIGHT_INTENSITY))} against deck byte ${toByte((0.96 * 0.2 / Math.PI) * LANTERN_LIGHT_INTENSITY * ((1 - LANTERN_HEIGHT ** 2 / LANTERN_LIGHT_RADIUS ** 2) ** 2 / (1 + LANTERN_HEIGHT ** 2 * 0.05)))}`);
+console.log(`  vertical penalty ${flankPenalty.toFixed(2)}x (was 2.28x at a 6.0 m hang)`);
+
+// A pool can be beautifully strong under the lamp and the market still unreadable.
+// What has to survive is the RATIO between the deck and the faces standing on it.
+// Above 2x the deck is drowning the stalls; a stall face under byte 32 is a dark
+// slab. These two guards are the ones that would have caught the reviewed frame.
+if (flankPenalty > 1.8) fail(`stall faces get ${flankPenalty.toFixed(2)}x less light than the deck beside them — the market will read as a lit floor with dark slabs on it`);
+const flankByte = toByte(flankRed(LANTERN_HEIGHT, STALL_FLANK_BACK, LANTERN_LIGHT_RADIUS, LANTERN_LIGHT_INTENSITY));
+if (flankByte < 32) fail(`a stall flank lands at byte ${flankByte}: below 32 the crates, tarps and canopy frames do not resolve`);
 if (poolWidth < 4) fail(`the pool is only ${poolWidth.toFixed(1)} m across at deck level`);
 
 // And the count. The spec counts "more than 10 small warm lamp points" along
@@ -501,9 +549,27 @@ for (let i = 0; i < pos.length; i += 3) {
 // marketbake's LEG_RADIUS + POLE_RADIUS: the frame members are tubes and
 // cylinders, so their vertices sit on the surface and never on the axis.
 const FRAME_TOL = 0.08;
-// Tallest member the grammar declares: a lantern cord anchor, or a ridge if
-// that ever stands higher.
-const ceiling = GROUND_Y + Math.max(RIDGE_MAX, STRING_ANCHOR_MAX) + 0.3;
+// Tallest member the grammar declares.
+//
+// This used to be `max(RIDGE_MAX, STRING_ANCHOR_MAX)`, which mixed a market STALL
+// ridge (3.4 m) with a lantern cord anchor (9.5 m) and silently ignored the
+// two-storey shophouses behind them, whose peak is 6.5 m. The guard passed only
+// because the cord anchor was accidentally taller than the buildings; the moment
+// the anchor came down to a height that lights the stalls properly, the same
+// unchanged geometry reported a 3.22 m violation.
+//
+// `SHOPHOUSE_PEAK_MAX` is derived in marketgrammar.ts from the same MODULE_FORMS
+// and rise ranges the stall loop uses, so this cannot drift from the declaration
+// again. FRAME_TOL covers the tube and cylinder members that sit on a surface.
+// Plus ROOF_EXTENT: the declared peak is the roof's AXIS, and marketbake builds the
+// shophouse roof with members that sit on its surface. Measured, not guessed --
+// the tallest cluster in a baked chunk is 6.618 m against a 6.500 m declared peak,
+// a spread of 0.118 m over 110 vertices. That residual belongs to the roof
+// construction in `src/render/marketbake.ts`, which does not declare its own
+// extent, and is tracked as an open item in docs/COVERAGE.md. It is named and
+// measured rather than folded into FRAME_TOL, which covers the stall tubes.
+const ROOF_EXTENT = 0.15;
+const ceiling = GROUND_Y + Math.max(SHOPHOUSE_PEAK_MAX, RIDGE_MAX, STRING_ANCHOR_MAX) + FRAME_TOL + ROOF_EXTENT;
 /**
  * Is there a vertex within `tol` of this lateral/height, in this stall?
  *
