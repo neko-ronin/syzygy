@@ -63,7 +63,7 @@ it satisfies a grep, and it will be believed.
 | 6 | Camera: free flight + gamepad/keyboard + tilt-shift/roll/FOV | `done` | `src/camera/`, D16 |
 | 7 | Post stack: TAA, bloom, DOF, CA, grade | `done` | `src/shaders/post.wgsl` |
 | 8 | Crowd sim + pedestrians | **`unverified`** | F1, F2, F3 |
-| 9 | Traffic: trams, trolleys, cable cars, ziplines, blimps, balloons | `partial` | F4 |
+| 9 | Traffic: trams, trolleys, cable cars, ziplines, blimps, balloons | `done` — instanced from `TrafficSim`, drawn in the shared 24-float layout (D18). Cycle dropped: no entity mesh exists. Distance-culled per kind, no per-mesh LOD. Cable cars were on a tram alignment until round 4. See `docs/TRAFFIC_REPORT.md` | F4 |
 | 10 | LLM agent integration (weather/camera/events) | `done` | `src/agent/`, D20 |
 | 11 | Destructible structures (GPU fracture) | `not built` | R5 |
 | 12 | Vegetation / solarpunk overgrowth + district colour identities | `done` | R9 |

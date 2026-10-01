@@ -7,7 +7,11 @@
 import { clamp, type Vec3 } from '../core/math';
 import { integrateWorld, type EventKind, type WorldState } from '../core/state';
 import { City, defaultCityConfig } from '../world/citygen';
-import { TrafficSim, type Vehicle, type VehicleKind } from './traffic';
+import {
+  TrafficSim, buildVehicleInstances, makeVehicleInstances,
+  type Vehicle, type VehicleKind, type VehicleMeshKey,
+} from './traffic';
+import { entityMeshes, INSTANCE_FLOATS } from '../render/citymesh';
 import { PHASES, WeatherDirector, phaseOf } from './weather';
 
 const now = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
@@ -395,6 +399,110 @@ export function runSimSelfTest(): string {
   L.push(`              ${FRAMES} frames in ${runMs.toFixed(0)}ms = ${f2(perFrame)}ms/frame average`);
   L.push(`              ${traffic.lights.length} lights emitted (cap 64), fastest vehicle ${f2(fastest)} m/s`);
   L.push(`              fleet: ${KIND_ORDER.map((k) => `${k} ${counts.get(k) ?? 0}`).join(' · ')}`);
+
+  // ---------------------------------------------------------------- traffic draw
+  //
+  // Triangles per mesh, measured from the mesh rather than quoted. The renderer
+  // keys its entities `tram`/`cablecar`/`rider`; the factories are named after the
+  // thing they draw.
+  const MESH_TRIS: Record<VehicleMeshKey, number> = {
+    tram: entityMeshes.tramCar().indexCount / 3,
+    cablecar: entityMeshes.cableCar().indexCount / 3,
+    rider: entityMeshes.ziplineRider().indexCount / 3,
+    blimp: entityMeshes.blimp().indexCount / 3,
+    balloon: entityMeshes.balloon().indexCount / 3,
+  };
+  //
+  // The simulation existing is not the same as the simulation being visible.
+  // This measures the instance list the renderer actually receives.
+  const draw = makeVehicleInstances(256);
+  // Stand in the middle of the city: the worst case for a cull distance, and
+  // the only place where "how many are alive" and "how many are drawn" differ.
+  const cam: Vec3 = [0, 30, 0];
+  buildVehicleInstances(traffic, cam, draw);
+  const drawAgain = makeVehicleInstances(256);
+  buildVehicleInstances(traffic, cam, drawAgain);
+
+  let degenerate = 0, offPlan = 0, mismatched = 0;
+  for (let b = 0; b < draw.blocks.length; b++) {
+    const blk = draw.blocks[b];
+    if (blk.count === 0) continue;
+    // Blocks must tile the buffer exactly, or a draw would read a neighbour's
+    // instances.
+    if (blk.start !== (b === 0 ? 0 : draw.blocks[b - 1].start + draw.blocks[b - 1].count)) mismatched++;
+    for (let i = 0; i < blk.count; i++) {
+      const o = (blk.start + i) * INSTANCE_FLOATS;
+      const rx = Math.hypot(draw.data[o], draw.data[o + 1], draw.data[o + 2]);
+      const uy = Math.hypot(draw.data[o + 4], draw.data[o + 5], draw.data[o + 6]);
+      const fz = Math.hypot(draw.data[o + 8], draw.data[o + 9], draw.data[o + 10]);
+      // A collapsed basis is what a zero velocity vector produces, and it draws
+      // nothing while reporting a draw. Every column must equal the scale.
+      if (rx < 1e-4 || uy < 1e-4 || fz < 1e-4) degenerate++;
+      if (Math.abs(rx - fz) > 1e-3 || Math.abs(uy - fz) > 1e-3) degenerate++;
+      for (let k = 0; k < 16; k++) if (!Number.isFinite(draw.data[o + k])) offPlan++;
+    }
+  }
+  const blocksFilled = draw.blocks.filter((b) => b.count > 0);
+  const drawnTris = blocksFilled.reduce((a, b) => a + (MESH_TRIS[b.mesh] ?? 0) * b.count, 0);
+  let aliveDrawn = 0;
+  for (const k of Object.keys(draw.stats) as VehicleKind[]) aliveDrawn += draw.stats[k].drawn;
+
+  // The rail transform. `buildVehicleInstances` measures both, because it is
+  // the only scope holding the sim's tangent and the column it wrote; a check
+  // downstream cannot tell a working grade from a plausible one.
+  const gradedFound = draw.maxGrade > 0.02 ? 1 : 0;
+  const gradeMatches = draw.maxGradeError < 1e-3 ? 1 : 0;
+
+  // A cable car must be on a cable car line. It was not: `byKind.cablecar` was
+  // bound by a fallback that ran inside the route sweep, so it took whichever
+  // rail route came first — a tram alignment at 1-9 m, while the cable car lines
+  // run at 418-607 m. The HUD said `cablecar` the whole time. Nothing compared a
+  // vehicle's altitude against its line's, so this is the assertion that would
+  // have caught it.
+  const cableAlts = traffic.vehicles
+    .filter((v) => v.kind === 'cablecar' && v.alive)
+    .map((v) => v.position[1]);
+  const cableFloor = cableAlts.length > 0 ? Math.min(...cableAlts) : 0;
+  const railAlts = traffic.vehicles
+    .filter((v) => v.kind === 'tram' && v.alive)
+    .map((v) => v.position[1]);
+  const railCeiling = railAlts.length > 0 ? Math.max(...railAlts) : 0;
+
+  let identical = draw.data.length === drawAgain.data.length;
+  if (identical) {
+    for (let i = 0; i < draw.data.length; i++) {
+      if (draw.data[i] !== drawAgain.data[i]) { identical = false; break; }
+    }
+  }
+
+  if (degenerate > 0) note(`${degenerate} vehicle instances have a collapsed basis`);
+  if (offPlan > 0) note(`${offPlan} vehicle instances contain a non-finite transform`);
+  if (mismatched > 0) note(`${mismatched} vehicle blocks do not tile the instance buffer`);
+  if (draw.count <= 0) note('the vehicle draw list is empty from the middle of the city');
+  if (traffic.activeCount > 0 && aliveDrawn >= traffic.activeCount) {
+    note(`nothing was culled: ${aliveDrawn} of ${traffic.activeCount} alive vehicles drawn`);
+  }
+  if (!identical) note('two vehicle draw builds of the same frame disagreed');
+  if (gradedFound === 0) note('no drawn vehicle carries a grade — the rail tangent is not reaching the model matrix');
+  if (draw.maxGradeError >= 1e-3) {
+    note(`written forward column disagrees with the sim tangent by ${draw.maxGradeError}`);
+  }
+  if (cableAlts.length > 0 && cableFloor < railCeiling + 20) {
+    note(`cable cars fly at ${cableFloor.toFixed(0)}m while trams reach ${railCeiling.toFixed(0)}m — they are on the wrong lines`);
+  }
+
+  L.push('');
+  L.push(`traffic draw  ${aliveDrawn} of ${traffic.activeCount} alive vehicles drawn as ${draw.count} instances`);
+  L.push(`              blocks ${blocksFilled.map((b) => `${b.mesh} ${b.count}@${b.start}`).join(' · ')}`);
+  L.push(`              ${drawnTris} triangles across ${blocksFilled.length} draws, pack copy measured in main`);
+  L.push(`              by kind ${(Object.keys(draw.stats) as VehicleKind[])
+    .map((k) => `${k} ${draw.stats[k].drawn}/${draw.stats[k].alive}`).join(' · ')}`);
+  L.push(`              culled by distance ${(Object.keys(draw.stats) as VehicleKind[])
+    .reduce((a, k) => a + draw.stats[k].culledFar, 0)}, dropped for want of a mesh ${(Object.keys(draw.stats) as VehicleKind[])
+    .reduce((a, k) => a + draw.stats[k].dropped, 0)}`);
+  L.push(`              steepest written grade ${(draw.maxGrade * 100).toFixed(1)}%, forward-column error ${draw.maxGradeError.toExponential(1)} (${gradedFound && gradeMatches ? 'verified' : 'UNVERIFIED'})`);
+  L.push(`              cable cars ${cableFloor.toFixed(0)}-${Math.max(...cableAlts).toFixed(0)}m altitude vs trams ${railCeiling.toFixed(0)}m ceiling`);
+
 
   // Speed ceilings. Rail-borne vehicles must respect theirs exactly; the air
   // fleet is advected by the wind, so a gale legitimately carries them well past

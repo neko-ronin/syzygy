@@ -18,9 +18,14 @@ import { Input } from './camera/input';
 import { ToolExecutor, type CameraPort } from './agent/tools';
 import { ConductorUI, toast } from './agent/ui';
 import { CrowdSim } from './sim/crowd';
-import { TrafficSim } from './sim/traffic';
+import { TrafficSim, buildVehicleInstances, makeVehicleInstances } from './sim/traffic';
 import { WeatherDirector } from './sim/weather';
-import { derivePose, type DerivedPoseId, type DerivedPoseResult } from './world/diagnosticposes';
+import {
+  derivePose, deriveTrafficPose,
+  type DerivedPoseId, type DerivedPoseResult,
+  type TrafficPoseId, type TrafficPoseResult,
+} from './world/diagnosticposes';
+import { INSTANCE_FLOATS } from './render/citymesh';
 
 // ---------------------------------------------------------------- dom
 
@@ -99,6 +104,9 @@ const BOOT = (() => {
 
 // ---------------------------------------------------------------- main
 
+/** The pass encoder type the renderer's entity hook hands over. */
+type EntityPass = Parameters<NonNullable<Renderer['pendingEntities']>>[0];
+
 class App {
   renderer!: Renderer;
   world: WorldState = defaultWorld(0x5e7a17);
@@ -106,6 +114,19 @@ class App {
   input!: Input;
   crowd!: CrowdSim;
   traffic!: TrafficSim;
+  /** Vehicle instances, grouped by mesh and distance-culled. Reused per frame. */
+  private trafficInst = makeVehicleInstances(256);
+  /** Pedestrians then vehicles, contiguous. One upload, many draws. */
+  private entityScratch = new Float32Array(4096 * INSTANCE_FLOATS);
+  /**
+   * Triangles the entity draws contributed this frame, added to the render
+   * stats after `render()` because they do not pass through `drawEntitySet`.
+   */
+  private pendingEntityTris = 0;
+  /** Cost of the one memcpy per frame that packs the two instance sets. */
+  private entityCopyMs = 0;
+  /** What this frame actually issued, recorded here rather than read back. */
+  private issuedEntityDraws: string[] = [];
   weather!: WeatherDirector;
   tools!: ToolExecutor;
   ui!: ConductorUI;
@@ -269,6 +290,18 @@ class App {
     return r;
   }
 
+  /**
+   * A camera pointed at the traffic, derived from live vehicle positions.
+   *
+   * `03-tram-level` is anchored at the world origin and claims a statement about
+   * tram height it cannot support from a kilometre away. This goes to the tram
+   * instead of renaming the pose, because `sections.json` maps `tram-level` to a
+   * section and `compare.mjs --auto` matches on it.
+   */
+  trafficPose(id: TrafficPoseId): TrafficPoseResult {
+    return deriveTrafficPose(id, this.traffic.vehicles, this.world.seed);
+  }
+
   // ---------------------------------------------------------------- ui wiring
 
   private wireUi(): void {
@@ -368,11 +401,41 @@ class App {
 
     // Entities are drawn inside the G-buffer so they get shadows, fog and
     // deferred lighting for free.
+    //
+    // One upload for the whole frame. `Renderer.drawEntitySet` writes at buffer
+    // offset 0 on *every* call and draws from instance 0, so calling it once per
+    // kind makes the last upload overwrite the first and every draw then reads
+    // the same bytes — which is how a tram ends up wearing a pedestrian's
+    // matrix. So the two sets are packed into one contiguous buffer, uploaded
+    // once, and the per-mesh draws are issued below against the pass encoder and
+    // the two getters Renderer already exposes.
     this.renderer.entityDraws.length = 0;
+    this.issuedEntityDraws.length = 0;
+    const vehicles = buildVehicleInstances(this.traffic, this.camera.position, this.trafficInst);
+    const ped = this.crowd.instances;
+    const total = ped.count + vehicles.count;
+    const need = Math.max(total, 64) * INSTANCE_FLOATS;
+    if (this.entityScratch.length < need) this.entityScratch = new Float32Array(need);
+    const copyT0 = performance.now();
+    this.entityScratch.set(ped.data.subarray(0, ped.count * INSTANCE_FLOATS), 0);
+    this.entityScratch.set(vehicles.data.subarray(0, vehicles.count * INSTANCE_FLOATS), ped.count * INSTANCE_FLOATS);
+    this.entityCopyMs = performance.now() - copyT0;
+
     this.renderer.pendingEntities = (p) => {
-      this.renderer.drawEntitySet(p, 'pedestrian', this.crowd.instances.data, this.crowd.instances.count);
+      this.renderer.uploadInstances(this.entityScratch, total);
+      this.pendingEntityTris = this.drawEntityBlock(p, 'pedestrian', ped.count, 0);
+      for (const b of vehicles.blocks) {
+        this.pendingEntityTris += this.drawEntityBlock(p, b.mesh, b.count, ped.count + b.start);
+      }
     };
     this.renderer.render(this.camera, dt);
+    // The draws above bypass `drawEntitySet`, so they never reach
+    // `renderer.counter.entityTris` and `stats.triangles` would silently
+    // under-report. Add them once, from the counts the draws were issued with —
+    // the same number `drawEntitySet` would have added. This disappears when
+    // `drawEntitySet` takes an instance offset; see docs/TRAFFIC_REPORT.md.
+    this.renderer.stats.triangles += this.pendingEntityTris;
+    this.renderer.stats.entityTriangles += this.pendingEntityTris;
     this.frameCount++;
 
     if (this.screenshotRequested) {
@@ -393,6 +456,32 @@ class App {
       this.governorTimer = 0;
     }
   };
+
+  /**
+   * One instanced draw for a mesh already resident in the instance buffer.
+   *
+   * Reaches the entity meshes and the instance buffer through the two public
+   * getters `Renderer` exposes, rather than duplicating `drawEntity`'s state.
+   * Returns the triangles it drew, so the caller can keep the frame's triangle
+   * total honest.
+   */
+  private drawEntityBlock(
+    p: EntityPass, key: string, count: number, offset: number,
+  ): number {
+    const mesh = this.renderer.entityGeometry[key];
+    if (!mesh || count <= 0) {
+      this.renderer.entityDraws.push(`${key}:0`);
+      this.issuedEntityDraws.push(`${key}:0@${offset}`);
+      return 0;
+    }
+    p.setVertexBuffer(0, mesh.vbo);
+    p.setVertexBuffer(1, this.renderer.instanceBuffer);
+    p.setIndexBuffer(mesh.ibo, mesh.indexFormat);
+    p.drawIndexed(mesh.indexCount, count, 0, 0, offset);
+    this.renderer.entityDraws.push(`${key}:${count}/${mesh.indexCount}`);
+    this.issuedEntityDraws.push(`${key}:${count}/${mesh.indexCount}@${offset}`);
+    return (mesh.indexCount / 3) * count;
+  }
 
   // ---------------------------------------------------------------- hud
 
@@ -592,7 +681,16 @@ class App {
         },
         crowd: app.crowd.visibleCount,
       crowdSample: app.crowd.sampleInstances(4),
-      entityDraws: app.renderer.entityDraws.slice(-4),
+      entityDraws: app.renderer.entityDraws.slice(-8),
+      issuedEntityDraws: app.issuedEntityDraws.slice(-8),
+      trafficDraw: {
+        instances: app.trafficInst.count,
+        blocks: app.trafficInst.blocks.filter((b) => b.count > 0)
+          .map((b) => `${b.mesh}:${b.count}@${b.start}`),
+        alive: app.traffic.activeCount,
+        packMs: +app.entityCopyMs.toFixed(3),
+        byKind: app.trafficInst.stats,
+      },
       pop: app.crowd.population(),
       rawInst: app.crowd.rawInstance(0),
       inView: app.crowd.inView(app.camera.position, app.camera.forward, app.camera.fov, app.targetsW / app.targetsH),
@@ -612,6 +710,8 @@ class App {
        * console print names is therefore the pose the renderer used.
        */
       pose: (id: string) => app.pose(id as DerivedPoseId),
+      /** Derive a pose from live traffic, then hand it to `setPose`. */
+      trafficPose: (id: string) => app.trafficPose(id as TrafficPoseId),
       /** Synchronous streaming warm-up. `__syzygy.warm()` after `setPose`. */
       warm: (target?: number, maxTicks?: number, maxMs?: number) =>
         app.warmChunks(target ?? 96, maxTicks ?? 400, maxMs ?? 90_000),

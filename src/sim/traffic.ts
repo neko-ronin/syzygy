@@ -24,6 +24,12 @@ import {
   districtAtField, districtPaletteLinear, districtStyle, type DistrictField,
 } from '../world/districts';
 import { NavGraph, buildRailLines, buildZiplines, type RailLine } from '../world/networks';
+// The shared per-instance layout (D18). `gpuutil.ts` declares an identical
+// `INSTANCE_FLOATS`, but importing from there evaluates `GPUShaderStage`
+// at module scope, which does not exist in node — so the headless sim
+// self-test cannot load it. The copy in `citymesh.ts` can, and is the one
+// `crowd.ts` uses. See docs/TRAFFIC_REPORT.md.
+import { INSTANCE_FLOATS } from '../render/citymesh';
 
 // ---------------------------------------------------------------- tuning
 
@@ -35,6 +41,14 @@ export interface Vehicle {
   kind: VehicleKind;
   position: Vec3;
   velocity: Vec3;
+  /**
+   * Unit tangent of travel, including grade. `heading` is a yaw only, so a
+   * model matrix built from it leaves a tram level on a 12% grade: it floats
+   * off the rail on the way up and sinks into it on the way down. `stepRail`
+   * already computes the true 3D tangent for its grade penalty; this keeps
+   * that vector instead of making the draw layer re-derive it.
+   */
+  forward: Vec3;
   heading: number;
   /** 0..1 along its route. */
   s: number;
@@ -90,6 +104,11 @@ interface Route {
   family: 'rail' | 'zipline';
   /** The generator's line kind, for `rail` routes. */
   lineKind: RailLine['kind'] | 'trolley';
+  /**
+   * Whether the line runs on the ground, hangs below a cable, or flies free.
+   * Copied from `RailLine.suspension`, which existed and was read nowhere.
+   */
+  suspension: RailLine['suspension'];
   /** Tram lines get a second, offset route so trolleybuses do not overlap. */
   twin: boolean;
   /** Flat xyz triples. */
@@ -203,6 +222,7 @@ function makeRailRoute(line: RailLine, rng: Rng, twin: boolean): Route {
   return {
     family: 'rail',
     lineKind: twin ? 'trolley' : line.kind,
+    suspension: line.suspension,
     twin,
     pts: f,
     cum,
@@ -251,6 +271,8 @@ function makeZiplineRoute(z: { a: Vec3; b: Vec3; sag: number; color: Vec3 }): Ro
   return {
     family: 'zipline',
     lineKind: 'zipline',
+    // A zipline rider hangs from the cable rather than running on it.
+    suspension: 'catenary',
     twin: false,
     pts: f,
     cum,
@@ -352,6 +374,21 @@ export class TrafficSim {
   /** Route count currently loaded. Zero means the city had no network. */
   get routeCount(): number { return this.routes.length; }
 
+  /**
+   * Whether this vehicle's line runs on the ground, hangs below a cable, or
+   * flies free. The draw layer needs it to know whether the body sits on the
+   * line or below it; `RailLine.suspension` existed for years and was read
+   * nowhere in the repository.
+   *
+   * Note the generator tags a *cablecar* `'free'`, which is a vocabulary slip:
+   * a cable car hangs from its span, it does not fly. The draw layer keys the
+   * hang off the vehicle kind for that reason and uses `suspension` only for
+   * the tram lines, where `'catenary'` really does mean a graded hump.
+   */
+  suspensionOf(v: Vehicle): Route['suspension'] {
+    return this.routes[v.route]?.suspension ?? 'ground';
+  }
+
   /** Fleet fraction, 0..1. */
   get fleetDensity(): number { return this.density; }
 
@@ -382,10 +419,24 @@ export class TrafficSim {
       const r = routes[i];
       const key = r.family === 'zipline' ? 'zipline' : r.lineKind;
       if (this.byKind[key] < 0) this.byKind[key] = i;
-      // A city whose only lines are funiculars still needs something for
-      // trams; fall back to any rail route.
-      if (r.family === 'rail' && this.byKind.tram < 0) this.byKind.tram = i;
-      if (r.family === 'rail' && this.byKind.cablecar < 0) this.byKind.cablecar = i;
+    }
+    // Fallback pass, AFTER the sweep: a city whose only lines are funiculars
+    // still needs something for trams, so fall back to any rail route.
+    //
+    // This used to run inside the loop, guarded only by `byKind[x] < 0`, and
+    // that bound every kind to whichever rail route came first in the list. A
+    // tram line is route 0, so `byKind.cablecar` was pinned to it and all 27
+    // cable cars rode a street-level tram alignment: measured 1-9 m altitude
+    // while the cable car lines they were supposed to be on run at 418-607 m.
+    // Nothing reported it. The HUD said `cablecar`, the self-test checked
+    // speeds and NaN, and no counter anywhere compared a vehicle's altitude
+    // against its line's.
+    for (let i = 0; i < routes.length; i++) {
+      const r = routes[i];
+      if (r.family !== 'rail') continue;
+      if (this.byKind.tram < 0) this.byKind.tram = i;
+      if (this.byKind.cablecar < 0) this.byKind.cablecar = i;
+      if (this.byKind.funicular < 0) this.byKind.funicular = i;
     }
 
     if (!this.nav && this.city.totalBuildings > 0) {
@@ -503,6 +554,7 @@ export class TrafficSim {
       kind,
       position: [0, 0, 0],
       velocity: [0, 0, 0],
+      forward: [0, 0, 1],
       heading: r.range(-Math.PI, Math.PI),
       s: r.next(),
       speed: 0,
@@ -718,6 +770,13 @@ export class TrafficSim {
     v.velocity[0] = (dx / len) * v.speed;
     v.velocity[1] = (dy / len) * v.speed;
     v.velocity[2] = (dz / len) * v.speed;
+    // The tangent with its grade, signed by travel direction so a tram that
+    // turned around at a terminus faces the way it is going. `velocity` cannot
+    // carry this: it is the same vector times speed, and speed is zero at every
+    // stop — which is most of the time a camera happens to be looking at one.
+    v.forward[0] = (dx / len) * dir;
+    v.forward[1] = (dy / len) * dir;
+    v.forward[2] = (dz / len) * dir;
     const want2 = Math.atan2(dx * dir, dz * dir);
     v.heading += shortestAngle(v.heading, want2) * (1 - Math.exp(-5 * dt));
   }
@@ -796,6 +855,14 @@ export class TrafficSim {
     v.speed = Math.hypot(v.velocity[0], v.velocity[1], v.velocity[2]);
     v.s = (v.s + dt * 0.02) % 1;
     v.heading = Math.atan2(v.velocity[0], v.velocity[2]);
+    // A blimp pitches with its airspeed. Normalise from velocity rather than
+    // heading so the nose follows the climb instead of staying flat.
+    const sp = v.speed;
+    if (sp > 1e-3) {
+      v.forward[0] = v.velocity[0] / sp;
+      v.forward[1] = v.velocity[1] / sp;
+      v.forward[2] = v.velocity[2] / sp;
+    }
   }
 
   /** O(n^2) over at most `MAX_AIR` bodies: cheap, and it reads as flocking. */
@@ -875,6 +942,13 @@ export class TrafficSim {
     v.position[2] = clamp(v.position[2], -WORLD_HALF, WORLD_HALF);
     v.speed = Math.hypot(v.velocity[0], v.velocity[2]);
     v.heading = Math.atan2(dx, dz);
+    // A cyclist is on a street, so this is the street tangent rather than the
+    // velocity: steering is smoothed separately and velocity lags a corner.
+    if (dist > 1e-3) {
+      v.forward[0] = dx / dist;
+      v.forward[1] = 0;
+      v.forward[2] = dz / dist;
+    }
     if (++this.cycRides[i] > 900) { this.cycRides[i] = 0; this.chooseCycleLeg(i, v); }
   }
 
@@ -1014,4 +1088,252 @@ function shortestAngle(a: number, b: number): number {
   if (d > Math.PI) d -= Math.PI * 2;
   if (d <= -Math.PI) d += Math.PI * 2;
   return d;
+}
+
+// ---------------------------------------------------------------- drawing
+
+/**
+ * How a vehicle kind becomes a drawn instance.
+ *
+ * Six entity meshes exist (`entityMeshes`) for eight vehicle kinds, so two
+ * kinds share and one is dropped. The share is on silhouette, not convenience:
+ * a trolleybus and a funicular are both long boxes on a rail and read correctly
+ * at either scale. A cycle has no mesh at all and is dropped — `rider` is 0.65 m
+ * tall and would need scaling 2.6x to stand a person up, at which point it is
+ * indistinguishable from a pedestrian and the frame would be showing a lie.
+ */
+export interface VehicleDrawSpec {
+  /** `Renderer.entities` key. */
+  mesh: VehicleMeshKey;
+  /** Cull distance from the camera, metres. */
+  range: number;
+  /** Uniform scale on top of `Vehicle.scale`. */
+  size: number;
+  /** Metres the body drops below its line, for a suspended vehicle. */
+  hang: number;
+  /**
+   * Instance emissive, written to `params.z`.
+   *
+   * The mesh carries its own emissive and `gbuffer.wgsl` takes
+   * `max(v.emissive, params.z * tint.a)`, so this is a floor, not a second
+   * convention. It exists because the meshes were authored for daylight:
+   * `cableCar()` gives its window band `emissive: 0.9`, and against a night
+   * facade that measured as a dark box — the ropeway is the brightest object in
+   * the reference set and it was the dimmest thing in the frame. A tram's
+   * headlights are already 8.0 in the mesh, so a low value here only lifts its
+   * window band without touching them.
+   */
+  emissive: number;
+}
+
+/**
+ * How far a body hangs below its cable, measured from the built meshes.
+ *
+ * `cableCar()` spans y -1.1..+2.3 and carries a hanger arm from +1.25 to +2.1
+ * with a cap at +2.2, so its cable is at local +2.2 and the body belongs 2.2 m
+ * below the line, not on it. `ziplineRider()` spans y -0.2..+0.4 with the head
+ * at +0.30, so its cable is about half a metre above the body.
+ */
+export const CABLE_HANG = 2.2;
+export const RIDER_HANG = 0.5;
+
+/** Mesh keys, in the order their blocks are laid out in the instance buffer. */
+export const VEHICLE_MESH_ORDER = ['tram', 'cablecar', 'rider', 'blimp', 'balloon'] as const;
+export type VehicleMeshKey = typeof VEHICLE_MESH_ORDER[number];
+
+/**
+ * Cull distance per kind, and why each is what it is.
+ *
+ * Cable cars are the compositional subject of the whole reference set — aerial
+ * ropeways strung between tall buildings are what the frames are *about* — so
+ * they are held furthest of the ground transport, at 1100 m. Blimps are 60 m
+ * envelopes at 180-340 m altitude and read as a shape at 1.5 km; balloons are
+ * 20 m and stop at 900 m, where the envelope still has a silhouette rather than
+ * being a dot. Trams are 18 m long and matter at street level; past 460 m a
+ * tram is a smear on a road that is already a smear.
+ */
+export const VEHICLE_DRAW: Record<VehicleKind, VehicleDrawSpec> = {
+  tram: { mesh: 'tram', range: 460, size: 1, hang: 0, emissive: 1.0 },
+  trolley: { mesh: 'tram', range: 460, size: 0.78, hang: 0, emissive: 1.0 },
+  funicular: { mesh: 'tram', range: 460, size: 0.62, hang: 0, emissive: 1.0 },
+  cablecar: { mesh: 'cablecar', range: 1100, size: 1, hang: CABLE_HANG, emissive: 3.6 },
+  zipline: { mesh: 'rider', range: 620, size: 1, hang: RIDER_HANG, emissive: 0 },
+  blimp: { mesh: 'blimp', range: 1500, size: 1, hang: 0, emissive: 0 },
+  balloon: { mesh: 'balloon', range: 900, size: 1, hang: 0, emissive: 0 },
+  /** No mesh exists for a cycle. See {@link VehicleDrawSpec}. */
+  cycle: { mesh: 'rider', range: 0, size: 1, hang: 0, emissive: 0 },
+};
+
+/** A contiguous run of one mesh's instances, and where it starts. */
+export interface VehicleBlock {
+  mesh: VehicleMeshKey;
+  start: number;
+  count: number;
+}
+
+/** Per-kind bookkeeping, so a frame can say what it dropped and why. */
+export interface VehicleDrawStats {
+  alive: number;
+  drawn: number;
+  culledFar: number;
+  dropped: number;
+}
+
+export interface VehicleInstances {
+  data: Float32Array;
+  count: number;
+  blocks: VehicleBlock[];
+  stats: Record<VehicleKind, VehicleDrawStats>;
+  /**
+   * Steepest grade (|forward.y|) written, and the worst disagreement between
+   * the forward column actually written and the sim's own tangent. Both are
+   * measured here because this is the only place that holds both vectors: a
+   * re-derivation in a test cannot tell a working grade from a plausible one.
+   */
+  maxGrade: number;
+  maxGradeError: number;
+}
+
+const newDrawStats = (): VehicleDrawStats => ({ alive: 0, drawn: 0, culledFar: 0, dropped: 0 });
+
+/** An instance buffer sized for the whole fleet, reusable every frame. */
+export const makeVehicleInstances = (capacity: number): VehicleInstances => ({
+  data: new Float32Array(capacity * INSTANCE_FLOATS),
+  count: 0,
+  blocks: [],
+  stats: {
+    tram: newDrawStats(), trolley: newDrawStats(), cablecar: newDrawStats(),
+    funicular: newDrawStats(), zipline: newDrawStats(), blimp: newDrawStats(),
+    balloon: newDrawStats(), cycle: newDrawStats(),
+  },
+  maxGrade: 0,
+  maxGradeError: 0,
+});
+
+/**
+ * Column-major model matrix from a unit forward.
+ *
+ * Columns are the basis vectors in world space: col0 = local +X (right),
+ * col1 = +Y (up), col2 = +Z (forward). Every vehicle mesh is authored +Z
+ * forward, and with a horizontal forward this reproduces the crowd's matrix
+ * exactly — which is the point: both entity types share one buffer and one
+ * layout (D18). The difference is that `forward` carries the grade, which is the
+ * entire reason it is kept rather than re-derived from `heading`.
+ *
+ * `fallbackHeading` is for a vehicle with no usable tangent this frame. A blimp
+ * stalled against its keep-out box has a zero velocity, and a zero forward would
+ * collapse the basis into a singular matrix that draws nothing and reports
+ * nothing.
+ */
+function writeModel(
+  d: Float32Array, o: number, p: Vec3, fwd: Vec3, size: number, fallbackHeading: number,
+): void {
+  const l = Math.hypot(fwd[0], fwd[1], fwd[2]);
+  const fx = l > 1e-4 ? fwd[0] / l : Math.sin(fallbackHeading);
+  const fy = l > 1e-4 ? fwd[1] / l : 0;
+  const fz = l > 1e-4 ? fwd[2] / l : Math.cos(fallbackHeading);
+  // right = worldUp x forward. World up is the reference, not the vehicle's, so
+  // a funicular descending a 30% grade still stands on its rails rather than
+  // rolling with them.
+  let rx = fz, rz = -fx;
+  const rl = Math.hypot(rx, rz);
+  if (rl > 1e-4) { rx /= rl; rz /= rl; } else { rx = 1; rz = 0; }
+  const ux = fy * rz - fz * 0;
+  const uy = fz * rx - fx * rz;
+  const uz = fx * 0 - fy * rx;
+
+  d[o] = rx * size; d[o + 1] = 0; d[o + 2] = rz * size; d[o + 3] = 0;
+  d[o + 4] = ux * size; d[o + 5] = uy * size; d[o + 6] = uz * size; d[o + 7] = 0;
+  d[o + 8] = fx * size; d[o + 9] = fy * size; d[o + 10] = fz * size; d[o + 11] = 0;
+  d[o + 12] = p[0]; d[o + 13] = p[1]; d[o + 14] = p[2]; d[o + 15] = 1;
+}
+
+/**
+ * Write this frame's vehicles into `out`: distance-culled, grouped by mesh,
+ * one contiguous block per mesh so the renderer can draw each at its own
+ * instance offset.
+ *
+ * Two passes over the fleet, which is ~200 vehicles: one to lay out the blocks,
+ * one to write them. Nothing allocates after the first call. `out.data` must be
+ * large enough for the fleet, which is fixed at construction.
+ */
+export function buildVehicleInstances(
+  sim: TrafficSim, cam: Vec3, out: VehicleInstances,
+): VehicleInstances {
+  const mesh = VEHICLE_MESH_ORDER;
+  const perMesh = [0, 0, 0, 0, 0];
+  out.blocks.length = 0;
+  out.maxGrade = 0;
+  out.maxGradeError = 0;
+  for (const k of Object.keys(out.stats) as VehicleKind[]) {
+    const s = out.stats[k];
+    s.alive = 0; s.drawn = 0; s.culledFar = 0; s.dropped = 0;
+  }
+
+  const inRange = (v: Vehicle): boolean => {
+    const spec = VEHICLE_DRAW[v.kind];
+    if (spec.range <= 0) return false;
+    const dx = v.position[0] - cam[0], dy = v.position[1] - cam[1], dz = v.position[2] - cam[2];
+    return dx * dx + dy * dy + dz * dz <= spec.range * spec.range;
+  };
+
+  // Pass 1: block sizes.
+  for (const v of sim.vehicles) {
+    if (!v.alive) continue;
+    if (!inRange(v)) continue;
+    perMesh[mesh.indexOf(VEHICLE_DRAW[v.kind].mesh)]++;
+  }
+  const cap = out.data.length / INSTANCE_FLOATS;
+  let cursor = 0;
+  for (let m = 0; m < mesh.length; m++) {
+    const n = Math.min(perMesh[m], Math.max(0, cap - cursor));
+    out.blocks.push({ mesh: mesh[m], start: cursor, count: n });
+    perMesh[m] = n;
+    cursor += n;
+  }
+  out.count = cursor;
+
+  // Pass 2: the instances themselves.
+  const write = [0, 0, 0, 0, 0];
+  for (const v of sim.vehicles) {
+    if (!v.alive) continue;
+    const st = out.stats[v.kind];
+    st.alive++;
+    const spec = VEHICLE_DRAW[v.kind];
+    if (spec.range <= 0) { st.dropped++; continue; }
+    if (!inRange(v)) { st.culledFar++; continue; }
+    const m = mesh.indexOf(spec.mesh);
+    if (write[m] >= perMesh[m]) continue;
+    const o = (out.blocks[m].start + write[m]) * INSTANCE_FLOATS;
+    write[m]++;
+    const hang = sim.suspensionOf(v) === 'catenary' ? spec.hang : 0;
+    const px = v.position[0], py = v.position[1] - hang, pz = v.position[2];
+    writeModel(out.data, o, [px, py, pz], v.forward, v.scale * spec.size, v.heading);
+    out.data[o + 16] = v.color[0];
+    out.data[o + 17] = v.color[1];
+    out.data[o + 18] = v.color[2];
+    out.data[o + 19] = 1;
+    // MAT.PLAIN, as the crowd uses: these are small objects and the facade
+    // synthesiser shades anything inside one 3.1 x 3.6 m window cell as glass.
+    out.data[o + 20] = 9;
+    out.data[o + 21] = v.kind === 'blimp' || v.kind === 'balloon' ? 0.7 : 0.42;
+    out.data[o + 22] = spec.emissive;
+    out.data[o + 23] = 0;
+    st.drawn++;
+
+    // Grade fidelity, measured here rather than asserted downstream: this is
+    // the only scope that holds both the tangent the sim computed and the
+    // column that went into the buffer. A tram on a 12% grade has to pitch.
+    const scale = v.scale * spec.size;
+    if (scale > 1e-4) {
+      const gy = out.data[o + 9] / scale;
+      if (Math.abs(gy) > out.maxGrade) out.maxGrade = Math.abs(gy);
+      const l = Math.hypot(v.forward[0], v.forward[1], v.forward[2]);
+      if (l > 1e-4) {
+        const err = Math.abs(gy - v.forward[1] / l);
+        if (err > out.maxGradeError) out.maxGradeError = err;
+      }
+    }
+  }
+  return out;
 }

@@ -30,6 +30,7 @@ import {
   type CityPlan,
   type StreetSample,
 } from './citygen';
+import type { Vec3 } from '../core/math';
 
 /** The shape `CrowdSim.population()` returns; declared here so this file does not import the sim. */
 export interface Population {
@@ -125,6 +126,11 @@ const SPECS: Record<DerivedPoseId, {
   // ground-contact check, on a carriageway instead of inside a lot.
   'facade-base': { eye: 6, fov: 1.05, aim: 34, back: 0, wide: true },
 };
+
+/** Second scratch, so the traffic path cannot stomp the crowd path's. */
+const scratch2 = (): StreetSample => ({
+  dist: 0, px: 0, pz: 0, tx: 1, tz: 0, width: 1, kind: 'street', clearance: 0,
+});
 
 const scratch = (): StreetSample => ({
   dist: 0, px: 0, pz: 0, tx: 1, tz: 0, width: 1, kind: 'street', clearance: 0,
@@ -245,3 +251,176 @@ export function derivePose(id: DerivedPoseId, pop: Population, seed: number): De
 
 /** Ground height the city is built on, re-exported so callers need one import. */
 export { GROUND_Y };
+// ---------------------------------------------------------------- traffic poses
+
+/**
+ * Diagnostic poses derived from live vehicle positions (D21, PROCESS.md rule 4).
+ *
+ * `03-tram-level` is the reason this file exists twice over: it is anchored at
+ * the world origin and claims a statement about tram height that it cannot
+ * support from a kilometre away. Its label was corrected; its *name* could not
+ * be, because `sections.json` maps `tram-level` to a section and
+ * `compare.mjs --auto` matches on it. So the fix is a pose that goes to the
+ * traffic rather than a rename that breaks the comparison grid.
+ *
+ * Appended rather than folded into {@link derivePose}: the crowd path and this
+ * one derive from different live sources, and the crowd path has a reviewer.
+ */
+
+/** The shape this file needs from a vehicle, so it does not import the sim. */
+export interface TrafficVehicle {
+  kind: string;
+  position: Vec3;
+  velocity: Vec3;
+  speed: number;
+  alive: boolean;
+}
+
+export type TrafficPoseId = 'tram-level' | 'cable-car';
+
+/** Where a traffic pose is standing, and the vehicle it was built from. */
+export interface TrafficPose {
+  ok: true;
+  id: TrafficPoseId;
+  position: [number, number, number];
+  lookAt: [number, number, number];
+  fov: number;
+  roll: number;
+  /** The vehicle the camera is standing for, read live at derivation time. */
+  vehicle: { kind: string; position: [number, number, number]; speed: number };
+  /** Camera to vehicle, metres. The whole point of printing this. */
+  distanceToVehicle: number;
+  /** The carriageway the camera is standing on, when it stands on one. */
+  carriageway: { kind: string; width: number; px: number; pz: number } | null;
+  /** Every live vehicle of the kinds this pose considers. */
+  considered: number;
+  /** Why a candidate was turned down. Empty is a bad sign. */
+  rejected: { kind: string; reason: string }[];
+}
+
+export interface TrafficPoseFailure {
+  ok: false;
+  id: TrafficPoseId;
+  reason: string;
+  considered: number;
+  rejected: { kind: string; reason: string }[];
+}
+
+export type TrafficPoseResult = TrafficPose | TrafficPoseFailure;
+
+/** How far off the vehicle the camera stands, metres. */
+const TRAM_STANDOFF = 15;
+const TRAM_EYE = 2.2;
+/**
+ * Where the camera looks, as a multiple of the vehicle's own tangent.
+ *
+ * Negative: *behind* the tram, so it is in the middle distance and moving
+ * toward the camera. Looking 34 m ahead — the first attempt — framed the
+ * street and left the tram at the edge of frame, and looking straight at the
+ * vehicle's own position puts a 12 m bus dead centre filling the frame. Six
+ * metres back is a street view with the tram in it.
+ */
+const TRAM_LOOK_BEHIND = 6;
+const CABLE_STANDOFF = 45;
+const CABLE_DROP = 34;
+
+/** Unit tangent of a vehicle, from its velocity; level when it is stopped. */
+function tangentOf(v: TrafficVehicle): [number, number] {
+  const l = Math.hypot(v.velocity[0], v.velocity[2]);
+  if (l < 1e-3) return [1, 0];
+  return [v.velocity[0] / l, v.velocity[2] / l];
+}
+
+const round3 = (n: number): number => +n.toFixed(3);
+
+/**
+ * A camera pointed at the traffic, from the traffic.
+ *
+ * Picks the fastest live vehicle of the kind, stands off it by a fixed
+ * distance, and looks at a point *ahead* of it rather than at its own
+ * position: a camera pointed at a moving tram from directly abeam frames it for
+ * one frame and then watches it leave. `rejected` says why every other
+ * candidate was passed over, because "no tram found" and "no tram near the
+ * camera" are the same empty frame and only one of them is a bug.
+ */
+export function deriveTrafficPose(
+  id: TrafficPoseId, vehicles: readonly TrafficVehicle[], seed: number,
+): TrafficPoseResult {
+  const scratch = scratch2();
+  const rejected: { kind: string; reason: string }[] = [];
+  const live = vehicles.filter((v) => v.alive);
+  const wanted = id === 'tram-level'
+    ? new Set(['tram', 'trolley', 'funicular'])
+    : new Set(['cablecar']);
+
+  let best: TrafficVehicle | null = null;
+  let considered = 0;
+  for (const v of live) {
+    if (!wanted.has(v.kind)) continue;
+    considered++;
+    const finite = Number.isFinite(v.position[0]) && Number.isFinite(v.position[1])
+      && Number.isFinite(v.position[2]);
+    if (!finite) { rejected.push({ kind: v.kind, reason: 'non-finite position' }); continue; }
+    // A tram mid-dwell has speed 0 and is a stationary red box; the moving one
+    // is the one that says anything about whether the thing is alive.
+    if (!best || v.speed > best.speed) best = v;
+  }
+  if (!best) {
+    return {
+      ok: false, id,
+      reason: `no live ${[...wanted].join('/')} among ${live.length} live vehicles`,
+      considered, rejected,
+    };
+  }
+
+  const v = best;
+  const [tx, tz] = tangentOf(v);
+  // Left of the tangent, in the XZ plane.
+  const nx = -tz, nz = tx;
+  let camX: number, camZ: number, camY: number, lookX: number, lookZ: number, lookY: number;
+  let fov: number;
+  let carriageway: TrafficPose['carriageway'] = null;
+
+  if (id === 'tram-level') {
+    camX = v.position[0] + nx * TRAM_STANDOFF;
+    camZ = v.position[2] + nz * TRAM_STANDOFF;
+    lookX = v.position[0] - tx * TRAM_LOOK_BEHIND;
+    lookZ = v.position[2] - tz * TRAM_LOOK_BEHIND;
+    // Stand on the ground, not on the rail: the vehicle's own y is the rail
+    // height and the street is a metre below it.
+    camY = GROUND_Y + TRAM_EYE;
+    lookY = GROUND_Y + 1.6;
+    fov = 0.95;
+    const s = sampleStreetPlan(cityPlan(seed), camX, camZ, scratch);
+    carriageway = { kind: s.kind, width: round3(s.width), px: round3(s.px), pz: round3(s.pz) };
+    if (s.clearance > 0) {
+      // In the buildings. Move in to the nearest carriageway edge and say so.
+      rejected.push({ kind: v.kind, reason: `stand-off point ${s.clearance.toFixed(1)} m off the carriageway` });
+    }
+  } else {
+    camX = v.position[0] + nx * CABLE_STANDOFF;
+    camZ = v.position[2] + nz * CABLE_STANDOFF;
+    camY = v.position[1] - CABLE_DROP;
+    lookX = v.position[0];
+    lookZ = v.position[2];
+    lookY = v.position[1];
+    fov = 1.1;
+    if (camY < GROUND_Y + 6) {
+      rejected.push({ kind: v.kind, reason: `cable car is only ${camY.toFixed(1)} m up; nothing to stand below` });
+    }
+  }
+
+  return {
+    ok: true, id,
+    position: [round3(camX), round3(camY), round3(camZ)],
+    lookAt: [round3(lookX), round3(lookY), round3(lookZ)],
+    fov, roll: 0,
+    vehicle: {
+      kind: v.kind,
+      position: [round3(v.position[0]), round3(v.position[1]), round3(v.position[2])],
+      speed: round3(v.speed),
+    },
+    distanceToVehicle: round3(Math.hypot(v.position[0] - camX, v.position[1] - camY, v.position[2] - camZ)),
+    carriageway, considered, rejected,
+  };
+}
