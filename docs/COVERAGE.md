@@ -62,7 +62,7 @@ it satisfies a grep, and it will be believed.
 | 5 | Atmosphere: volumetric fog, god rays, sky, weather | `partial` | R6 |
 | 6 | Camera: free flight + gamepad/keyboard + tilt-shift/roll/FOV | `done` | `src/camera/`, D16 |
 | 7 | Post stack: TAA, bloom, DOF, CA, grade | `done` | `src/shaders/post.wgsl` |
-| 8 | Crowd sim + pedestrians | **`unverified`** | F1, F2, F3 |
+| 8 | Crowd sim + pedestrians | **`unverified` — but the suspected cause is eliminated** | F1, F2, F3. `entityDrawCalls` read 0 in every capture while `entityTriangles` read hundreds of thousands, which read as "counted, never issued" and was taken to be R1's cause. It was not: `counter.entity` is incremented only in `drawEntitySet`, which has **no callers** — the crowd and fleet go through `main.ts`'s own `drawEntityBlock`. A nonzero `entityTriangles` can only come from the branch that calls `drawIndexed`, so the draws were always issued (measured 356480 tris / 0 calls before, 330512 / 4 after). **The counter was the lie.** What makes the crowd illegible is still open and is most likely the night contrast — 1.28:1 against a 2.5:1 threshold, unliftable by palette because `skyIrradiance` multiplies coat and deck by the same ambient. That now has a frame with lights in it to be measured against |
 | 9 | Traffic: trams, trolleys, cable cars, ziplines, blimps, balloons | `done` — instanced from `TrafficSim`, drawn in the shared 24-float layout (D18). Cycle dropped: no entity mesh exists. Distance-culled per kind, no per-mesh LOD. Cable cars were on a tram alignment until round 4. See `docs/TRAFFIC_REPORT.md` | F4 |
 | 10 | LLM agent integration (weather/camera/events) | `done` | `src/agent/`, D20 |
 | 11 | Destructible structures (GPU fracture) | `not built` | R5 |
