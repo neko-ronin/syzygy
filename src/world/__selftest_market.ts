@@ -11,6 +11,7 @@
  */
 
 import { makeRng } from '../core/math';
+import { derivePose, type Population } from './diagnosticposes';
 import { City, defaultCityConfig, cityPlan, GROUND_Y } from './citygen';
 import { MARKET_DISTRICT, spineHit, type SpineHit } from './districts';
 import { MeshBuilder } from './geometry';
@@ -623,3 +624,32 @@ console.log(`  runs ${RUN_MIN_M}-${RUN_MAX_M} m, gaps ${GAP_MIN_M}-${GAP_MAX_M} 
 
 console.log(`\nVIOLATIONS: ${violations.length === 0 ? 'none' : ''}`);
 for (const v of violations) console.log(`  - ${v}`);
+
+
+// ---- derived-pose subject visibility --------------------------------------
+// A pose that cannot see its own subject must refuse rather than ship an empty
+// street for a reviewer to score. Measured: with the real crowd spread the
+// corridor pose `street-crowd` is legal and its reported distance matches a
+// recomputation exactly; with a 5 m spread it is refused.
+{
+  const SEED = 6191639;
+  const real: Population = { n: 2454, cx: 1053, cz: 4, spread: 217, minY: 0.3, maxY: 0.3 };
+  const tight: Population = { ...real, spread: 5 };
+  for (const id of ['street-crowd', 'crowd-closeup'] as const) {
+    const r = derivePose(id, real, SEED);
+    if (!r.ok) { console.log(`POSE ${id}: REFUSED a legal pose: ${r.reason}`); }
+    else {
+      const d = Math.hypot(r.position[0] - real.cx, r.position[2] - real.cz);
+      if (Math.abs(d - r.source.distanceToCrowd) > 0.15) {
+        console.log(`POSE ${id}: reported ${r.source.distanceToCrowd} but is ${d.toFixed(1)} m away`);
+      }
+      if (!r.source.subjectInView) console.log(`POSE ${id}: ok but subjectInView false`);
+      if (r.source.eyeHeight < 0 || r.source.eyeHeight > 12) {
+        console.log(`POSE ${id}: eye ${r.source.eyeHeight} m is not a street pose`);
+      }
+    }
+  }
+  // The refusal path must actually fire, or the check is decorative.
+  const blind = derivePose('street-crowd', tight, SEED);
+  if (blind.ok) console.log('POSE blind-pose control did not refuse a pose whose crowd misses the corridor');
+}

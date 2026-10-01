@@ -64,6 +64,13 @@ export interface DerivedPoseSource {
   };
   /** Lateral metres from the centreline to the camera. Negative = right of travel. */
   footwayOffset: number;
+  /**
+   * Whether the pose's own subject is inside its own view cone, measured at
+   * derivation time. `false` means `ok` is `false` and the shot must not run.
+   */
+  subjectInView: boolean;
+  /** The pose's eye height above `GROUND_Y`, asserted to 0-12 m. */
+  eyeHeight: number;
   /** Metres above `GROUND_Y`. */
   eye: number;
   /** Metres along the tangent the camera looks. */
@@ -87,6 +94,11 @@ export interface DerivedPose {
 export interface DerivedPoseFailure {
   ok: false;
   id: DerivedPoseId;
+  /**
+   * Why the pose was refused. Set when the pose cannot see its own crowd subject
+   * inside its own cone, or when its eye is not at street height. A caller that
+   * ignores `ok` here is shooting a frame that was already rejected as empty.
+   */
   reason: string;
   population: Population;
 }
@@ -223,6 +235,52 @@ export function derivePose(id: DerivedPoseId, pop: Population, seed: number): De
     lookAt = [chosen.px + tx * spec.aim, GROUND_Y + 2.2, chosen.pz + tz * spec.aim];
   }
 
+  // Does this pose actually see its own subject?
+  //
+  // `distanceToCrowd` was true when measured and the frame was still empty: the
+  // derived pose was correct and the *camera* left it before the shot, so a
+  // correct pose was scored as a broken one. That is the harness's held-camera
+  // problem and cannot be caught here. What CAN be caught here is a pose born
+  // blind to its own subject, and refusing it loudly beats shipping an empty
+  // street for a reviewer to score.
+  //
+  // The subject is not the centroid. A corridor pose like `street-crowd` looks
+  // *along* the street, so the centroid sits tens of degrees off-axis by design,
+  // and testing the centroid alone refuses a legitimate pose -- measured, and the
+  // first version of this check did exactly that. What matters is whether the
+  // crowd's *spread* reaches the view corridor. So: perpendicular distance from
+  // the centroid to the view axis, against the spread plus the cone's own reach.
+  const dx = lookAt[0] - position[0], dy = lookAt[1] - position[1], dz = lookAt[2] - position[2];
+  const dl = Math.hypot(dx, dy, dz) || 1;
+  const fx = dx / dl, fy = dy / dl, fz = dz / dl;
+  const sx = pop.cx - position[0], sy = (GROUND_Y + 1.7) - position[1], sz = pop.cz - position[2];
+  const along = sx * fx + sy * fy + sz * fz;
+  // Perpendicular offset from the view axis, in the horizontal plane.
+  const perp = Math.hypot(sx - fx * along, sz - fz * along);
+  // How far the cone itself reaches sideways at the subject's distance.
+  const reach = Math.tan(Math.min(Math.PI * 0.45, spec.fov * 0.75)) * Math.max(along, 1);
+  // The corridor a corridor pose is allowed to miss by, is the spread itself.
+  const subjectInView = along > 0 && perp <= reach + Math.max(pop.spread, 1);
+  // The eye must be near the deck. `eye = GROUND_Y + spec.eye` bounds this inside
+  // derivePose; the bound is asserted rather than assumed, because a camera at
+  // y=434 has been reported against this function's output.
+  const eyeHeight = +(position[1] - GROUND_Y).toFixed(2);
+  const eyePlausible = eyeHeight > 0 && eyeHeight < 12;
+
+  if (!subjectInView || !eyePlausible) {
+    // The failure shape carries only what a caller needs to *report* the refusal.
+    // A pose that cannot see its subject has no position worth handing back: a
+    // caller that ignored `ok` would be shooting the thing we just rejected.
+    return {
+      ok: false,
+      id,
+      reason: !eyePlausible
+        ? `eye height ${eyeHeight} m above the deck is not a street pose (allowed 0-12 m)`
+        : `crowd is ${perp.toFixed(1)} m off the view axis at ${along.toFixed(1)} m, outside the ${(reach + pop.spread).toFixed(1)} m reach (spread ${pop.spread} m)`,
+      population: { ...pop },
+    };
+  }
+
   return {
     ok: true,
     id,
@@ -244,6 +302,7 @@ export function derivePose(id: DerivedPoseId, pop: Population, seed: number): De
       eye: spec.eye,
       aimMetres: spec.aim,
       distanceToCrowd: +Math.hypot(position[0] - pop.cx, position[2] - pop.cz).toFixed(1),
+      subjectInView, eyeHeight,
       rejected,
     },
   };

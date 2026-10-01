@@ -693,3 +693,68 @@ measured with a control, and each moved its metric by about one percent. They
 established that **placement, retirement and goal selection are sound** — which
 is a true and useful result, and is why the remaining fault is silhouette and
 extent rather than simulation. The next session should not re-run them.
+
+
+---
+
+# Round 14 — the pose was right; the camera left it
+
+## Correction to round 13
+
+I reported that `01d-street-crowd`'s provenance was self-contradicting: "the camera
+is 142.3 m from the centroid it reports". **That was wrong, and the correction is
+the more useful half.**
+
+`derivePose` computes `distanceToCrowd` as
+`hypot(position - pop.cx/cz)` (`diagnosticposes.ts:246`) and places the camera
+**10.1 m** from the centroid. Re-derived at round 14:
+
+```
+street-crowd   distanceToCrowd reported 10.1   recomputed 10.1   MATCH
+crowd-closeup  distanceToCrowd reported 28.1   recomputed 28.1   MATCH
+facade-base    distanceToCrowd reported 10.1   recomputed 10.1   MATCH
+```
+
+The reported distance is **true**. The camera in the captured frame was 142 m
+from where `derivePose` had put it. So the fault is entirely the harness's
+**held-camera** problem -- the pose is requested, the camera keeps flying -- which
+is exactly what developer 1's requested-vs-held check addresses.
+
+`inView` is therefore cleared for the second time, and for the same reason: it
+reports the cone the camera is actually pointing down, and the camera was not
+pointed at the crowd.
+
+## What was added: a pose that cannot see its subject now refuses
+
+`derivePose` returns `ok: false` with a reason when either bound fails:
+
+- **eye height outside 0-12 m above the deck.** A camera at y=434.45 has been
+  reported against this function's output; `eye = GROUND_Y + spec.eye` bounds it
+  internally, and the bound is now asserted rather than assumed.
+- **the crowd misses the view corridor**, measured as perpendicular distance from
+  the centroid to the view axis against `reach + spread`.
+
+The subject is **not** the centroid. That was my first attempt and it was a false
+positive: `street-crowd` looks *along* the street, so the centroid sits ~82 deg
+off-axis by design, and testing the centroid refused a legitimate corridor pose.
+Corrected to use the spread, with the control:
+
+```
+real spread 217 m   street-crowd  ok   subjectInView=true
+tight spread 5 m    street-crowd  REFUSED: crowd is 10.0 m off the view axis
+                                at 1.4 m, outside the 6.2 m reach
+tight spread 5 m    crowd-closeup ok   (it aims at the centroid by construction)
+```
+
+The refusal path fires on a blind pose and stays quiet on a legal one. Asserted in
+`src/world/__selftest_market.ts`, including that the reported distance matches a
+recomputation.
+
+## Still open, and not to be re-run
+
+The longitudinal `viewRadius` question and the grouping separation histogram were
+not measured this round. Nine well-measured eliminations across rounds 5-9 all
+sat upstream of the draw call, and the thing they investigated was never the
+problem; they established that placement, retirement and goal selection are
+sound. **Do not run them again.** What remains is the silhouette spec handed to
+developer 1, the longitudinal extent, and grouping.
