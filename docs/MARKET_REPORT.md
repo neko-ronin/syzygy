@@ -741,6 +741,33 @@ lanterns and cloth strips recede in three bands.
 round-3 night frames were too dark to count roof boundaries, and that is itself
 the next finding.
 
+### The before/after pair
+
+Same pose, same lighting, the market grammar as the only variable — the "before"
+half is the pre-round-5 grammar checked out and rebuilt.
+
+| | |
+|---|---|
+| before | `shots/market-r5-before/market_down-afternoon.png` |
+| after | `shots/market-r5/market_down-afternoon.png` |
+
+**Before**, both kerbs are one unbroken ribbon of identical pitched tarpaulins.
+You can trace the roofline from the left edge of the frame to the right without
+meeting a break, a change of height or a change of roof form. That is the
+review's "fence-like band", and it is what a 0.33 m eave spread looks like.
+
+**After**, the roofline is broken. Distinct forms alternate — a dark pitched tarp,
+then a lower flat deck, then another, with gaps between runs where the building
+front shows through. The foreground-right stall carries green, gold, orange and
+cream panels and reads immediately as market furniture rather than as a wall.
+
+The squatter hazard was live during this capture: port 4173 was held by another
+`vite preview` (PID 15838), so the second spawn failed exactly as
+`docs/CAPTURE_FAULTS` describes. The frames were still valid and were checked
+rather than believed — the served HTML referenced `index-Dzh0Qh9j.js`, which is
+the before build on disk. A squatter serving `dist/` is not the same failure as
+a squatter serving a snapshot, but "check what is being served" costs one curl.
+
 **Night, down the street (`market_down-night.png`).** Lanterns glow as pale
 shapes and a pennant reads high on the near cord; the foreground stall and its
 crates are visible. **The aisle is still dark.** There is no warm pool on the
