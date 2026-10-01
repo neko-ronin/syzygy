@@ -462,6 +462,48 @@ So the check, before any targeted measurement: **is the subject in this world, i
 front of this camera, at this LOD?** Print it. Three numbers, and every one of
 these would have been caught before a capture was spent.
 
+## 19c. Counted, never issued — a class, not an incident
+
+**Symptom.** `entityDrawCalls` read **0** in every capture of a session, while
+`entityTriangles` read hundreds of thousands and the instance buffer held 2537
+records. Instances uploaded, triangles counted, no draw call issued. That is
+"counted, never issued" and it was read, correctly and reasonably, as the cause of
+the crowd legibility gap.
+
+It was not. `counter.entity++` occurred in exactly one function, `drawEntitySet`,
+and **`drawEntitySet` has no callers**. The crowd and the fleet are drawn by
+`main.ts`'s own `drawEntityBlock`, which calls `pass.drawIndexed` directly and
+pushes to a string ledger. The counter was structurally incapable of being nonzero.
+
+And the draws *were* issued, provably from the frame itself: `drawEntityBlock`
+returns `(indexCount / 3) * count` and only after calling `drawIndexed`, so a
+nonzero `entityTriangles` is proof the GPU was told. Measured before the fix:
+`entityTriangles 356480`, `entityDrawCalls 0`.
+
+### The class
+
+| | counted | actually happened |
+| --- | --- | --- |
+| `arrayLength(&lights)` | the allocation | the write was 296 of 3072 |
+| `byDay = dayPhase > 0.55` | "is it day" | "should authored lights exist" |
+| `entityDrawCalls` | callers of an uncalled function | draws issued by another function |
+
+**Rule: a counter must increment on the path that reaches the hardware, or it is a
+second diagnostic that lies.** And the specific poison in all three: **a sibling
+counter read healthily.** `entityTriangles` was true, so `entityDrawCalls` had to
+be wrong rather than the frame. `stats.lights` was true, so `meanCount 0` had to be
+the binner's. A broken counter is easy to disbelieve; a broken counter next to a
+correct one is not.
+
+**So a pair of counters needs a cross-check, not a second opinion.** `entityTriangles
+> 0` with `entityDrawCalls == 0` is a contradiction, not a scene description, and
+it should have been read as one the moment both numbers were on the same frame.
+
+§12's companion row: *a counter that lies is worse than no counter, because it
+answers a question you did not ask with a number that is merely plausible.* The
+three instances above all had a plausible sibling, and the sibling is what made
+them survive review.
+
 ## 19. A measurement taken mid-edit is not a measurement of the repository
 
 **Symptom:** a doc-sweep agent reported that the project's own verification gate
