@@ -940,15 +940,126 @@ async function main() {
       writeIndex(runStamp, results, notes, opts);
     } else {
       // ---- single shot
-      const file = join(SHOTS, `${runStamp}.png`);
+      //
+      // `--pose=<substr>` selects a pose. This branch used to ignore that
+      // selection entirely: it warmed, settled and shot whatever the free camera
+      // happened to be doing, recorded `requested: null`, and printed a PASS.
+      //
+      // That is the worst failure mode in this tool, because `--pose=canyon` is
+      // the command AGENTS.md, README.md and PROCEDURES.md all document as "one
+      // shot". Measured consequence: `--pose=09-market-down`, a pose defined at
+      // [1.16, 2.6, 0.36] at eye height looking down a market aisle, rendered a
+      // rooftop vista from 444 m up at [1058, 444, 337]. The requested-vs-held
+      // check exists precisely to fail that run, and it lives only in the
+      // sequence loop, so it never ran. Two frames were spent discovering this.
+      //
+      // So: resolve the pose, apply it, and run the SAME held-camera check the
+      // sequence branch runs. A single shot is the cheaper diagnostic, not the
+      // unchecked one.
+      // An exact name wins over a substring match. `--pose=09-market-down` is
+      // the name of one pose and a substring of two (`09-market-down-day` exists
+      // as its daylight control), and silently shooting both, or the wrong one,
+      // would make a single-shot diagnostic into something it is not.
+      const wanted = opts.poses.length
+        ? (() => {
+          const exact = POSES.filter((p) => opts.poses.some((w) => w === p.name));
+          if (exact.length) return exact;
+          return POSES.filter((p) => opts.poses.some((w) => p.name.includes(w)));
+        })()
+        : [];
+      if (opts.poses.length && wanted.length === 0) {
+        throw new CaptureError(
+          `--pose=${opts.poses.join(',')} matched no pose in the table. ` +
+          `Available: ${POSES.map((p) => p.name).join(', ')}`);
+      }
+      if (wanted.length > 1) {
+        throw new CaptureError(
+          `--pose matched ${wanted.length} poses (${wanted.map((p) => p.name).join(', ')}). ` +
+          `A single shot needs one; pass --sequence to shoot several, or narrow the substring.`);
+      }
+      const pose = wanted[0] ?? null;
+      if (pose) {
+        // Order matters and is load-bearing: setTime resolves the phase,
+        // setWeather snaps it into the world, setLens applies the pose's explicit
+        // overrides. A second snap after the lens would undo the lens.
+        //
+        // This was missing here, so `--pose=09-market-down` — a NIGHT pose — shot
+        // dayPhase 0.707 under a clear sky at exposure 0.92, which are the day
+        // control's values. The frame came back labelled "night" and was not
+        // night. Same failure class as the ignored pose: correct-looking output,
+        // wrong subject.
+        if (pose.time) await callApp(page, 'setTime', pose.time);
+        if (pose.weather) {
+          const r = await callApp(page, 'setWeather', pose.weather);
+          if (!r.ok && !r.skipped) throw new CaptureError(`setWeather: ${r.error}`);
+        }
+        if (pose.lens) await callApp(page, 'setLens', pose.lens);
+
+        const pr = await callApp(page, 'setPose', { ...pose, name: pose.name })
+          .catch((e) => ({ ok: false, error: e.message }));
+        if (pr?.skipped) throw new CaptureError(`setPose skipped: ${pr.reason}`);
+        if (pr && pr.ok === false) throw new CaptureError(`setPose: ${pr.error}`);
+      }
+      const file = join(SHOTS, `${runStamp}${pose ? `-${pose.name}` : ''}.png`);
       await warmPose(page, opts.poseChunks, opts.warmTicks);
-      await settle(page, 45);
+      await settle(page, pose?.settle ?? 45);
+
+      // Rule 4 as a mechanical check, in the branch that had none. Same
+      // tolerances and same reasoning as the sequence loop above; if the camera
+      // ends up somewhere else, this frame is not the frame that was asked for
+      // and saying PASS would be a lie.
+      if (pose?.position) {
+        const held = await page.evaluate(() => window.__syzygy?.stats?.()?.camera ?? null).catch(() => null);
+        if (!held) {
+          throw new CaptureError(
+            `pose "${pose.name}": the app reported no camera, so there is nothing to check ` +
+            `the frame against. Refusing to write a picture whose camera is unknown.`);
+        }
+        const dp = Math.hypot(
+          held.position[0] - pose.position[0],
+          held.position[1] - pose.position[1],
+          held.position[2] - pose.position[2]);
+        let dAngle = 0;
+        if (pose.lookAt) {
+          const rf = norm(sub(held.lookAt, held.position));
+          const qf = norm(sub(pose.lookAt, pose.position));
+          dAngle = Math.acos(Math.max(-1, Math.min(1,
+            rf[0] * qf[0] + rf[1] * qf[1] + rf[2] * qf[2]))) * 180 / Math.PI;
+        }
+        if (dp > POSITION_TOLERANCE_M || dAngle > DIRECTION_TOLERANCE_DEG) {
+          throw new CaptureError(
+            `pose "${pose.name}": renderer held a different camera than requested ` +
+            `(position off by ${dp.toFixed(2)}m, view direction off by ${dAngle.toFixed(2)} deg). ` +
+            `requested pos ${JSON.stringify(pose.position)} lookAt ${JSON.stringify(pose.lookAt)}; ` +
+            `held pos ${JSON.stringify(held.position)}. ` +
+            `The frame would not be the frame that was asked for.`);
+        }
+      }
+
       const ok = await shoot(page, file);
       if (!ok) throw new CaptureError('screenshot produced no file');
       const stats = await page.evaluate(() => (typeof window.__syzygy?.stats === 'function' ? window.__syzygy.stats() : null)).catch(() => null);
-      results.push({ name: runStamp, file: `shots/${runStamp}.png`, stats });
+      results.push({
+        name: pose ? pose.name : runStamp,
+        label: pose?.label ?? null,
+        file: `shots/${runStamp}${pose ? `-${pose.name}` : ''}.png`,
+        stats,
+        requested: pose ? {
+          position: pose.position ?? null, lookAt: pose.lookAt ?? null, fov: pose.fov ?? null,
+        } : null,
+      });
       writeIndex(runStamp, results, notes, opts);
-      say(`\n  shot      shots/${runStamp}.png`);
+      say(`\n  shot      ${results[results.length - 1].file}`);
+      if (pose) {
+        // Restate the camera agreement here rather than only on failure. The
+        // check is cheap, and printing "view off by 0.00 deg" next to the frame
+        // is what makes a reader trust the frame without re-deriving it.
+        const hp = stats?.camera?.position;
+        const d = (hp && pose.position) ? Math.hypot(
+          hp[0] - pose.position[0], hp[1] - pose.position[1], hp[2] - pose.position[2]) : null;
+        say(`  pose      ${pose.name}` +
+          (d === null ? '' : `  (camera ${d.toFixed(2)}m from requested, within ${POSITION_TOLERANCE_M}m)`));
+      }
       if (stats) say(`  stats     ${JSON.stringify(stats)}`);
     }
 
