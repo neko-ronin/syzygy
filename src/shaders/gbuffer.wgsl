@@ -572,7 +572,20 @@ fn fs(i: VSOut) -> GOut {
   // `groundSurface` is factored out of the MAT_STREET branch below — it is the
   // same surface either way.
   let isDeckMat = i.matId == MAT_STREET;
-  let isChunkDeck = abs(n.y) > 0.55 && i.world.y > DECK_Y - 0.4 && i.world.y < DECK_Y + 0.75;
+  // Gated on MAT_DIFFUSE, and that gate is load-bearing. Chunk ground detail is
+  // emitted into the chunk's solid builder, which draws through the identity
+  // instance and therefore arrives as MAT_DIFFUSE — nothing else in a chunk is
+  // both MAT_DIFFUSE, near-horizontal and inside 0.75 m of the deck except a
+  // building's top cap, and those start at 2.6 m.
+  //
+  // Ungated, this predicate claimed EVERY upward-facing fragment near the deck
+  // regardless of material, and the pedestrians stand at exactly DECK_Y: their
+  // leg-box top faces at 0.84 m were routed to `groundSurface()` and shaded as
+  // pavement — slab joints, kerb tones and all — instead of cloth. A heuristic
+  // that can claim an entity is a diagnostic pointing at the wrong subject, which
+  // is the F2 mistake in a shader.
+  let isChunkDeck = i.matId == MAT_DIFFUSE && abs(n.y) > 0.55
+                 && i.world.y > DECK_Y - 0.4 && i.world.y < DECK_Y + 0.75;
 
   if (isDeckMat || isChunkDeck) {
     let g = groundSurface(i.world, n, i.color, detail);
