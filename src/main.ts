@@ -524,6 +524,8 @@ class App {
       capture: () => app.refreshCapture(),
       probe: (t: string) => app.renderer.probe(t as never),
       camPos: () => app.camera.position.slice() as [number, number, number],
+      chunkLod: (cx: number, cz: number) => app.renderer.chunkLod(cx, cz),
+      cameraChunk: () => app.renderer.cameraChunk(app.camera.position),
       camLook: () => app.camera.lookTarget.slice() as [number, number, number],
       frameUniforms: () => Array.from(app.renderer.frameData.slice(0, 256)),
       ask: (text: string) => app.ui.send(text),

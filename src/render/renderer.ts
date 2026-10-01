@@ -223,6 +223,8 @@ export class Renderer {
    */
   private rebakeQueue: { cx: number; cz: number }[] = [];
   private rebakeDirty = false;
+  /** Keys currently in `rebakeQueue`, so a per-frame scan cannot double-queue. */
+  private rebakeQueued = new Set<string>();
 
   stats: RendererStats = {
     frameMs: 16.7, cpuEncodeMs: 0, fps: 60, cpuFps: 60,
@@ -523,7 +525,13 @@ export class Renderer {
     // nothing beyond the scan. The pending list was built against the old
     // `viewDistance`, so drop it and let the next frame rebuild it.
     this.pendingBakes.length = 0;
-    for (const e of this.chunks.values()) this.rebakeQueue.push({ cx: e.cx, cz: e.cz });
+    this.rebakeQueued.clear();
+    for (const e of this.chunks.values()) {
+      const key = this.chunkKey(e.cx, e.cz);
+      if (this.rebakeQueued.has(key)) continue;
+      this.rebakeQueued.add(key);
+      this.rebakeQueue.push({ cx: e.cx, cz: e.cz });
+    }
     this.rebakeDirty = true;
   }
 
@@ -724,6 +732,24 @@ export class Renderer {
     // Sort the rebake queue by distance whenever it is refilled, so a tier
     // change re-bakes what the camera is looking at first rather than whatever
     // the Map iteration order happened to produce.
+    // Enqueue any resident chunk whose detail level no longer matches its
+    // distance. Without this, LOD is baked once when a chunk is first seen and
+    // never revisited: fly forward and the block you are about to enter was
+    // baked LOD 1 at 500m and stays LOD 1 at 5m, so detail never increases for
+    // the whole flight. The scan is a few hundred integer comparisons and runs
+    // unconditionally — there is no cheaper way to notice the camera moved.
+    for (const e of this.chunks.values()) {
+      if (e.lod === lodForDistance(chunkDistance(e.cx, e.cz, pcx, pcz), this.q)) continue;
+      const key = this.chunkKey(e.cx, e.cz);
+      if (this.rebakeQueued.has(key)) continue;
+      this.rebakeQueued.add(key);
+      this.rebakeQueue.push({ cx: e.cx, cz: e.cz });
+      this.rebakeDirty = true;
+    }
+
+    // Sort the rebake queue by distance whenever it is refilled, so the chunk
+    // the camera is looking at is re-baked first rather than whatever order the
+    // scan or a Map iteration happened to produce.
     if (this.rebakeDirty) {
       this.rebakeQueue.sort((a, b) =>
         chunkDistance(a.cx, a.cz, pcx, pcz) - chunkDistance(b.cx, b.cz, pcx, pcz));
@@ -735,16 +761,20 @@ export class Renderer {
 
     while (this.rebakeQueue.length > 0 && performance.now() - t0 < BAKE_BUDGET_MS) {
       const job = this.rebakeQueue.shift()!;
-      const entry = this.chunks.get(this.chunkKey(job.cx, job.cz));
-      if (!entry) continue;
+      const key = this.chunkKey(job.cx, job.cz);
+      const entry = this.chunks.get(key);
+      if (!entry) { this.rebakeQueued.delete(key); continue; }
       // The detail level is measured from the camera chunk, which is only known
-      // here. If the tier change did not actually move this chunk's level there
-      // is nothing to do, and a re-bake would be pure cost.
+      // here, so the queued level is always recomputed at bake time. Two ways to
+      // come out of this with nothing to do, and both must drop the queue entry
+      // or `rebakeQueued` latches the key and the chunk can never be re-baked
+      // for the rest of the session.
       const lod = lodForDistance(chunkDistance(job.cx, job.cz, pcx, pcz), this.q);
-      if (lod === entry.lod) continue;
+      if (lod === entry.lod) { this.rebakeQueued.delete(key); continue; }
       const chunk = this.city.getChunk(job.cx, job.cz);
-      if (!chunk) continue;
+      if (!chunk) { this.rebakeQueued.delete(key); continue; }
       this.bakeInto(entry, chunk, lod);
+      this.rebakeQueued.delete(key);
       baked++;
     }
 
@@ -814,6 +844,9 @@ export class Renderer {
       destroyMesh(e.mesh);
       destroyMesh(e.foliage);
       this.chunks.delete(key);
+      // Drop the eviction hook too, or a chunk that streams back in later finds
+      // its key already latched in `rebakeQueued` and never gets re-baked.
+      this.rebakeQueued.delete(key);
     }
   }
 
@@ -1405,6 +1438,15 @@ export class Renderer {
   get entityGeometry() { return this.entities; }
   get instanceBuffer() { return this.instBuf; }
   get groundMesh() { return this.ground; }
+  /** Detail level a resident chunk was baked at, or -1 if it is not resident. */
+  chunkLod(cx: number, cz: number): number {
+    return this.chunks.get(this.chunkKey(cx, cz))?.lod ?? -1;
+  }
+  /** Camera chunk, so a diagnostic can name the chunks it cares about. */
+  cameraChunk(pos: Vec3): [number, number] {
+    const cs = this.city.cfg.chunkSize;
+    return [Math.floor(pos[0] / cs), Math.floor(pos[2] / cs)];
+  }
   get frameUboSize() { return FRAME_UNIFORM_SIZE; }
 }
 
