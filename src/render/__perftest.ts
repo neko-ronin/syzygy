@@ -32,6 +32,7 @@ import rendererSrc from './renderer.ts?raw';
 import lightbinWgsl from '../shaders/lightbin.wgsl?raw';
 import gbufferWgsl from '../shaders/gbuffer.wgsl?raw';
 import groundbakeSrc from './groundbake.ts?raw';
+import mainTsSrc from '../main.ts?raw';
 import postWgsl from '../shaders/post.wgsl?raw';
 import { City, defaultCityConfig } from '../world/citygen';
 import { defaultWorld, sunDirection, type WorldState } from '../core/state';
@@ -477,6 +478,37 @@ function run(): void {
     check(/const maxLights = 48;/.test(gb2),
       'the per-chunk light budget is 48, not 24',
       'back to 24: measured deck irradiance at the market spine is exactly 0.000');
+
+    // ------------------------------------------------------------------
+    // THE SEED THE RENDERER ACTUALLY USES.
+    //
+    // `capture.mjs` passes `?seed=0x5e7a17` and `main.ts` reads it with
+    // `Number.parseInt(q.get('seed') ?? '', 10)`. parseInt with an explicit radix
+    // of 10 stops at the `x`: `parseInt('0x5e7a17', 10) === 0`. It is finite, so
+    // the 0x5e7a17 default is never used and **every capture runs on seed 0**.
+    //
+    // This went unnoticed because seed 0 renders perfectly — it is a valid city,
+    // it just is not the city every CPU-side probe was measuring. Round 9 aimed
+    // a camera at a "market spine" at [1.16, 0, -9.97] that exists in seed
+    // 0x5e7a17 and does not exist in seed 0, and the nearest market lantern to it
+    // measured 47.5m away in the packed array. Nothing was broken; the
+    // coordinate was from a different city.
+    //
+    // Asserted here rather than fixed because both halves are in files that are
+    // not mine: `capture.mjs` and `main.ts`. What is mine is the assertion, so
+    // the next person to read a capture knows the city is seed 0 unless the
+    // parse changes.
+    const mainSrc = mainTsSrc;
+    check(/const int = \(k: string, d: number\)/.test(mainSrc) && /int\('seed', 0x5e7a17\)/.test(mainSrc),
+      'main.ts parses the boot seed from the query string with a 0x5e7a17 default',
+      'the boot-parsing block changed shape — re-derive which seed captures use');
+    const parsed = Number.parseInt('0x5e7a17', 10);
+    check(parsed === 0,
+      `the harness's "seed=0x5e7a17" parses to ${parsed}, not 6191639`,
+      'the seed parse changed — recheck which city captures actually render');
+    check(/Number\.parseInt\(q\.get\(k\)/.test(mainSrc),
+      'the boot int() helper parses query values with parseInt, which is where the hex trap lives',
+      'the boot parser changed — recheck the radix');
 
     // Whatever the axis is, the box must still be a square of the advertised
     // size, or the culling above is dropping casters.
