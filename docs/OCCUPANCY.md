@@ -758,3 +758,103 @@ sat upstream of the draw call, and the thing they investigated was never the
 problem; they established that placement, retirement and goal selection are
 sound. **Do not run them again.** What remains is the silhouette spec handed to
 developer 1, the longitudinal extent, and grouping.
+
+
+---
+
+# Round 12b — two lying diagnostics, and the two open questions answered
+
+## The crowd is drawn
+
+2547-2550 in view at street level, 3.7M entity triangles. **Lateral distribution is
+correct**: on the pavements, absent from the carriageway. What remains is
+**silhouette plus longitudinal extent**. Nine well-measured eliminations across
+rounds 5-9 all sat upstream of the draw call, and the thing they investigated was
+never the problem. Do not run them again.
+
+## Two diagnostics fixed
+
+**`derivedPose` was stale on nine of sixteen frames.** `app.derivedPose` survived
+any authored pose set after it, so `02-canyon-up` through `09-market-down-day`
+carried a rule-4 line describing a camera the renderer was not in — in the exact
+field whose purpose is to prove the shot was derived from live state.
+
+Clearing on `setPose` would fix that instance and miss the harder one: a
+*derived* pose also goes stale when the camera flies off it, which is how
+`01d-street-crowd` was shot from 142 m away with a provenance claiming 10.1 m. So
+the rule is not "was an authored pose set" but **"is the camera still there"**,
+checked at publication:
+
+```ts
+poseIsHeld(camPos, posePos, tol = 2 m)   // pure, in diagnosticposes.ts
+heldDerivedPose()                          // returns null unless poseIsHeld
+```
+
+Exported from the pure module rather than the app so a headless self-test can
+assert it. Asserted: a camera exactly at the pose is held; 1.5 m drift is held;
+**3 m drift is not; 142 m drift is not.**
+
+**`pedestrian: ?` was a rule-5 phantom.** The harness looked for
+`stats.entityDraws.find(d => d.startsWith('pedestrian:'))` and printed `?` when
+absent, on every frame of every run this session. It now reports the number that
+does exist (`crowd.visibleCount`) rather than a name that does not. `crowdTotal`
+is likewise a phantom field name — it does not exist in `src/`, `tools/`,
+`server/` or `latest.json`.
+
+## Longitudinal: `viewRadius` IS the constraint
+
+Measured at the derived `street-crowd` pose, seed 6191639, settled:
+
+```
+submitted            2534
+inside the cone      1483
+distance along view  p50 56 m   p90 88 m   p99 146 m   max 160 m
+agents by distance, 40 m bins to 320 m:
+                        0-40   40-80  80-120 120-160 160-200 200-240 240-280 280-320
+                        361    703    399     20      0      0      0      0
+```
+
+**The furthest agent is at exactly `viewRadius`, and the 160-320 m bins are
+empty.** `01d-street-crowd` looks down a street that recedes to ~400 m. So the far
+end is a **seeding limit, not a placement limit**: there is nothing out there
+because nothing is seeded out there.
+
+## Grouping: there is no gap mode at all
+
+Separation histogram for the 20-30 px band (492 in-frame figures, 17,772 pairs),
+and for all in-frame figures. **A histogram, not an average**, because an average
+hides exactly this:
+
+```
+20-30 px band    p1 0.1   p10 1.1   p50 6.7   p90 15.9 px
+  [0-2)  17.5%   [2-4) 14.9%   [4-6) 13.2%  [6-8) 12.0%
+  [8-12) 18.8%   [12-20) 21.0% [20-40) 2.6% [40-inf) 0.0%
+  under the 2 px threshold: 17.5%
+```
+
+**The `>= 40 px` bin is 0.0%.** There is no gap mode in this distribution — not a
+weak one, an absent one. The vision gate's condition is *"groups with deliberate
+gaps"* and a continuous band with no gap mode fails it, which is exactly what was
+read off the pixels in round 12. The two agree.
+
+## More agents, or better grouping? **Grouping.**
+
+Not a preference; it is forced by the two measurements above.
+
+- **Raising `viewRadius` cannot create a gap.** It scales the count linearly, so
+  every 0-2 px bin grows with everything else. It fills 160-320 m, which fixes the
+  far end, and it produces more of the same continuous band.
+- **It is also the expensive option here.** The street frames already carry 3.7M
+  entity triangles at 7-8 fps and 123-140 ms/frame on an 8-core laptop. Doubling
+  the radius doubles the instance count and the entity triangle load.
+- **Grouping costs no GPU time at all.** Same instances, different arrangement:
+  tight clusters with deliberate gaps. It creates the gap mode that is measured
+  absent, and it raises the 17.5% under-2px figure by spreading the same people.
+
+So: **use `viewRadius` only to stop clipping the far end, and spend the actual
+budget on grouping.** The failure mode to avoid is doing the first without the
+second, which turns a continuous band into a *longer* continuous band.
+
+`PITFALLS.md` §9 is the trap and the histogram is the detector: a clump shows up
+as mass in the `[0-2)` bin, a uniform band as the empty `[40-inf)` bin seen here.
+Both must be watched; only the second is currently wrong.

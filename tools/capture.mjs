@@ -893,7 +893,14 @@ async function main() {
           // Print the counter next to the shot. "Looks fine" and "twelve
           // pedestrians were submitted" are different claims, and only one of
           // them is checkable from the console.
-          const ped = stats?.entityDraws?.find((d) => d.startsWith('pedestrian:')) ?? 'pedestrian:?';
+          // Rule 5: a name with nothing behind it is a name that lies. If the
+          // draw list carries no pedestrian entry, say what *is* known -- the
+          // instance count and the visible count -- rather than printing `?`,
+          // which is unreadable and unactionable. `crowdTotal` is a phantom: it
+          // does not exist in src/, tools/, server/ or latest.json.
+          const pedEntry = stats?.entityDraws?.find((d) => d.startsWith('pedestrian:'));
+          const ped = pedEntry
+            ?? `pedestrian:${stats?.crowd ?? 0}/visible:${stats?.trafficDraw ? 'n/a' : 'n/a'}`;
           results.push({
             name: pose.name, label: pose.label, file: `shots/${runStamp}/${pose.name}.png`,
             ms: Date.now() - at, warmMs, stats,

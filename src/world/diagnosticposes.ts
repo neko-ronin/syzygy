@@ -483,3 +483,27 @@ export function deriveTrafficPose(
     carriageway, considered, rejected,
   };
 }
+
+
+/**
+ * How far the camera may drift from a derived pose and still be "in" it.
+ * The harness asks for a pose and then settles, so small drift is expected; the
+ * failure being guarded is 142 m of it.
+ */
+export const HELD_POSE_TOLERANCE = 2;
+
+/**
+ * Is the camera still standing in the pose it was given?
+ *
+ * Pure, and exported from this module rather than from the app, so a headless
+ * self-test can assert it without a GPU or a DOM. The failure it guards is nine
+ * frames of a sequence carrying a rule-4 line that describes a camera the
+ * renderer was not in -- a diagnostic lying in the field whose whole purpose is
+ * to prove the shot was derived from live state.
+ */
+export function poseIsHeld(
+  cam: readonly [number, number, number], want: readonly [number, number, number],
+  tol = HELD_POSE_TOLERANCE,
+): boolean {
+  return Math.hypot(cam[0] - want[0], cam[1] - want[1], cam[2] - want[2]) <= tol;
+}

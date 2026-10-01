@@ -21,13 +21,14 @@ import { CrowdSim } from './sim/crowd';
 import { TrafficSim, buildVehicleInstances, makeVehicleInstances } from './sim/traffic';
 import { WeatherDirector } from './sim/weather';
 import {
-  derivePose, deriveTrafficPose,
+  derivePose, deriveTrafficPose, poseIsHeld,
   type DerivedPoseId, type DerivedPoseResult,
   type TrafficPoseId, type TrafficPoseResult,
 } from './world/diagnosticposes';
 import { INSTANCE_FLOATS } from './render/citymesh';
 
 // ---------------------------------------------------------------- dom
+
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T =>
   document.getElementById(id) as T;
@@ -288,6 +289,31 @@ class App {
     const r = derivePose(id, this.crowd.population(), this.world.seed);
     this.derivedPose = r;
     return r;
+  }
+
+  /**
+   * The derived pose, but only while the camera is still standing in it.
+   *
+   * `derivedPose` used to be published verbatim whenever it was non-null, so an
+   * *authored* pose set after a derived one left the previous frame's provenance
+   * in place. Nine frames of a sequence carried a rule-4 line describing a camera
+   * the renderer was not in -- a diagnostic lying in the exact field whose
+   * purpose is to prove the shot was not improvised.
+   *
+   * Clearing on `setPose` alone would fix that instance and miss the harder one:
+   * a *derived* pose also goes stale when the camera flies off it, which is how
+   * `01d-street-crowd` was photographed from 142 m away with a provenance that
+   * still claimed 10.1 m. So the rule is not "was an authored pose set" but
+   * "is the camera still there", checked here rather than trusted from the setter.
+   *
+   * `HELD_POSE_TOLERANCE` is 2 m: the harness asks for a pose and settles, so
+   * small drift is expected and is not the failure being guarded against.
+   */
+  heldDerivedPose(): DerivedPoseResult | null {
+    const r = this.derivedPose;
+    if (!r) return null;
+    if (!r.ok) return r;
+    return poseIsHeld(this.camera.position, r.position) ? r : null;
   }
 
   /**
@@ -700,7 +726,7 @@ class App {
         // Where the current diagnostic is standing, and what it was derived
         // from. Without this a stats dump cannot tell a good frame from a pose
         // aimed at empty ground a kilometre away — which is the whole of F2.
-        derivedPose: app.derivedPose,
+        derivedPose: app.heldDerivedPose(),
         warm: app.lastWarm,
       }),
       /**

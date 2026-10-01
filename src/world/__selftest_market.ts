@@ -11,7 +11,7 @@
  */
 
 import { makeRng } from '../core/math';
-import { derivePose, type Population } from './diagnosticposes';
+import { derivePose, poseIsHeld, type Population } from './diagnosticposes';
 import { City, defaultCityConfig, cityPlan, GROUND_Y } from './citygen';
 import { MARKET_DISTRICT, spineHit, type SpineHit } from './districts';
 import { MeshBuilder } from './geometry';
@@ -652,4 +652,25 @@ for (const v of violations) console.log(`  - ${v}`);
   // The refusal path must actually fire, or the check is decorative.
   const blind = derivePose('street-crowd', tight, SEED);
   if (blind.ok) console.log('POSE blind-pose control did not refuse a pose whose crowd misses the corridor');
+}
+
+
+// ---- derived pose is only published while the camera is in it --------------
+// A diagnostic must report the state of the thing it names. `derivedPose` used
+// to survive any authored pose set after it, so nine frames of a sequence
+// carried a rule-4 line describing a camera the renderer was not in.
+{
+  const SEED = 6191639;
+  const pop: Population = { n: 2547, cx: 1053, cz: 4, spread: 217, minY: 0.3, maxY: 0.3 };
+  const r = derivePose('street-crowd', pop, SEED);
+  if (!r.ok) {
+    console.log('POSE held-check: street-crowd refused outright, cannot test hold');
+  } else {
+    const [x, y, z] = r.position;
+    if (!poseIsHeld([x, y, z], r.position)) console.log('POSE held-check: camera exactly at the pose is not held');
+    if (!poseIsHeld([x + 1.5, y, z], r.position)) console.log('POSE held-check: 1.5 m drift should still count as held');
+    if (poseIsHeld([x + 3, y, z], r.position)) console.log('POSE held-check: 3 m drift must not count as held');
+    // The exact case that produced the empty street: 142 m away.
+    if (poseIsHeld([x + 142, y, z], r.position)) console.log('POSE held-check: 142 m drift must not count as held');
+  }
 }
