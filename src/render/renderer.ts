@@ -474,7 +474,11 @@ export class Renderer {
     });
     this.lightBuf = dev.createBuffer({
       label: 'lights', size: MAX_LIGHTS * 32,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      // COPY_SRC so `probe('lights')` can read the packed array back. Without it
+      // the copy is a validation error and the readback returns zeros — which is
+      // the second time in two rounds that a missing usage flag produced a
+      // measurement of nothing rather than an error.
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
     this.allocTiles(dev);
     this.instBuf = dev.createBuffer({
@@ -1853,7 +1857,7 @@ export class Renderer {
    * stage of the frame graph is producing black instead of guessing.
    */
   async probe(
-    target: 'hdr' | 'gbuffer' | 'resolved' | 'dof' | 'bloom' | 'tiles' = 'hdr',
+    target: 'hdr' | 'gbuffer' | 'resolved' | 'dof' | 'bloom' | 'tiles' | 'lights' | string = 'hdr',
   ): Promise<number[]> {
     const t = this.targets;
     if (!t) return [];
@@ -1867,6 +1871,42 @@ export class Renderer {
       const flat = [s.bins, s.capacity, s.maxPerTile, s.cap, s.refusedTiles, s.fullTiles, s.meanCount];
       for (const b of s.busiest) flat.push(b.count, b.x, b.y);
       return flat;
+    }
+    // The packed light array as the GPU holds it. For "the bin names light 47,
+    // is 47 the lantern I think it is?" — the two ends of the pipeline are
+    // written by different code in different files and there is no other way to
+    // compare them.
+    if (target === 'lights') {
+      const n = this.stats.lights;
+      // 32 bytes per light, but the buffer must be a multiple of 4 for
+      // copyBufferToBuffer and the map range must be a multiple of 8. One light is
+      // 32 bytes so n*32 is always fine; the max(32) was only ever to avoid a
+      // zero-size buffer.
+      const bytes = Math.max(32, n * 32);
+      const rb = this.gpu.device.createBuffer({
+        size: bytes,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      });
+      await this.gpu.device.queue.onSubmittedWorkDone();
+      const enc = this.gpu.device.createCommandEncoder({ label: 'lights-read' });
+      enc.copyBufferToBuffer(this.lightBuf, 0, rb, 0, bytes);
+      this.gpu.device.queue.submit([enc.finish()]);
+      await rb.mapAsync(GPUMapMode.READ);
+      const f = new Float32Array(rb.getMappedRange().slice(0, bytes));
+      rb.unmap(); rb.destroy();
+      const out: number[] = [];
+      for (let i = 0; i < n; i++) {
+        for (let k = 0; k < 8; k++) out.push(+f[i * 8 + k].toFixed(2));
+      }
+      return out;
+    }
+    // `tileat:<x>,<y>` — the pixel is in the string, because the question is
+    // always asked about a pixel somebody is looking at and hard-coding one here
+    // would answer a question nobody asked.
+    if (target.startsWith('tileat:')) {
+      const [sx, sy] = target.slice(7).split(',').map(Number);
+      const a = await this.tileAt(sx, sy);
+      return [a.tx, a.ty, a.count, a.stored, ...a.indices];
     }
     const dev = this.gpu.device;
     const map: Record<string, { tex: GPUTexture; bpp: number; hdr: boolean }> = {
@@ -1974,6 +2014,39 @@ export class Renderer {
       refusedTiles: refused, fullTiles: full, meanCount: total / Math.max(1, bins),
       busiest: hot.slice(0, 8),
     };
+  }
+
+  /**
+   * Dump one tile's binned light indices. Diagnostic for "the bin has the lights
+   * but the pixel is still dark" — the one failure mode where `meanCount` and
+   * `stats.lights` both look healthy.
+   *
+   * Takes a pixel, not a tile, because the question is always asked about a
+   * pixel someone is looking at.
+   */
+  async tileAt(px: number, py: number): Promise<{
+    tx: number; ty: number; count: number; stored: number; indices: number[];
+  }> {
+    const dev = this.gpu.device;
+    const tx = Math.floor(px / 16), ty = Math.floor(py / 16);
+    const tiles = Math.ceil(this.targetsW / 16) * Math.ceil(this.targetsH / 16);
+    const idx = ty * Math.ceil(this.targetsW / 16) + tx;
+    if (idx < 0 || idx >= tiles) return { tx, ty, count: -1, stored: 0, indices: [] };
+    const rb = dev.createBuffer({
+      size: 400, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    await dev.queue.onSubmittedWorkDone();
+    const enc = dev.createCommandEncoder({ label: 'tile-at' });
+    enc.copyBufferToBuffer(this.tileBuf, idx * 400, rb, 0, 400);
+    dev.queue.submit([enc.finish()]);
+    await rb.mapAsync(GPUMapMode.READ);
+    const u = new Uint32Array(rb.getMappedRange().slice(0));
+    rb.unmap(); rb.destroy();
+    const count = u[96];
+    const stored = Math.min(count, 96);
+    const indices: number[] = [];
+    for (let i = 0; i < stored; i++) indices.push(u[i]);
+    return { tx, ty, count, stored, indices };
   }
 
   /** Recent entity draw calls, for diagnosing "is it actually being issued". */
