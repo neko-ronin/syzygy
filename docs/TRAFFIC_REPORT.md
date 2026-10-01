@@ -247,7 +247,7 @@ violet/blue — with the ropeway carrying it. The fix was the instance-level
    read against. Same finding as round 3.
 3. **Vehicle silhouettes are weak.** Both meshes are low-contrast boxes at
    distance. That is `citymesh.ts`.
-4. **The frames predate nothing** — they come from a build made this session,
+5. **The frames predate nothing** — they come from a build made this session,
    and other agents have committed since.
 
 ---
@@ -299,11 +299,12 @@ entityTris 62360   tris 4367375   draws 156   resident 113   lights 1289
    chunks. So the trams have headlights that light nothing. Same PHANTOM shape as
    `groundbake.ts`'s `void lights;`. It needs one line in `renderer.ts`, which is
    not mine.
-3. **`renderer.entityDraws` came back empty** in every capture even though the
-   vehicles are demonstrably in the frames and `entityTris` is non-zero. I could
-   not explain it and did not guess: I added `issuedEntityDraws` in `main.ts`,
-   recorded at the same point, so the telemetry no longer depends on that array.
-   It is an open finding.
+3. **`renderer.entityDraws` reads empty, and now I know why** — see §10.1. It is
+   not a drawing fault and not a telemetry fault on my side; it is that
+   `renderer.render()` has two early exits that draw nothing, neither of which
+   is counted the same way, while `tick()` increments `frameCount` after both.
+   I added `issuedEntityDraws` in `main.ts`, recorded at the same point, so the
+   automation surface no longer depends on that array alone.
 4. **No per-mesh LOD**, only a distance cull. See §4.
 5. **Zipline riders never appeared in any frame** — 24 alive, all culled beyond
    620 m in every pose I derived. The kind is wired and asserted but unverified
@@ -337,17 +338,56 @@ entityTris 62360   tris 4367375   draws 156   resident 113   lights 1289
    `suspension` only for the tram lines, where `'catenary'` really does mean a
    graded hump.
 
-3. **`drawEntitySet` cannot draw two entity sets in one frame**, and its
+3. **`renderer.entityDraws` reads empty, and `frameCount` cannot be trusted to
+   mean "a frame was drawn".** Measured, after chasing this for four capture runs
+   because I reported it as unexplained:
+
+   ```
+   A: default pose      frame=1    entityDraws=6  framesSkipped=0
+                        frame=7    entityDraws=6  framesSkipped=0
+   B: after setPose     frame=15   entityDraws=6  framesSkipped=1
+      (camera jumps     frame=21   entityDraws=0  framesSkipped=1
+       ~1 km)           frame=25   entityDraws=0  framesSkipped=1
+                        frame=30   entityDraws=6  framesSkipped=1
+   C: after warm()      frame=54   entityDraws=0  framesSkipped=1
+                        frame=114  entityDraws=0  framesSkipped=0
+                        frame=174  entityDraws=0  framesSkipped=0
+   ```
+
+   Two things fall out. First, `main.ts` clears `entityDraws` at the top of
+   `tick()` and it is refilled during `render()`, so the field is empty on any
+   tick where `render()` returned before reaching `recordGBuffer` — which is
+   precisely when it is most useful to know. Second, `renderer.render()` has
+   **two** non-drawing early exits:
+
+   ```ts
+   if (!this.targets) return;                      // no counter
+   ...
+   if ((this.capturePending || overBudget) && ...) { this.skipped++; return; }   // counted
+   ```
+
+   and `tick()` does `this.frameCount++` after both. So `frameCount` advances
+   on frames where nothing at all was submitted, and `framesSkipped` reports
+   only the second of the two exits. In block C above, `framesSkipped` is 0 and
+   `entityDraws` is empty — the two are contradictory unless something else
+   bailed, and `!this.targets` does not increment anything. I could not fully
+   separate the two exits from the outside; both are in `renderer.ts`.
+
+   The vehicles are demonstrably in the frames, so this is a reporting hazard
+   and not a rendering one. But it is the same shape as every fault this project
+   has paid for: a counter that reads "zero" for two different reasons.
+
+4. **`drawEntitySet` cannot draw two entity sets in one frame**, and its
    signature does not say so. It uploads at offset 0 and draws at instance 0 on
    every call, so it is correct for exactly one set per frame. The name and the
    signature both invite a second call.
 
-4. **`stats.triangles` under-reports when entity draws bypass
+5. **`stats.triangles` under-reports when entity draws bypass
    `drawEntitySet`.** `renderer.counter.entityTris` is private and is the only
    thing feeding it, so any draw issued outside that method is invisible to the
    frame's triangle total. I patch it in `main.ts` with a comment saying it is a
    patch; it should not need one.
 
-5. **`HANDOFF.md` says traffic is "Not drawn".** That was true until this
+6. **`HANDOFF.md` says traffic is "Not drawn".** That was true until this
    change and is now wrong. `COVERAGE.md` row 9 moves `partial` → `done` with
    the caveat that cycle is dropped.
