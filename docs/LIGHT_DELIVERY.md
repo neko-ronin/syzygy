@@ -1075,3 +1075,126 @@ been bought.
 
 Unchanged: 3.638 of high-frequency energy at grain 0 and chroma 0. Concentric
 rings are severe in the new night frame. Not the cause — the stalls are at byte 4.
+
+---
+
+## 4k. Round 16: albedo and AO are both innocent, and the byte-4 samples were air
+
+### 1. Albedo — printed, and it points the wrong way
+
+Resolved market palette, linear, seed 6191639:
+
+```
+base      [0.3278, 0.1470, 0.0704]  lum 0.1799
+secondary [0.2159, 0.0953, 0.0409]  lum 0.1170
+trim      [0.6867, 0.3515, 0.0452]  lum 0.4007
+glass     [1.0000, 0.6308, 0.1946]  lum 0.6778
+```
+
+`clothSet()` — its five entries, linear red:
+
+| entry | expression | linear R |
+| --- | --- | --- |
+| 0 | `pal.trim` | 0.6867 |
+| 1 | `pal.glass` | 1.0000 |
+| 2 | `accent` | 0.46 – 0.62 |
+| 3 | `tint(pal.base, 0.78)` | **0.2557** |
+| 4 | `tint(pal.secondary, 0.86)` | **0.1856** |
+
+The deck's effective albedo is **not** guessed. It is inferred from the render: the
+deck under a lantern measures byte 60.6, which un-tonemaps to scene-linear 0.0327,
+against 0.0306 predicted for `albedo = 0.10` at `I = 2`, `r = 15`, 3.5 m. **Deck
+albedo ≈ 0.107 linear.**
+
+So the stall frontage is authored at **0.186 – 1.000** linear red against a deck at
+**0.107** — the cloth is 1.7× to 9× *brighter* than the paving it stands on.
+
+**Albedo predicts the opposite sign.** A stall face should be brighter than the
+deck under the same lamp. The brief's premise ("cloth < 0.15, deck 0.6–0.8") is
+true about the cloth's two darkest entries and false about the deck, which is a
+dark paving, not a pale one. Albedo is not the cause.
+
+### 2. `matAo` — traced, and it cannot touch this at all
+
+Three initialisers, `var ao = 1.0` at :141 (facade), :460 (ground), :605 (mesh).
+Line 641 is `ao *= g.occlusion` and line 644 is `ao = r.occlusion` — an assignment,
+in **mutually exclusive branches** of the same `if/else if`. No path multiplies
+twice. The brief's suspicion is wrong.
+
+The height-based term at :680–682 applies to every path. For a vertical face at
+1.5 m:
+
+```
+smoothstep(0, 45, 1.5) = 0.00326
+groundAo = mix(0.55, 1.0, 0.00326)      = 0.5515
+up = clamp(0*0.5+0.5) = 0.5
+ao *= mix(0.5515, 1.0, 0.275)           = 0.675
+x facade AO 0.88                          = 0.594   (a stall face)
+deck: mix(0.5515, 1.0, 0.55) = 0.798
+```
+
+Deck/flank `matAo` ratio **1.34×**. Real, and nowhere near the residual.
+
+**But it does not matter, and this is the load-bearing finding:**
+
+```wgsl
+color += (diff * (1.0 - rough * 0.55) + spec) * matAo;   // ambient term
+...
+color += brdf(N, V, Lp, albedo, rough, metal) * li.colorInt.rgb * li.colorInt.w * atten;  // clustered
+```
+
+**`matAo` multiplies the ambient term only. The clustered-light term has no `matAo`
+in it at all.** Ambient occlusion cannot dim a lantern pool on a stall face. The
+whole AO question is orthogonal to a pooled-lantern residual, in either direction.
+
+### 3. And the residual was never measured on a stall
+
+The "13 known roadward stall faces" of round 15 were projected from the grammar —
+but projected onto where a stall's roadward face *should* be, not onto geometry.
+Baking the market mesh and finding the nearest vertex to that point:
+
+```
+stall at [3.70, -9.31], 10.0 m from the camera
+  sample cx+0.9, y=1.35 : nearest vertex [5.69, 3.43, -8.63]  dist 2.36 m  normal [0,-1,0]
+  sample cx-0.9, y=1.35 : nearest vertex [3.71, 3.66, -9.37]  dist 2.62 m  normal [0,-1,0]
+  colour both: [0.216, 0.095, 0.041]  = pal.secondary, the canopy underside
+```
+
+**There is no geometry at 1.35 m within 2.4 m of the sample point.** The nearest
+thing is the *underside of the canopy*, 2.4 m above, facing straight down. The
+sample point was **air in the aisle between the stalls.**
+
+So byte 4, R−B −6.9 was the night sky and unlit background — which is exactly what
+byte 4 and a cold R−B should look like. **The measurement is void.** The day frame's
+luma 119 at the same pixels was bright sky and lit facades behind, not a lit stall.
+
+This also removes the constraint the round-15 conclusion rested on. "A face receives
+12% of what its geometry predicts" was a comparison between a lit deck and a patch
+of night sky.
+
+### Verdict: (c). Not closed.
+
+Albedo is exonerated by measurement — the cloth is brighter than the deck, not
+darker. `matAo` is exonerated by reading the shader — it does not touch clustered
+lights at all. And the residual itself evaporates: **there is currently no
+measurement of a lit stall face anywhere in this thread.** The round-14 and round-15
+screen points were picked by eye from a dark frame; the round-15 "projected" points
+were projected onto air. Both are unreliable, and I carried them forward for two
+rounds as though they were pixels on a surface.
+
+**What is still unaccounted for:** the actual radiance on a real stall face. It has
+never been sampled, because every sample point used so far has missed the geometry.
+
+**The measurement that would settle it** — no capture needed, and it should have come
+first: bake the market mesh, take a triangle whose roadward face is 2 m from a known
+lantern, project its centroid with the pose camera, and sample *that* pixel. Ray-casting
+against the baked mesh would be better still. What must not happen again is choosing a
+screen point from a dark image and calling it a surface.
+
+No fix implemented. The instruction is explicit that a fix on an open residual is a
+speculative commit, and after three refuted mechanisms the honest state is that the
+question has not been posed correctly yet. **More work needed.**
+
+### Moiré — parked
+
+Unchanged: 3.638 of high-frequency energy at grain 0 and chroma 0.
