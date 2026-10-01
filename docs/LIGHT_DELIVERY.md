@@ -640,3 +640,153 @@ that the verification held in substance, but it was not verified against the pos
 the renderer actually used — which is precisely the F2 family again, caught this
 time because the sidecar made the discrepancy visible rather than because I
 checked it.
+
+---
+
+## 4g. Round 13: the control, and four hypotheses measured
+
+### The control
+
+`09-market-down` and `09-market-down-day` are the same camera at seed 6191639. The
+reviewer's verdict on them:
+
+> day — *"the market is actually there: rows of thin canopy frames receding both
+> sides, yellow/olive crates, a striped orange/green stall in the right foreground,
+> cables at three heights with pale lantern spheres hanging"*
+> night — *"a forest of blue slabs over a warm orange ground wash... No readable
+> stalls, no crowd"*
+
+Same seed, same camera, **933 lights delivered in both, `starved 0` in both.** The
+geometry is present in the night frame; it is not being lit.
+
+### Hypothesis 1 — do the delivered lights reach the lighting pass? **FALSIFIED.**
+
+Measured at the market spine, night, `c.w` verified on both subjects:
+
+```
+tile at the pool centre   count 69, stored 69
+binMean 66.76
+deck at the pool          [45.0, 32.0,  7.5]   R-B = +37.5  WARM
+deck 400px away           [50.9, 75.6, 107.2] R-B = -56.3  COOL
+```
+
+The loop in `lighting.wgsl` is correct — `min(tl.count, 96u)` reads the binned
+count and `lights[tl.lights[i]]` indexes absolute light indices, both fixed in
+round 7. The pool is warm-dominant against its own surroundings. **The lights are
+reaching and being applied.**
+
+### Hypothesis 2 — magnitude vs tonemap. **THE ANSWER, and it is partly authoring.**
+
+Linear HDR at the frame centre, before tonemap, same pose:
+
+| | linear R | linear G | linear B |
+| --- | --- | --- | --- |
+| night | 0.0716 | 0.1150 | 0.1493 |
+| day | 0.2444 | 0.3311 | 0.3853 |
+
+Night is **3.41× darker in linear terms** — which is correct, it is night. The
+tonemap is not eating it. Through `exposure 1.60 → ACES → sRGB`:
+
+| linear | byte |
+| --- | --- |
+| 0.0217 (a pooled lantern on the deck) | **28** |
+| 0.0716 (measured night centre) | 78 |
+| 0.2444 (day) | 163 |
+
+**A pooled lantern lands at byte 28.** That is the finding. It is visible as a
+warm tint — the pool *is* there, R−B +37.5 — but 28/255 is a whisper. The
+arithmetic behind it, from the measured grammar:
+
+```
+lantern: drop 6.3m, r=15, I=3
+  atten at the deck directly beneath  0.2273
+  radiance = I * atten * albedo / PI = 3 * 0.2273 * 0.10 / 3.1416 = 0.0217
+night ambient on the same deck = 0.01404 (green)
+  => the lantern is 15.5x ambient, and still lands at byte 28
+```
+
+The lantern *ratio* is generous. The absolute value is not, because `r = 15` at
+`drop = 6.3` puts the light 6.3 m above a 15 m sphere: the falloff window
+`(1 - d²/r²)²` has already taken 77% of the energy before the light reaches the
+ground. **This is an authoring problem — radius and intensity — not a plumbing
+one**, and it says so plainly because three plumbing fixes this session would
+otherwise read as the whole story.
+
+### Hypothesis 3 — window emissive. **NOT the cause; it is authored fine.**
+
+`lighting.wgsl:231` does `color += emissive` with no ambient or `dayPhase`
+multiplier — I grepped for one. Window emissive is `warm * bright * (0.55 +
+core*0.9)` with `bright` in 0.35..3.55, so the range is **0.19..5.15 linear**, and
+0.19 lands at **byte 145** — plainly visible, and 7× brighter than the pooled
+lantern.
+
+So the frame's "no window glow" is not the emissive channel being multiplied into a
+zeroed ambient. Either the windows in view are simply not in the lit 40%
+(`step(0.58, hash)`), or they are being lost before the lighting pass. **Not
+separated this round.**
+
+### Hypothesis 4 — `dayPhase`. **CLEAR.** Nothing keys off it since `cd7b7de`;
+`dayPhase 0` on the night frames and 933 lights delivered in both proves it.
+
+### What is left: a saturated tile bin, unproven
+
+`probe('tiles')` at the market, night:
+
+```
+binMax 341   cap 96   refused 2465   fullTiles 36
+```
+
+**The per-tile bin is saturated and refusing lights.** This is the eighth
+candidate and it is real — but reordering the CPU array changed nothing
+(`refused 2465`, `fullTiles 36` identical before and after), because reordering
+changes *which* lights are dropped, not *how many*. I made the nearest-first sort
+unconditional on that reasoning, measured no change in the counts, and **reverted
+it** rather than commit a plausible fix with no evidence behind it.
+
+**`windowGlow` is still a phantom** and this round confirms it is not the cause:
+window emissive is authored 7× brighter than a pooled lantern and reaches the
+lighting pass unscaled. Wiring it would be a tuning change, not a fix for
+anything measured. Recommend deleting it from `weather.ts` and correcting R2,
+which still recommends raising a number nothing reads.
+
+## 5. Status
+
+Delivery is exact and the pool is measurably warm-dominant. **The gate stays open,
+and the remaining cause is authoring:** a market lantern at `r=15, I=3` hung 6.3 m
+above the deck produces 0.0217 linear radiance and lands at byte 28. Whether that
+is enough is the reviewer's call; if the frame is to carry a legible walking plane
+the radius and intensity need raising, and that is a decision about the look, not a
+bug.
+
+## 6. The moiré — correlation partially broken, cause not isolated
+
+The capture agent's correlation: affected frames are exactly `grain >= 0.26` and
+`chroma >= 0.50`.
+
+**Partly a confound.** Grain, chroma and exposure travel together in the phase
+table, and the only phases with `grain >= 0.26` are `night` (0.30) and
+`lantern-rise` (0.26) — so "grain >= 0.26" is nearly a proxy for "it is night".
+And night carries **exposure 1.60, the highest of any phase**, which lifts a
+near-black frame and makes any grain visible in it.
+
+Measured, same pose, only grain and chroma changed:
+
+```
+grain 0.26 chroma 0.50 : high-frequency energy 4.786
+grain 0.00 chroma 0.00 : high-frequency energy 3.638
+ratio 1.32x
+```
+
+**So grain is a contributor and not the cause** — turning it off removes a third of
+the high-frequency energy and leaves 3.638 behind. Something else bands with
+grain at zero, and I did not isolate it.
+
+One static finding worth recording: the grain's hash is
+`hash21(uv * F.screen.xy + vec2f(t*1.7, t*2.3))` — a screen-space lattice offset
+only by time. That is correct film behaviour, and I checked that it is not a static
+pattern: 1597 distinct values along a 1600px row, zero consecutive repeats. So the
+grain is temporal and well-distributed, and the banding is not its lattice.
+
+Not diagnosed. The candidate left is the half-res aux chain (DOF, bloom mips)
+upsampled through `linSamp` into a 16-bit-ish gradient, which bands in 8-bit
+output — untested.
