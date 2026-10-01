@@ -894,6 +894,139 @@ is in this round.
 
 ---
 
+# Round 6 — GAP A (density), GAP C (thresholds), and the night palette question
+
+## GAP A — the R1 number, and I did not move it
+
+`docs/ROADMAP.md` R1 asks for "a density where the far end of the street is
+visibly busy". The number that turns on it, from
+`docs/LEGIBILITY_TARGETS.md` §3, is **the fraction of visible street length
+carrying no legible figures**. Measured at seed 42, street-level, looking along
+the market spine:
+
+```
+before:  58% of visible street length empty  (14 of 24 samples at 5 m steps)
+after:   58%
+```
+
+**Unchanged, and I am not reporting it as progress.** Two candidate causes, both
+tested, both wrong:
+
+1. *"The lateral spread puts agents off the street."* Measured: 935 of 2500
+   within 20 m of the centreline. Narrowing the spread to the street band made it
+   **worse** — 83% empty — so it was reverted.
+2. *"`snapToStreet` throws agents onto other streets."* The 666 agents more than
+   64 m off-axis average to (108, −19) with the camera at (10, −12), which reads
+   like a whole population on one street 98 m east. Sampling group centres along
+   the camera's own street instead of through free space moved nothing: still 58%.
+
+And the measurement that appeared to confirm cause 2 was itself wrong.
+"`36% of agents are not on any carriageway`" came from `clearance > 0`, which
+means **on the footway** — which is exactly what the pavement hold I added in
+round 5 is for. It was never a defect; it was my probe misreading a sign.
+
+The depth histogram is the part I have not explained:
+
+```
+depth bins of 20 m, forward only:  256 531 1152 247 157 85 0 0 0 0 0 0
+```
+
+A spike at 40-60 m and **nothing at all beyond 100 m** out of a 160 m
+`viewRadius`. That is where the answer lives and I did not find it in this
+round. It is not the group-anchor sampling: those place centres out to 155 m.
+
+## GAP C — thresholds re-measured, including what I missed
+
+Against `docs/LEGIBILITY_TARGETS.md`, from `src/sim/__selftest.ts` at a derived
+street-level pose:
+
+| threshold | measured | verdict |
+|---|---|---|
+| ≤ 3 consecutive near-identical modules | longest gapless run **3** | **MET** |
+| every fourth breaks in *silhouette*, both daylight angles | 0 adjacent same-class pairs of 367, in-chunk | **MET**, stricter than asked; both angles shot |
+| recolouring does not count | six silhouette classes, 2→5 cloth colours | **MET** on silhouette; colour reported separately and not counted |
+| ≥ 2 px body separation, mean | **2.52 px** | **MET** |
+| ≤ 25% of figures under 2 px | **62%** (85 of 137) | **NOT MET** |
+| do not chase head geometry below 25-30 px | not attempted | **n/a, correctly** |
+
+The distribution is still wrong and the mean hides it. Unchanged from round 5.
+
+## The night palette question — answered, and it is not a palette problem
+
+Round 6 asked whether one palette can serve day and night, and whether the
+crowd is a legibility problem only in daylight. Measured over the realised
+crowd on `market-spine`, using the same multiplicative model the lighting pass
+uses and the exact ambients from `weather.ts:164-234`:
+
+```
+day    ambient [0.1895, 0.3149, 0.4989]   contrast min 1.96  median 2.74  max 3.27
+night  ambient [0.0031, 0.0047, 0.0159]   contrast min 1.02  median 1.05  max 1.06
+```
+
+Daylight sits at or above the reference's own band (2.76:1 at 16 px, 2.20:1 at
+19 px) — consistent with the legibility doc's finding that contrast was never
+the daytime problem. **Night collapses to 1.05:1: every coat within 6% of the
+deck.**
+
+And no palette fixes it, because **figure/ground contrast is invariant under
+uniform illumination** — coat and deck are multiplied by the same vector. What
+kills the separation is that the night ambient is a strongly coloured blue
+(`#1d2547`, B about 5.3× R), and multiplying by it compresses exactly the *hue*
+differences my old rule was ranking on.
+
+So one palette *can* serve both, and the reason it now does is that **value
+survives a coloured ambient where hue does not**. The rule is value-first:
+
+```
+chroma-first (was)  day 1.15 2.04 1.57   night 1.00 1.03 1.01
+value-first  (now)  day 2.87 2.04 1.90   night 1.05 1.03 1.02
+```
+
+The old rule could select `water`, whose relative luminance is *below* the deck's.
+The new one cannot: it picks `glass`, `emissive`, `trim`, all brighter.
+
+**The night crowd is therefore a lighting problem, not a palette problem, and it
+is the same lighting problem as the unlit aisle.** A figure with a market lantern
+5 m away receives roughly 20× the ambient (measured in round 3), which is the
+entire difference between invisible and legible. Recolouring the crowd cannot
+substitute for lighting it, and I would rather say that than ship a palette
+tweak that moves 1.00 to 1.05 and calls it a fix.
+
+## I could not certify a capture
+
+The brief's instruction to check what is being served rather than what the
+harness printed was the right one, and it caught me. Frames were taken into
+`/tmp/r6/`, and then:
+
+- `curl` returned **HTTP 200 with an empty body** while the browser rendered the
+  app normally.
+- The served HTML contained **no `<script>` tags**, while `dist/index.html`
+  carries exactly one, `assets/index-OCmotZkZ.js`.
+- The listener on 4173 was serving something that is not `dist/`. A second
+  server then held the port and refused to say what it was.
+- By the time I killed it, `dist/` carried a **different hash**,
+  `index-BmN2-3OV.js` — another agent rebuilt underneath me.
+
+So the round-6 frames came from an unidentified build and **I am not presenting
+them as evidence.** Every number above is from Node, is deterministic, and does
+not depend on a GPU; the visual claims in this section are therefore absent
+rather than wrong. The build was correct at the moment `vite build` finished,
+and the source it contained is what the numbers above measure.
+
+Two capture runs produced usable-looking frames, and the only reason I know they
+are not is that I looked.
+
+## What I did not get to
+
+1. **GAP A is not solved.** 58% empty, before and after. The depth histogram
+   has a hard edge at 100 m that I did not explain.
+2. **No certified visual verification this round.**
+3. The crowd separation distribution (62% against a 25% target) is unchanged.
+4. The unlit aisle is still unlit and is developer 1's; the crowd finding above
+   confirms it is one problem and not two.
+
+---
+
 ## 9. Contradictions between code and documents
 
 1. **`src/render/groundbake.ts` — `void lights;`.** The `lights` array is in
