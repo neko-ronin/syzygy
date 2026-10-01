@@ -31,6 +31,7 @@
 import rendererSrc from './renderer.ts?raw';
 import lightbinWgsl from '../shaders/lightbin.wgsl?raw';
 import gbufferWgsl from '../shaders/gbuffer.wgsl?raw';
+import groundbakeSrc from './groundbake.ts?raw';
 import postWgsl from '../shaders/post.wgsl?raw';
 import { City, defaultCityConfig } from '../world/citygen';
 import { defaultWorld, sunDirection, type WorldState } from '../core/state';
@@ -441,6 +442,41 @@ function run(): void {
     check(!/F\.grade\.w/.test(gb) && !/F\.grade\.w/.test(postWgsl),
       'no shader reads grade.w as a colour — it is free for the light count',
       'a shader now depends on grade.w, so it is no longer a spare slot');
+
+    // ------------------------------------------------------------------
+    // THE MARKET LIGHT BUDGET. Three separate defects, all silent, all of which
+    // had to be true simultaneously for the aisle to be dark. Each is arithmetic
+    // on chunk (0,-1), which carries the market spine.
+    const gb2 = groundbakeSrc;
+    // (a) per-trace spending against a per-chunk budget. The block runs once per
+    // carriageway -- `traces: 5` measured -- so first-come meant one carriageway
+    // took the whole budget and four took none.
+    check(!/const perTrace = Math\.min\(MAX_MARKET_LIGHTS_PER_CHUNK/.test(gb2),
+      'the market budget is not spent per trace against a per-chunk allowance',
+      'per-trace spending is back: one carriageway takes the budget, the rest take nothing');
+    check(/adjudicate the market's offered lights, once, for the whole chunk/.test(gb2),
+      'market lights are adjudicated once per chunk, after all traces');
+    // (b) ordering by distance to the CHUNK CENTRE. A 256m chunk's centre is 173m
+    // from the market spine it contains, so this selected the far end of the
+    // market every time: `dPool` 111-184m for the eight chosen, against 5.8-12.1m
+    // for the lanterns actually over the aisle, and deck irradiance exactly 0.000.
+    check(!/\bccx\b[\s\S]{0,300}pendingMarket\.length > 0[\s\S]{0,300}sort\(\(a, b\) => key\(a\) - key\(b\)\)/.test(gb2),
+      'market lights are not ordered by distance to the chunk centre',
+      'chunk-centre ordering selects the far end of the market -- see spineDistance');
+    check(/function spineDistance\(/.test(gb2),
+      'market lights are ordered along the market spine, recovered from the light set itself');
+    // (c) the deterministic grammar re-derived per trace. Identical arguments
+    // return an identical list, so 5 traces offered 240 entries of which 48 were
+    // distinct: the budget was spent on copies and `dropped` counted each lantern
+    // five times (measured `produced 240, delivered 24, dropped 216`).
+    check(/marketSeenKeys\.has\(key\)/.test(gb2),
+      'market lights are deduplicated by position across traces',
+      'the deterministic grammar is being offered once per trace and the budget spent on copies');
+    // And the budget itself: 24 slots for up to 240 offered lanterns, measured as
+    // deck irradiance 0.000 at 24 against 1.197 at 48.
+    check(/const maxLights = 48;/.test(gb2),
+      'the per-chunk light budget is 48, not 24',
+      'back to 24: measured deck irradiance at the market spine is exactly 0.000');
 
     // Whatever the axis is, the box must still be a square of the advertised
     // size, or the culling above is dropping casters.

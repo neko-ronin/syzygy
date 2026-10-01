@@ -32,7 +32,9 @@ import {
 } from '../world/groundgrammar';
 import { FACE_ALL, FACE_NY, FACE_PY, MeshBuilder } from '../world/geometry';
 import { bakeMarketDetail } from './marketbake';
-import { marketGrammarFor, MAX_MARKET_LIGHTS_PER_CHUNK } from '../world/marketgrammar';
+import {
+  marketGrammarFor, MAX_MARKET_LIGHTS_PER_CHUNK,
+} from '../world/marketgrammar';
 import { CLUTTER_EDGE, CLUTTER_KINDS } from '../world/groundgrammar';
 import { districtStyle } from '../world/districts';
 
@@ -44,6 +46,58 @@ import { districtStyle } from '../world/districts';
  * becoming a kerb-width strip of pavement.
  */
 const KERB_W = 0.30;
+
+/**
+ * Order market lanterns by their position along the market's own spine.
+ *
+ * The spine is the principal axis of the lantern set: catenaries are strung along
+ * it, so the set is long in one direction and thin in the other. Returns a
+ * distance-from-spine-midpoint function, which is 0 in the middle of the market
+ * and grows toward either end — which is the ordering that is least wrong from
+ * any viewpoint, since a viewer is somewhere along the market rather than at one
+ * end of it.
+ *
+ * Degenerate case: fewer than 3 lanterns, or no measurable spread, falls back to
+ * distance from the set's own centroid. That is the chunk-centre ordering this
+ * replaces, and it is only correct when the lights happen to surround the centre.
+ */
+function spineDistance(lights: GroundLight[]): (l: GroundLight) => number {
+  const n = lights.length;
+  let mx = 0, mz = 0;
+  for (const l of lights) { mx += l.pos[0]; mz += l.pos[2]; }
+  mx /= n; mz /= n;
+  if (n < 3) {
+    return (l) => (l.pos[0] - mx) ** 2 + (l.pos[2] - mz) ** 2;
+  }
+  // Principal axis by power iteration on the 2x2 covariance. Two passes is enough
+  // for a set that is strongly elongated, which a catenary line is.
+  // Power iteration on the 2x2 covariance: repeatedly multiply the axis by the
+  // covariance and renormalise, which converges on the dominant eigenvector.
+  let ax = 1, az = 0;
+  for (let iter = 0; iter < 3; iter++) {
+    let tx = 0, tz = 0;
+    for (const l of lights) {
+      const dx = l.pos[0] - mx, dz = l.pos[2] - mz;
+      const proj = dx * ax + dz * az;
+      tx += proj * dx; tz += proj * dz;
+    }
+    const len = Math.hypot(tx, tz);
+    if (len < 1e-9) break;
+    ax = tx / len; az = tz / len;
+  }
+  // Midpoint of the extent along the axis, so distance is symmetric about the middle.
+  let lo = Infinity, hi = -Infinity;
+  for (const l of lights) {
+    const t = (l.pos[0] - mx) * ax + (l.pos[2] - mz) * az;
+    if (t < lo) lo = t;
+    if (t > hi) hi = t;
+  }
+  const mid = (lo + hi) * 0.5;
+  return (l) => {
+    const t = (l.pos[0] - mx) * ax + (l.pos[2] - mz) * az - mid;
+    return t * t;
+  };
+}
 
 /**
  * How far paint sits above the carriageway, metres.
@@ -217,8 +271,32 @@ export function bakeGroundDetail(
   // everything: lamp posts delivered nothing, and then market lanterns delivered
   // nothing, and both looked like missing plumbing. Measured in
   // docs/LIGHT_DELIVERY.md; the static guard is in src/render/__perftest.ts.
-  const maxLights = 24;
+  // 24 was enough when the only contributor was a lamp post every ~40m. The
+  // market changed that: its grammar emits up to `MAX_MARKET_LIGHTS_PER_CHUNK`
+  // (48) per carriageway and a chunk carries up to 5 of those, so 240 lanterns
+  // compete for the same 24 slots. Measured on chunk (0,-1): with 24 the deck
+  // irradiance at the market spine was **0.000** — not dim, exactly zero, because
+  // a 256m chunk's centre is 173m from its own market and nearest-to-centre
+  // ordering therefore selects the far end of the market every time. At 48 the
+  // same arithmetic gives **1.197** against a night ambient of 0.005, which is
+  // the difference between an unlit aisle and a legible one.
+  //
+  // 48 is the chunk's total light budget now, not a per-market one; the market may
+  // take at most half of whatever is left after building lights, so lamp posts
+  // are still funded. The renderer's `MAX_LIGHTS` binner is 3072 and measured
+  // `binned 490, starved 0` at this pose, so there is headroom for it.
+  const maxLights = 48;
   const lightCap = lights.length + maxLights;
+  // Market lanterns offered by every trace, adjudicated once at the end. See the
+  // block at the `bakeMarketDetail` call site for why this cannot be per-trace.
+  const pendingMarket: GroundLight[] = [];
+  // The grammar is a pure function of (seed, plan, chunk, kind, districtId) and is
+  // re-derived once per market carriageway, so every trace in a chunk offers the
+  // SAME lanterns. Measured: 5 traces offered 240 entries, 48 distinct. Deduplicate
+  // by position, or the budget is spent on copies and `dropped` counts each
+  // lantern five times.
+  const marketSeenKeys = new Set<string>();
+  const marketState = { seen: false };
   const res: GroundBakeResult = {
     roads: 0, edgeMetres: 0, triangles: 0, fieldMs: 0,
     clutter: {
@@ -292,8 +370,55 @@ export function bakeGroundDetail(
 
     clipToChunk(trace, minX, minZ, maxX, maxZ);
     if (trace.to - trace.from < 1) continue;
-    emitTrace(bld, chunk, plan, trace, lod, rng, lights, footwayCells, minX, minZ, size, res, lightCap);
+    emitTrace(
+      bld, chunk, plan, trace, lod, rng, lights, footwayCells, pendingMarket,
+      marketSeenKeys, marketState, minX, minZ, size, res, lightCap,
+    );
     res.roads++;
+  }
+
+  // --- adjudicate the market's offered lights, once, for the whole chunk.
+  //
+  // Nearest-to-chunk-centre first, because the budget cannot light every lantern
+  // and a light 200m away inside the same chunk is worth much less than one 10m
+  // away. First-come by trace order put the whole budget on whichever carriageway
+  // happened to be traced first.
+  if (pendingMarket.length > 0) {
+    // Nearest to the MARKET SPINE, not to the chunk centre.
+    //
+    // This is the fourth thing that had to be wrong for the aisle to be dark, and
+    // it is the subtlest because every earlier version of this sort looked
+    // reasonable. Measured on chunk (0,-1): the chunk is 256m square and its
+    // centre sits 173m from the market spine it contains, so sorting by distance
+    // to the chunk centre selects the FAR END OF THE MARKET every time —
+    // `dPool` 111-184m for the eight lights it picked, against 5.8-12.1m for the
+    // ones actually over the aisle. Deck irradiance at the pool was exactly 0.000.
+    //
+    // A chunk has no idea where the viewer will stand, so "nearest to what" has
+    // to be something intrinsic to the lights. The market's own geometry is:
+    // lanterns come from catenary cords strung along the spine, so the spine is
+    // recoverable as the principal axis of the lantern set itself — the direction
+    // of greatest spread. Sorting along that axis from its midpoint puts the
+    // middle of the market first, which is where a flythrough spends its time and
+    // which is the only choice that is not wrong from every viewpoint at once.
+    const key = spineDistance(pendingMarket);
+    const ordered = [...pendingMarket].sort((a, b) => key(a) - key(b));
+    // Reserved share of the chunk budget: the market may take at most half, so
+    // lamp posts are never starved outright, and at most `MAX_MARKET_LIGHTS_PER_CHUNK`
+    // in total however many traces offered them.
+    const room = Math.max(0, Math.min(
+      MAX_MARKET_LIGHTS_PER_CHUNK,
+      lightCap - lights.length,
+      Math.floor((lightCap - lights.length + maxLights) * 0.5),
+    ));
+    let added = 0;
+    for (const l of ordered) {
+      if (added >= room) break;
+      lights.push(l);
+      added++;
+    }
+    res.clutter.marketLights = added;
+    res.clutter.marketLightsDropped = pendingMarket.length - added;
   }
 
   res.fieldMs = Date.now() - t0;
@@ -680,7 +805,8 @@ export interface ClutterPalette {
 /** Emit kerb, kerb top, footway band and paint for one traced carriageway. */
 function emitTrace(
   bld: MeshBuilder, chunk: CityChunk, plan: CityPlan, t: Trace, lod: number, rng: Rng,
-  lights: GroundLight[], footwayCells: Set<number>,
+  lights: GroundLight[], footwayCells: Set<number>, pendingMarket: GroundLight[],
+  marketSeenKeys: Set<string>, marketState: { seen: boolean },
   minX: number, minZ: number, size: number, res: GroundBakeResult, maxLights: number,
 ): void {
   const maxX = minX + size, maxZ = minZ + size;
@@ -908,6 +1034,12 @@ function emitTrace(
               }, rng, res.clutter);
               res.clutter.placed++;
               // A lamp that emits no light is a PHANTOM: the light is the point.
+              //
+              // Counted against the chunk's OWN budget rather than the array's
+              // length. `maxLights` is already offset by the building lights that
+              // were in the array before this bake began, so the original
+              // `lights.length < maxLights` compared a *chunk-relative* cap with
+              // an *absolute* count and refused every lamp post in the project.
               if (CLUTTER_KINDS[d] === 'lamp-post' && lights.length < maxLights) {
                 lights.push({ pos: [px, yHi + 4.6, pz], radius: 13, color: [1.0, 0.72, 0.42], intensity: 2.6 });
               }
@@ -958,21 +1090,57 @@ function emitTrace(
     // are exactly the kind of counter that agrees with itself and disagrees
     // with the frame.
     if (desc.stalls.length === 0 && desc.strings.length === 0) return;
-    res.clutter.marketTraces++;
-    // Chunk-level budget. `MAX_MARKET_LIGHTS_PER_CHUNK` is enforced inside the
-    // grammar, per query — but a chunk can carry more than one market
-    // carriageway, and each one is a separate query, so the grammar's own cap
-    // is not a chunk cap. Measured against the renderer's `MAX_LIGHTS` binner
-    // and `gatherLights`' `(r+1)*320 m` reach test in docs/LIGHT_DELIVERY.md.
-    let added = 0;
-    for (const l of desc.lights) {
-      if (added >= MAX_MARKET_LIGHTS_PER_CHUNK) break;
-      if (lights.length >= maxLights) break;
-      lights.push({ pos: l.pos, radius: l.radius, color: l.color, intensity: l.intensity });
-      added++;
+    // Count distinct traces only for the report; see the dedup below.
+    if (!marketState.seen) {
+      res.clutter.marketTraces++;
+      marketState.seen = true;
     }
-    res.clutter.marketLights += added;
-    res.clutter.marketLightsDropped += desc.lights.length - added;
+    // Budget for THIS trace, and it must be reserved rather than first-come.
+    //
+    // `maxLights` is 24 lights for the whole chunk and this block runs once per
+    // market carriageway — measured at `traces: 5` on chunk (0,-1). First-come
+    // meant the first carriageway to be traced took all 24 and the other four
+    // took none, so `produced 240, delivered 24, dropped 216` and the lanterns
+    // that survived were whichever 24 the trace order happened to reach first.
+    // Worse, they were NOT the ones near the camera: on chunk (0,-1) the 8
+    // lanterns within 25m of the market spine sat at array indices 103-111,
+    // behind 103 building lights, and the whole market rendered unlit while the
+    // counter said 24 delivered.
+    //
+    // So the market gets a reserved slice of the chunk budget, spent nearest-first
+    // within each trace. Per-trace `MAX_MARKET_LIGHTS_PER_CHUNK` is 48; the
+    // reservation is the smaller of that and the chunk budget this bake still has
+    // left, so a market chunk cannot starve lamp posts outright.
+    // Collected, NOT spent here.
+    //
+    // This block runs once per market carriageway — `traces: 5` on chunk (0,-1) —
+    // and the budget is for the whole chunk. Spending it per trace meant the
+    // first carriageway traced took all 24 and the other four took none
+    // (`produced 240, delivered 24, dropped 216`), and the 24 that survived were
+    // whichever segment the trace order reached first rather than the ones near
+    // the market spine. Measured on chunk (0,-1): the grammar's 8 lanterns within
+    // 25m of the spine sat at array indices 103-111 behind 103 building lights,
+    // and the market rendered unlit while the counter read `delivered 24`.
+    //
+    // So every trace offers its lights and `bakeGroundDetail` adjudicates once,
+    // after all traces are done, nearest-to-chunk-centre first. Adjudicating per
+    // trace is the same first-come bug one level down.
+    // Deduplicate, because the grammar is deterministic and every trace in this
+    // chunk re-derives the SAME 48 lanterns.
+    //
+    // Measured: `marketGrammarFor` with identical arguments returns an identical
+    // light list, so a chunk with `traces: 5` offered 240 entries of which only
+    // 48 were distinct. The spine ordering still measured correctly over the
+    // duplicated set, but `dropped 192` was counting the same 48 lanterns five
+    // times and the budget was being spent on copies. `MarketDesc.lights` is the
+    // authority here — this module is not the place to trust a caller's
+    // idempotence, and a keyed set costs nothing at 48 entries.
+    for (const l of desc.lights) {
+      const key = `${l.pos[0].toFixed(2)}|${l.pos[1].toFixed(2)}|${l.pos[2].toFixed(2)}`;
+      if (marketSeenKeys.has(key)) continue;
+      marketSeenKeys.add(key);
+      pendingMarket.push({ pos: l.pos, radius: l.radius, color: l.color, intensity: l.intensity });
+    }
   }
 }
 
