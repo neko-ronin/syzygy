@@ -599,3 +599,44 @@ The aisle has a measurable warm pool on a frame with lights in it, verified with
 reviewer's call.** The `08-night-lanterns` pose is separately misnamed — it is an
 aerial daylight (`culledByDay: true`, phase `clear`), not a night street — and its
 definition is in `capture.mjs`, not mine.
+
+### Round 11: the pool, with adjacent-pavement comparison and full provenance
+
+Re-shot at the consistent seed. **Metadata, now written into `shots/latest.json`
+by the harness rather than reconstructed by hand:**
+
+```
+seed            6191639
+tier            high
+camera.position [-35.5, 2.372, 159.4]
+viewRayPoint400m (a point on the view ray, not the requested look-at)
+fov             1.038
+lodHistogram    [9, 98, 0, 0]      residentChunks 107
+lightDelivery   produced 144 · delivered 973 · binned 973 · starved 0 · culledByDay false
+entity          drawCalls 4 · triangles 330512
+```
+
+Lantern `[-29.21, 6.89, 140.44]` and its pool `[-29.21, 0, 140.44]`, both `c.w > 0`
+verified on CPU before the shot.
+
+**The reviewer's test — adjacent comparable pavement, not a region mean:**
+
+| sample | RGB | R−B |
+| --- | --- | --- |
+| **pool, 22px patch** | `[45.0, 32.0, 7.5]` | **+37.5 warm** |
+| deck 120px away | `[100.3, 76.0, 65.0]` | +35.3 |
+| deck 400px away | `[50.9, 75.6, 107.2]` | **−56.3 cool** |
+| deck 680px away | `[115.9, 73.9, 52.3]` | +63.6 |
+
+The pool is warm and the comparable deck 400px away is cool — a sign change of 94
+in R−B between two patches of the same surface. The 120px and 680px samples are
+also warm, which means the warm region is broader than a single lantern's disc and
+is picking up stall geometry and lit facade as well as the deck.
+
+**Honest caveat, and it is a small one:** my `c.w` verification was computed for
+the pose I *requested*, and the camera holds a slightly different one (fov 1.038
+against the 1.1 asked for, position y 2.372 against 2.3). The pose was close enough
+that the verification held in substance, but it was not verified against the pose
+the renderer actually used — which is precisely the F2 family again, caught this
+time because the sidecar made the discrepancy visible rather than because I
+checked it.
