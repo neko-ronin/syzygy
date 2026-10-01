@@ -73,14 +73,94 @@ export const MARKING_CODES: Record<MarkingStyle, number> = {
  * so a district names its own kit and the emitter resolves index → geometry.
  *
  * The order is data, not decoration: it is the portable enum the emitter and
- * (later) a GLSL port both index by.
+ * (later) a GLSL port both index by. Entries are APPENDED, never renumbered, so
+ * an index handed out once stays valid.
+ *
+ * ------------------------------------------------------------------
+ * EVIDENCE, and the honest state of it. Cross-referenced against
+ * `docs/STREET_SPEC.md` section B, which opened all four reference sheets:
+ *
+ *   CONFIRMED in the references:
+ *     railing           "a strong feature" in A (orange/red bridge rails);
+ *                       6-10 main stanchions in B; gallery edges in C;
+ *                       continuous terrace/bridge rails in D. The single
+ *                       best-evidenced object on this list.
+ *     projecting-sign   5-8 nearby illuminated panels in B, 15-25 across the
+ *                       canyon. Thin framed objects, luminous faces, and
+ *                       explicitly "dark attachment arms".
+ *     lamp-bracket      C shows 10+ small warm lamp points along successive
+ *                       gallery edges. B: lighting is "attached to fronts
+ *                       rather than organised as a boulevard of identical lamp
+ *                       posts" — which is why this is a bracket and not a post.
+ *     planter / planter-row
+ *                       D has 8-15 distinguishable planting/container groups
+ *                       and "continuous terrace planting along much of their
+ *                       edge". planter-row is that continuous case.
+ *     awning            two conspicuous pale tarps in B02, shallow projecting
+ *                       roofs in C, deep timber soffits in D.
+ *     bracket / balcony B and C both show members that "attach to fronts" and
+ *                       "do not float independently of the architecture".
+ *     step-edge         stairs are the dominant pedestrian surface in A and B.
+ *
+ *   UNCONFIRMED — carried only where the grammar gives a real reason, and never
+ *   described as reference-derived:
+ *     bollard           "unconfirmed" in all four sections; the spec is explicit
+ *                       that railing posts must not be relabelled bollards. Kept
+ *                       ONLY for a `bollard-line` kerb (market edge) and the
+ *                       canal quay, where the district's own description calls
+ *                       for mooring bollards.
+ *     drain-cover, manhole, cable-spool, puddle-grate, spool
+ *                       no reliably identifiable example in any opened frame.
+ *                       Plausible utilities, nearly free in triangles, kept at
+ *                       low weight where drainage or industry is authored.
+ *     bin               unconfirmed in A, B and D; one unresolved cylinder in
+ *                       C02. REMOVED from every district kit.
+ *     bench             "public benches unconfirmed" in A, B and C; D shows
+ *                       2-5 small table/chair groupings supporting "furnished
+ *                       domestic/cafe edges, not a particular public-bench
+ *                       design". Kept only in the two planted/domestic districts.
+ *     crate-stack, newspaper-box, sandwich-board, kiosk, potted-palm, sandbag
+ *                       market and domestic props. See DESIGN HYPOTHESIS below.
+ * ------------------------------------------------------------------
+ *
+ * DESIGN HYPOTHESIS — NOT REFERENCE-DERIVED. The spec is unambiguous: "the
+ * opened reference set does not contain a sufficiently legible night market to
+ * specify a complete stall", and stall geometry, canopy height and merchandise
+ * "remain design hypotheses". Everything from `kiosk` downwards, and the market
+ * grammar in `src/world/marketgrammar.ts`, is authored on judgement. The
+ * references support exactly one relationship for a night register — A's "warm
+ * pedestrian light against cool violet/blue surroundings" — and nothing more.
+ * Do not let these names acquire reference authority they have never had.
  */
 export const CLUTTER_KINDS: readonly string[] = [
   'bollard', 'bench', 'bin', 'planter', 'lamp-post', 'drain-cover', 'manhole',
   'hydrant', 'bike-rack', 'crate-stack', 'spool', 'postbox', 'newspaper-box',
   'kiosk', 'phone-box', 'sandbag', 'cable-spool', 'puddle-grate',
   'sandwich-board', 'potted-palm',
+  // --- appended, reference-evidenced (spec section B)
+  'railing', 'bracket', 'projecting-sign', 'awning', 'lamp-bracket',
+  'balcony', 'planter-row', 'step-edge',
 ];
+
+/**
+ * Which side of the footway a kind belongs to.
+ *
+ * `front` = against the building line, `kerb` = on the route boundary. The spec
+ * is explicit that furniture should "cluster beside building fronts and route
+ * boundaries, leaving coherent walking areas" — which cannot be done if items
+ * are scattered evenly across the width of the footway, where they read as
+ * debris in the middle of the route.
+ */
+export const CLUTTER_EDGE: Record<string, 'front' | 'kerb'> = {
+  railing: 'kerb', 'step-edge': 'kerb', 'drain-cover': 'kerb', 'manhole': 'kerb',
+  'puddle-grate': 'kerb', bollard: 'kerb', 'cable-spool': 'kerb', spool: 'kerb',
+  'bike-rack': 'front', 'hydrant': 'kerb', 'postbox': 'front', 'sandbag': 'kerb',
+  planter: 'front', 'planter-row': 'front', 'potted-palm': 'front', bench: 'front',
+  'lamp-post': 'front', 'lamp-bracket': 'front', 'projecting-sign': 'front',
+  awning: 'front', bracket: 'front', balcony: 'front', bin: 'kerb',
+  'crate-stack': 'kerb', kiosk: 'front', 'phone-box': 'front',
+  'newspaper-box': 'front', 'sandwich-board': 'front',
+};
 
 /** Index of a clutter kind by name, or -1. */
 export const clutterIndex = (name: string): number => CLUTTER_KINDS.indexOf(name);
@@ -140,86 +220,115 @@ interface DistrictGround {
  * what the ground of that district is made of, derived from the district's own
  * description and palette — not a variation on a theme.
  *
- * `albedo` is deliberately NOT authored here: it is `palette.ground`, the
- * colour that has existed in `districts.ts` since the first commit and has been
- * read by nothing at all.
+ * `clutter` and `clutterDensity` were rebalanced in round 2 against
+ * `docs/STREET_SPEC.md` section B. The round-1 list was invented: bollards,
+ * bins, drain covers and manholes, none of which the vision agent could find in
+ * any reference frame. The spec's own density ranking is applied here —
+ *
+ *   D verdant      most identifiable planted and furnished pedestrian edges,
+ *                  8-15 planting groups and continuous terrace planting
+ *   B cold         dense in projecting signs and exposed infrastructure,
+ *                  6-10 railing stanchions on the stair
+ *   C fire-lit     10+ small warm lamp points along successive gallery edges
+ *   A saturated    the LEAST freestanding furniture of the four
+ *
+ * — mapped onto districts by their own descriptions, not asserted as a mapping.
+ * Where a district could plausibly serve any section, it is given a mix rather
+ * than a guess. Repeated names in a list are intentional: they are the weighted
+ * draw, so 'railing','railing' means "mostly railings".
  */
 const DISTRICT_GROUND: readonly DistrictGround[] = [
-  // 0 verdant-canyon — pale stone under planting. Flagstone, low kerb, benches.
+  // 0 verdant-canyon — pale stone under planting. Spec A has the least
+  // freestanding furniture but strong orange/red bridge rails, so the budget
+  // goes to railings and wall brackets, not to loose street kit.
   {
     pavement: 'flagstone', kerb: 'stone', marking: 'none',
-    kerbHeight: 0.16, footwayWidth: 3.2, clutterDensity: 5.5,
-    clutter: ['bench', 'bin', 'planter', 'lamp-post', 'bike-rack', 'potted-palm'],
+    kerbHeight: 0.16, footwayWidth: 3.2, clutterDensity: 4.0,
+    clutter: ['railing', 'railing', 'lamp-bracket', 'planter', 'balcony'],
     shopfrontDensity: 0.35, wetnessBias: 0.50, polish: 0.35, kerbTone: 2.6, kerbChroma: 1.0,
   },
-  // 1 copper-stacks — industrial. Flush concrete kerb, busy carriageway.
+  // 1 copper-stacks — industrial, exposed infrastructure. Spec B is the densest
+  // section in projecting illuminated panels and brackets, so signs lead.
   {
     pavement: 'asphalt', kerb: 'flush', marking: 'lane-dashes',
-    kerbHeight: 0.14, footwayWidth: 2.6, clutterDensity: 3.0,
-    clutter: ['lamp-post', 'drain-cover', 'manhole', 'bin', 'hydrant'],
+    kerbHeight: 0.14, footwayWidth: 2.6, clutterDensity: 5.2,
+    clutter: ['projecting-sign', 'bracket', 'lamp-bracket', 'railing', 'drain-cover', 'manhole'],
     shopfrontDensity: 0.30, wetnessBias: 0.60, polish: 0.60, kerbTone: 1.9, kerbChroma: 0.85,
   },
   // 2 terracotta-tiers — terracotta tiles the whole width, wide planted shoulder.
   {
     pavement: 'terracotta-tile', kerb: 'stone', marking: 'none',
-    kerbHeight: 0.18, footwayWidth: 4.0, clutterDensity: 5.0,
-    clutter: ['planter', 'potted-palm', 'bench', 'lamp-post', 'bike-rack'],
+    kerbHeight: 0.18, footwayWidth: 4.0, clutterDensity: 5.6,
+    clutter: ['planter-row', 'planter', 'railing', 'potted-palm', 'lamp-bracket'],
     shopfrontDensity: 0.45, wetnessBias: 0.40, polish: 0.40, kerbTone: 2.4, kerbChroma: 1.05,
   },
-  // 3 glass-foxholes — cold, reflective, swept. Polished asphalt, wide drains.
+  // 3 glass-foxholes — cold, reflective, swept. B-like: rails, signs, brackets.
   {
     pavement: 'asphalt', kerb: 'flush', marking: 'centre-line',
-    kerbHeight: 0.13, footwayWidth: 2.8, clutterDensity: 3.2,
-    clutter: ['lamp-post', 'drain-cover', 'manhole', 'bench', 'postbox'],
+    kerbHeight: 0.13, footwayWidth: 2.8, clutterDensity: 4.6,
+    clutter: ['railing', 'projecting-sign', 'lamp-bracket', 'balcony', 'drain-cover'],
     shopfrontDensity: 0.25, wetnessBias: 0.65, polish: 0.70, kerbTone: 2.0, kerbChroma: 0.8,
   },
-  // 4 lantern-bazaar — everything crowds the carriageway. Painted kerb, no lines.
+  // 4 lantern-bazaar — everything crowds the carriageway. C-like: warm lamp
+  // points along successive edges, plus awnings and hanging things.
   {
     pavement: 'terracotta-tile', kerb: 'painted', marking: 'none',
-    kerbHeight: 0.14, footwayWidth: 2.4, clutterDensity: 11.0,
-    clutter: ['kiosk', 'crate-stack', 'sandbag', 'planter', 'newspaper-box', 'sandwich-board'],
+    kerbHeight: 0.14, footwayWidth: 2.4, clutterDensity: 12.0,
+    clutter: ['lamp-bracket', 'lamp-bracket', 'projecting-sign', 'awning', 'railing', 'planter', 'bracket'],
     shopfrontDensity: 0.95, wetnessBias: 0.45, polish: 0.45, kerbTone: 2.8, kerbChroma: 1.15,
   },
-  // 5 rust-hangars — yard, not street. Board-formed concrete, yard grid painted.
+  // 5 rust-hangars — yard, not street. Spec B's "exposed infrastructure":
+  // spools, cable, sheet roofs, and a lot of clear ground.
   {
     pavement: 'board-formed', kerb: 'flush', marking: 'yard-grid',
-    kerbHeight: 0.10, footwayWidth: 3.4, clutterDensity: 4.5,
-    clutter: ['spool', 'crate-stack', 'puddle-grate', 'drain-cover', 'cable-spool'],
+    kerbHeight: 0.10, footwayWidth: 3.4, clutterDensity: 4.2,
+    clutter: ['spool', 'cable-spool', 'awning', 'railing', 'drain-cover', 'step-edge'],
     shopfrontDensity: 0.15, wetnessBias: 0.70, polish: 0.30, kerbTone: 1.8, kerbChroma: 0.75,
   },
-  // 6 monastery-spire — pale stone everywhere, generous clear footway.
+  // 6 monastery-spire — pale stone, generous clear footway, herb terraces.
   {
     pavement: 'flagstone', kerb: 'stone', marking: 'none',
-    kerbHeight: 0.20, footwayWidth: 3.6, clutterDensity: 3.8,
-    clutter: ['planter', 'potted-palm', 'bench', 'lamp-post'],
+    kerbHeight: 0.20, footwayWidth: 3.6, clutterDensity: 4.0,
+    clutter: ['planter', 'potted-palm', 'railing', 'bench', 'step-edge'],
     shopfrontDensity: 0.20, wetnessBias: 0.50, polish: 0.50, kerbTone: 2.7, kerbChroma: 1.05,
   },
-  // 7 neon-arcology — engineered deck over a plinth. Metal plate, open channel.
+  // 7 neon-arcology — engineered deck over a plinth. Spec C's "dense cables,
+  // gallery supports, façade projections" and spec D's "balconies and exterior
+  // framework", which "attach to fronts".
   {
     pavement: 'metal-deck', kerb: 'channel', marking: 'centre-line',
-    kerbHeight: 0.10, footwayWidth: 4.4, clutterDensity: 4.0,
-    clutter: ['bollard', 'planter', 'puddle-grate', 'drain-cover', 'lamp-post'],
+    kerbHeight: 0.10, footwayWidth: 4.4, clutterDensity: 5.8,
+    clutter: ['balcony', 'bracket', 'lamp-bracket', 'railing', 'puddle-grate', 'drain-cover'],
     shopfrontDensity: 0.30, wetnessBias: 0.55, polish: 0.80, kerbTone: 2.2, kerbChroma: 0.7,
   },
-  // 8 botanical-dome — not paved at all. Compact earth with a planted edge.
+  // 8 botanical-dome — not paved at all. This is the spec's section D: the
+  // highest planting count in the set, and *continuous* terrace planting rather
+  // than discrete pots, which is what `planter-row` is for.
   {
     pavement: 'dirt', kerb: 'planter-edge', marking: 'none',
-    kerbHeight: 0.12, footwayWidth: 3.0, clutterDensity: 6.0,
-    clutter: ['planter', 'potted-palm', 'kiosk', 'sandbag', 'bench'],
+    kerbHeight: 0.12, footwayWidth: 3.0, clutterDensity: 9.5,
+    clutter: ['planter-row', 'planter-row', 'planter', 'potted-palm', 'bench', 'railing'],
     shopfrontDensity: 0.10, wetnessBias: 0.75, polish: 0.25, kerbTone: 2.5, kerbChroma: 0.95,
   },
-  // 9 canal-district — quay flagstone, open drainage channel, mooring bollards.
+  // 9 canal-district — quay flagstone, open channel, continuous terrace rails,
+  // and mooring bollards: the one place the spec's "bollards unconfirmed" is
+  // outweighed, because the district's own description asks for them and a quay
+  // edge is exactly what a bollard is for.
   {
     pavement: 'flagstone', kerb: 'channel', marking: 'none',
-    kerbHeight: 0.18, footwayWidth: 3.2, clutterDensity: 6.5,
-    clutter: ['bollard', 'planter', 'crate-stack', 'drain-cover', 'bike-rack'],
+    kerbHeight: 0.18, footwayWidth: 3.2, clutterDensity: 7.0,
+    clutter: ['railing', 'railing', 'planter', 'bollard', 'lamp-bracket', 'crate-stack'],
     shopfrontDensity: 0.30, wetnessBias: 0.70, polish: 0.40, kerbTone: 2.6, kerbChroma: 1.0,
   },
-  // 10 market-spine — cobbles, bollards instead of a kerb, no paint at all.
+  // 10 market-spine — cobbles, bollards instead of a kerb.
+  // DESIGN HYPOTHESIS, NOT REFERENCE-DERIVED: the spec states the reference set
+  // contains no legible night market. The density is a judgement, not a
+  // measurement, and none of these names has reference authority.
   {
     pavement: 'cobble', kerb: 'bollard-line', marking: 'none',
-    kerbHeight: 0.13, footwayWidth: 2.2, clutterDensity: 16.0,
-    clutter: ['kiosk', 'crate-stack', 'newspaper-box', 'sandbag', 'sandwich-board', 'planter'],
+    kerbHeight: 0.13, footwayWidth: 2.2, clutterDensity: 15.0,
+    clutter: ['kiosk', 'crate-stack', 'awning', 'projecting-sign', 'lamp-bracket',
+      'newspaper-box', 'sandwich-board', 'planter', 'bollard'],
     shopfrontDensity: 1.00, wetnessBias: 0.40, polish: 0.45, kerbTone: 2.9, kerbChroma: 1.2,
   },
 ];

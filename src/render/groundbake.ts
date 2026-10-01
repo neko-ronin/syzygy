@@ -32,7 +32,7 @@ import {
 } from '../world/groundgrammar';
 import { FACE_ALL, FACE_NY, FACE_PY, MeshBuilder } from '../world/geometry';
 import { bakeMarketDetail } from './marketbake';
-import { CLUTTER_KINDS } from '../world/groundgrammar';
+import { CLUTTER_EDGE, CLUTTER_KINDS } from '../world/groundgrammar';
 import { districtStyle } from '../world/districts';
 
 // ---------------------------------------------------------------- constants
@@ -77,6 +77,13 @@ const NODE_CELL = 8.0;
 
 const UP: Vec3 = [0, 1, 0];
 const UP4: [Vec3, Vec3, Vec3, Vec3] = [UP, UP, UP, UP];
+
+/** Stable 0..1 from an integer. Mirrors `hash01` in citymesh.ts. */
+const hash01 = (h: number): number => {
+  let x = Math.imul(h ^ 0x9e3779b1, 0x85ebca6b) >>> 0;
+  x = (x ^ (x >>> 13)) >>> 0;
+  return (Math.imul(x, 0xc2b2ae35) >>> 0) / 4294967296;
+};
 
 /** Quantised world-grid key. Negative coordinates land in [0, 16384). */
 const gkey = (x: number, z: number, cell: number): number =>
@@ -347,6 +354,18 @@ function edgeOffset(
  */
 const CLUTTER_TRIS = 9000;
 
+/**
+ * Compensates the mean of the clump/open gap draw so the AUTHORED
+ * `clutterDensity` still means "items per 100 m of footway" after clustering.
+ *
+ * The two regimes draw gaps in 0.22..0.72 (clump) and 1.7..3.4 (open stretch),
+ * 66/34. Their mean is 0.69; without a correction the realised count is 1/0.69
+ * = 1.45x the authored density, and with the wider non-clustering gaps of round 1
+ * the clustering cost 60% of the items outright (182 -> 70 measured). This is the
+ * number that makes "rearranged" true rather than "reduced".
+ */
+const CLUSTER_MEAN = 1.45;
+
 /** Prop-local point -> world, yawing the item to face the carriageway. */
 type Placer = (x: number, y: number, z: number) => Vec3;
 
@@ -358,6 +377,14 @@ const placer = (x: number, y: number, z: number, faceX: number, faceZ: number): 
 };
 
 const METAL: Vec3 = [0.16, 0.17, 0.18];
+/**
+ * The gutter strip along the kerb line. Dark, and very slightly cooler than the
+ * carriageway: it is the road's own shadow plus the dirt that collects in a
+ * channel, and it is what gives a kerb its "visible joint against the road" at
+ * the spec's three-metre bar. Value is a fraction of the darkest authored band
+ * (asphalt, 0.150) so it stays the darkest thing on the ground at any district.
+ */
+const GUTTER: Vec3 = [0.048, 0.052, 0.058];
 const DARK: Vec3 = [0.055, 0.058, 0.062];
 const TIMBER: Vec3 = [0.26, 0.17, 0.10];
 const LEAF: Vec3 = [0.075, 0.21, 0.055];
@@ -422,9 +449,16 @@ function pushClutterItem(
       }
       break;
     case 'lamp-post':
+      // Retained only where a grammar has a reason for a standing lamp (a
+      // bollard-line kerb, a market edge). Given a base plate and a stay arm so
+      // that it is a post and not a floating stick — the spec's bar is
+      // "support and attachment", and it distinguishes a real lamp post from a
+      // bollard by exactly that.
       bld.pushCylinder(P(0, 0, 0), P(0, 4.6, 0), 0.085, 5, pal.metal, { capEnds: false });
-      bld.pushBox(P(0, 4.72, 0.3), [0.10, 0.07, 0.42], pal.metal, { faces: FACE_ALL });
-      bld.pushBox(P(0, 4.6, 0.56), [0.20, 0.06, 0.26], [1.0, 0.86, 0.62], { faces: FACE_ALL, emissive: 3.0 });
+      bld.pushCylinder(P(0, 0, 0), P(0, 0.14, 0), 0.17, 6, pal.metal, { capEnds: true });
+      bld.pushTubeAlongPath([P(0, 3.5, 0), P(0, 4.35, -0.5)], 0.03, 3, pal.metal, { capEnds: false });
+      bld.pushBox(P(0, 4.42, 0), [0.10, 0.07, 0.42], pal.metal, { faces: FACE_ALL });
+      bld.pushBox(P(0, 4.3, 0.56), [0.20, 0.06, 0.26], [1.0, 0.86, 0.62], { faces: FACE_ALL, emissive: 4.6 });
       tally.lamps++;
       break;
     case 'hydrant':
@@ -476,6 +510,124 @@ function pushClutterItem(
         bld.pushQuad(P(-0.3, 0.9, s * 0.1), P(0.3, 0.9, s * 0.1), P(0.3, 0, s * 0.34), P(-0.3, 0, s * 0.34), DARK, 1, { doubleSided: true });
       }
       break;
+
+    // ------------------------------------------------------------------
+    // Reference-evidenced kinds. See the evidence table on CLUTTER_KINDS in
+    // groundgrammar.ts for what each of these is based on and what is not.
+    //
+    // The spec's three-metre bar governs the shapes: "the viewer must distinguish
+    // surface, joint, edge, SUPPORT and ATTACHMENT", and "nothing floats
+    // unattached". So every object below that touches a wall has a visible arm
+    // running back to it, and every object that stands on the ground has a base.
+    // A floating sign panel is exactly what spec section E says our output is
+    // missing: "the supplied foreground has no comparable sign silhouettes,
+    // brackets or local light accents".
+    // ------------------------------------------------------------------
+    case 'railing': {
+      // Spec B: "6-10 main nearby stanchions", "main supports, horizontal rails
+      // and thinner infill have distinct thicknesses". So: a heavy top rail, a
+      // lighter mid rail, and thin infill — three thicknesses, not one.
+      // Height 1.0m: the spec's own human-scale estimate is 0.9-1.1m.
+      const L = 2.0;
+      bld.pushTubeAlongPath([P(-L / 2, 1.0, 0), P(L / 2, 1.0, 0)], 0.032, 4, pal.metal, { capEnds: false });
+      bld.pushTubeAlongPath([P(-L / 2, 0.58, 0), P(L / 2, 0.58, 0)], 0.022, 3, pal.metal, { capEnds: false });
+      for (let i = 0; i <= 3; i++) {
+        const x = -L / 2 + (L * i) / 3;
+        bld.pushTubeAlongPath([P(x, 0, 0), P(x, 1.0, 0)], 0.038, 4, pal.metal, { capEnds: false });
+        // Base plate: the post has to meet something.
+        bld.pushBox(P(x, 0.02, 0), [0.09, 0.02, 0.09], pal.metal, { faces: FACE_ALL });
+      }
+      break;
+    }
+    case 'bracket': {
+      // A wall bracket. Local -Z is toward the building line (see `placer`), so
+      // the arm runs back and UP into the facade — the attachment is the point.
+      bld.pushTubeAlongPath([P(0, 2.35, 0), P(0, 2.35, -0.75)], 0.045, 4, pal.metal, { capEnds: false });
+      bld.pushTubeAlongPath([P(0, 2.35, -0.75), P(0, 1.95, -0.75)], 0.035, 4, pal.metal, { capEnds: false });
+      bld.pushTubeAlongPath([P(0, 2.05, -0.05), P(0, 2.35, -0.70)], 0.022, 3, pal.metal, { capEnds: false });
+      bld.pushBox(P(0, 2.42, 0.02), [0.11, 0.16, 0.06], pal.metal, { faces: FACE_ALL });
+      break;
+    }
+    case 'lamp-bracket': {
+      // Spec C: "10+ small warm lamp points along successive galleries,
+      // including lamps on or beside railings". Spec B: lighting is "attached
+      // to fronts rather than organised as a boulevard of identical lamp posts".
+      // So this is a short arm off the front with a small warm head on it — and
+      // the head is EMISSIVE, which until round 2 was written into a channel the
+      // shader threw away.
+      bld.pushTubeAlongPath([P(0, 3.05, 0), P(0, 3.15, -0.55)], 0.05, 4, pal.metal, { capEnds: false });
+      bld.pushTubeAlongPath([P(0, 3.15, -0.55), P(0, 2.95, -0.62)], 0.035, 4, pal.metal, { capEnds: false });
+      bld.pushBox(P(0, 3.1, 0.03), [0.1, 0.18, 0.05], pal.metal, { faces: FACE_ALL });
+      bld.pushBox(P(0, 2.88, -0.62), [0.13, 0.09, 0.13], [1.0, 0.68, 0.32], { faces: FACE_ALL, emissive: 4.2 });
+      tally.lamps++;
+      break;
+    }
+    case 'projecting-sign': {
+      // Spec B: "thin framed objects with luminous faces, warm yellow/orange/red
+      // colour and DARK ATTACHMENT ARMS", 5-8 of them in the near frame.
+      // Local +Z faces the street, so the panel faces the road and the arms run
+      // back to the facade.
+      bld.pushTubeAlongPath([P(-0.32, 2.9, -0.04), P(-0.32, 2.9, -0.5)], 0.028, 3, pal.metal, { capEnds: false });
+      bld.pushTubeAlongPath([P(0.32, 2.9, -0.04), P(0.32, 2.9, -0.5)], 0.028, 3, pal.metal, { capEnds: false });
+      bld.pushBox(P(0, 2.9, -0.04), [0.42, 0.36, 0.035], pal.metal, { faces: FACE_ALL });
+      // The luminous face. Emissive 3.4 — under the 5.5 of a PropKind.Lantern,
+      // because a sign panel is a large area and a large emissive area blooms out.
+      bld.pushBox(P(0, 2.9, 0.02), [0.36, 0.3, 0.02], pal.accent, { faces: FACE_ALL, emissive: 3.4 });
+      break;
+    }
+    case 'awning': {
+      // Spec B02: "two conspicuous pale fabric-like tarps, stretched across
+      // projecting members at altitude". Not confirmed as a market shelter.
+      bld.pushQuad(P(-0.85, 2.5, 0.15), P(0.85, 2.5, 0.15), P(0.85, 2.05, 0.95), P(-0.85, 2.05, 0.95),
+        pal.trim, 1, { doubleSided: true });
+      for (const s of [-0.72, 0.72]) {
+        bld.pushTubeAlongPath([P(s, 2.5, 0), P(s, 2.5, -0.32)], 0.03, 3, pal.metal, { capEnds: false });
+        bld.pushTubeAlongPath([P(s, 2.5, -0.32), P(s, 2.02, 0.88)], 0.025, 3, pal.metal, { capEnds: false });
+      }
+      break;
+    }
+    case 'balcony': {
+      // Spec D: "Balconies and exterior framework — railings, narrow platforms
+      // and struts visibly attach to fronts. They do not float independently of
+      // the architecture."
+      bld.pushQuad(P(-0.9, 3.4, -0.1), P(0.9, 3.4, -0.1), P(0.9, 3.4, 0.95), P(-0.9, 3.4, 0.95),
+        pal.trim, 1, { normals: UP4 });
+      bld.pushQuad(P(-0.9, 3.1, 0.95), P(0.9, 3.1, 0.95), P(0.9, 3.4, 0.95), P(-0.9, 3.4, 0.95),
+        pal.trim, 1, { normals: UP4 });
+      for (const s of [-0.78, 0.78]) {
+        bld.pushTubeAlongPath([P(s, 3.1, 0.9), P(s, 4.05, 0.9)], 0.028, 3, pal.metal, { capEnds: false });
+        bld.pushTubeAlongPath([P(s, 3.15, -0.06), P(s, 3.15, 0.9)], 0.022, 3, pal.metal, { capEnds: false });
+        bld.pushTubeAlongPath([P(s, 2.75, 0.1), P(s, 3.4, 0.82)], 0.03, 3, pal.metal, { capEnds: false });
+      }
+      bld.pushTubeAlongPath([P(-0.9, 4.05, 0.9), P(0.9, 4.05, 0.9)], 0.03, 4, pal.metal, { capEnds: false });
+      bld.pushTubeAlongPath([P(-0.9, 3.6, 0.9), P(0.9, 3.6, 0.9)], 0.02, 3, pal.metal, { capEnds: false });
+      break;
+    }
+    case 'planter-row': {
+      // Spec D: "doctrine terraces carry planting along much of their edge", and
+      // "plants overlap them" — the boundary is softened, not lined. A run of
+      // boxes with foliage breaking over the top.
+      for (let i = 0; i < 2; i++) {
+        const x = -0.55 + i * 1.1;
+        bld.pushBox(P(x, 0.26, 0), [0.5, 0.26, 0.34], pal.kerb, { faces: FACE_ALL });
+        bld.pushSphere(P(x, 0.66, rng.jitter(0.08)), rng.range(0.36, 0.52), 5, 3, LEAF);
+      }
+      break;
+    }
+    case 'step-edge': {
+      // Stairs are the dominant pedestrian surface in spec sections A and B, and
+      // "stair noses and retaining edges are clear" is called out twice. One step:
+      // a riser face and a tread, with the nose picked out in the kerb tone so it
+      // catches light. Rise 0.18m: the spec's own estimate is 0.15-0.20m.
+      const rise = 0.18;
+      bld.pushQuad(P(-1.4, 0, 0.05), P(1.4, 0, 0.05), P(1.4, rise, 0.05), P(-1.4, rise, 0.05),
+        pal.kerb, 1, { normals: UP4 });
+      bld.pushQuad(P(-1.4, rise, 0.05), P(1.4, rise, 0.05), P(1.4, rise, 0.95), P(-1.4, rise, 0.95),
+        pal.kerb, 1, { normals: UP4 });
+      bld.pushQuad(P(-1.4, rise, 0.05), P(1.4, rise, 0.05), P(1.4, rise + 0.012, 0.05), P(-1.4, rise + 0.012, 0.05),
+        pal.trim, 1, { normals: UP4 });
+      break;
+    }
     default:
       // An authored kind with no emitter yet is a loud, visible cube rather than
       // a silent one — see the same reasoning in `pushProp`.
@@ -507,8 +659,10 @@ function emitTrace(
   // for a single field query — see `edgeOffset`.
   const off = [0, 0];
   let offSet = false;
-  // Distance walked along the footway since the last item, per side.
+  // Distance walked along the footway since the last item, per side, and the
+  // (irregular) distance to walk before the next one.
   const gapWalk = [0, 0];
+  const gapNext = [1, 1];
 
   for (let i = t.from; i < last - 1; i++) {
     if (!segInside(t, i, minX, minZ, maxX, maxZ)) continue;
@@ -587,6 +741,23 @@ function emitTrace(
         grammar.kerbAlbedo, 1, { normals: [face, face, face, face] },
       );
 
+      // Gutter. The spec's three-metre bar requires a kerb to read as "a THICK EDGE
+      // with a top face, a vertical face and a VISIBLE JOINT against the road".
+      // The first two are geometry above; this is the third. It is a dark strip
+      // on the carriageway side of the kerb line, and per the spec's own advice
+      // ("put joints and restrained wear into procedural shading") it is a
+      // shading joint rather than modelled channel geometry: 2 triangles a
+      // segment, where a modelled channel would be 4 and would fight the deck
+      // for z-precision across its whole width.
+      const gOut = 0.26;
+      bld.pushQuad(
+        [axE2 - anx * side * gOut, GROUND_Y + 0.006, azE2 - anz * side * gOut],
+        [bxE2 - bnx * side * gOut, GROUND_Y + 0.006, bzE2 - bnz * side * gOut],
+        [bxE2, GROUND_Y + 0.006, bzE2],
+        [axE2, GROUND_Y + 0.006, azE2],
+        GUTTER, 1, { normals: UP4 },
+      );
+
       if (lod > 0) continue;
 
       // Kerb top: 0.30m of stone, then the footway out to the building line.
@@ -610,6 +781,20 @@ function emitTrace(
         );
 
         // --- street furniture, placed on the footway out of the grammar.
+        //
+        // Three rules, all from `docs/STREET_SPEC.md` section F, which names
+        // "uniform procedural repetition" as the single risk to this work:
+        //
+        //   1. EDGE, NOT MIDDLE. Items go to the building line or the kerb line
+        //      per `CLUTTER_EDGE`, never scattered across the width. The spec
+        //      wants "coherent open walking areas"; furniture in the middle of
+        //      the route reads as debris.
+        //   2. IRREGULAR GAPS. Each gap is re-rolled in 0.45..2.4x of nominal, so
+        //      there is rhythm instead of a metronome.
+        //   3. OPEN STRETCHES. A low-frequency mask leaves roughly a third of
+        //      every route completely empty, and a placed item pulls the NEXT gap
+        //      in, so furniture arrives in clumps at boundaries rather than as a
+        //      scatter.
         const si2 = side > 0 ? 0 : 1;
         if (grammar.clutter.length > 0 && grammar.clutterDensity > 0 && lod < 1) {
           const want = grammar.clutterDensity / 100;      // items per metre
@@ -625,20 +810,37 @@ function emitTrace(
           // budget, because each extra skip made the next one likelier. Spacing
           // is the right control variable, not a counter.
           const throttle = Math.max(1, res.clutter.tris / (CLUTTER_TRIS * 0.55));
+          // Rate-preserving clustering. The naive version — reject 34% of
+          // opportunities and widen every remaining gap — cut placement from 182
+          // to 70 items per chunk, which is not clustering, it is deletion. What
+          // the spec asks for is the same number of items arranged in clumps, so
+          // the two regimes are given reciprocal gaps (tight in a clump, wide in
+          // an open stretch) and the mean is held near the authored rate by
+          // CLUSTER_MEAN. Measured after the change: see __selftest's report.
           gapWalk[si2] += along;
-          if (gapWalk[si2] >= throttle / want) {
+          if (gapWalk[si2] >= (gapNext[si2] * throttle * CLUSTER_MEAN) / want) {
+            const dense = hash01((Math.round(t.p[0]) * 73856093) ^ (Math.round(t.p[1]) * 19349663)
+              ^ (Math.round(res.clutter.wanted * 2654435761) * 40503) ^ side) > 0.34;
+            gapNext[si2] = dense ? rng.range(0.22, 0.72) : rng.range(1.7, 3.4);
             gapWalk[si2] = 0;
-res.clutter.wanted++;
+            res.clutter.wanted++;
             {
               const d = grammar.clutter[Math.floor(rng.next() * grammar.clutter.length) % grammar.clutter.length];
-              const inX = KERB_W + 0.3 + rng.next() * Math.max(0.1, fw - 0.9);
+              const name = CLUTTER_KINDS[d];
+              const atFront = (CLUTTER_EDGE[name] ?? 'front') === 'front';
+              // Against the building line, or on the route boundary.
+              const inX = atFront
+                ? Math.max(KERB_W + 0.25, KERB_W + fw - 0.22 - rng.next() * Math.min(0.75, fw * 0.4))
+                : KERB_W + 0.16 + rng.next() * 0.22;
               const px = (axE2 + bxE2) * 0.5 + anx * side * inX;
               const pz = (azE2 + bzE2) * 0.5 + anz * side * inX;
-              // Face the carriageway: local +Z points at the road.
+              // Face the carriageway: local +Z points at the road, so local -Z is
+              // the building line — which is what the bracket arms in
+              // `pushClutterItem` run back to.
               const P = placer(px, yHi, pz, -anx * side, -anz * side);
               const style = districtStyle(t.districtId);
               const pal = style.palette;
-              pushClutterItem(bld, CLUTTER_KINDS[d], P, {
+              pushClutterItem(bld, name, P, {
                 kerb: grammar.kerbAlbedo, trim: pal.trim, metal: pal.metal, accent: style.accentColor,
               }, rng, res.clutter);
               res.clutter.placed++;

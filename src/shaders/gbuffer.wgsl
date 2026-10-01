@@ -52,7 +52,25 @@ fn vs(v: VSIn) -> VSOut {
   o.color = v.color * v.tint.rgb;
   o.matId = u32(v.params.x + 0.5);
   o.rough = v.params.y;
-  o.emis = v.params.z * v.tint.a;
+  // `v.emissive` is the PER-VERTEX emissive mask: `MeshBuilder.vert` writes it
+  // into the 4th channel of the vertex colour, `uploadMesh` puts it at vertex
+  // offset 44, and `VSIn` has carried it at `@location(4)` since the beginning.
+  //
+  // It was discarded here. This line read `o.emis = v.params.z * v.tint.a` —
+  // instance emissive only — so for every chunk draw, where `params.z` is 0 by
+  // construction, `o.emis` was ALWAYS ZERO and the entire per-vertex emissive
+  // channel was a dead wire. Every `PropKind.Lantern` (emissive 5.5), every
+  // `PropKind.Sign` (2.6), every antenna beacon (3.0) and every lit market
+  // element wrote a real emissive value into a buffer that was thrown away one
+  // line later. The city had thousands of lights on it and rendered none of
+  // them. No error, no warning, plausible statistics, dark pixels.
+  //
+  // `max`, not `+`: entity meshes ALSO carry per-vertex emissive
+  // (`entityMeshes.tramCar()` marks its headlights 8.0) on top of a per-instance
+  // `params.z`, and `crowd.ts` submits its own. Adding would double-count every
+  // entity emitter and push it through the bloom threshold at 1.05. `max` means
+  // "whichever channel asked for more", which is what a mask is.
+  o.emis = max(v.emissive, v.params.z * v.tint.a);
   o.seed = v.params.w;
   o.tint = v.tint.a;
   // `emis` and the tint alpha both gate emission, but the fragment stage needs
@@ -358,21 +376,40 @@ fn groundSurface(world: vec3f, n: vec3f, base: vec3f, detail: f32) -> Ground {
   let isPaintY = abs(world.y - PAINT_Y) < 0.006;
   let isRaised = world.y > DECK_Y + 0.045;
 
-  // A carriageway is darker than the footway beside it, always — that is what
-  // makes a street read as two surfaces rather than one slab. The grammar
-  // contract carries a single `albedo` (the carriageway's), so the separation is
-  // made here. Without it a flagstone district produced a near-white slab:
-  // rendered at `01a-building-base` the deck came out around 0.87 sRGB, brighter
-  // than any real paving, and read as blown paper rather than as stone.
+  // Value structure between the walking plane and the carriageway.
   //
-  // Only the horizontal carriageway is dropped. The kerb face is vertical and
-  // carries `kerbAlbedo`, which is already 1.8..2.9x the road — darkening it here
-  // would have quietly undone `kerbTone` and every measurement of it.
+  // Round 1 multiplied the horizontal deck by 0.62 to separate it from the
+  // footway. That was an over-correction, and docs/STREET_SPEC.md section A says
+  // why: "the pedestrian surface can be a bright plane" — luminous cyan treads
+  // between darker walls in A04, a peach bridge deck in A02 — and in B the
+  // "foreground treads are LIGHTER than adjacent dark fronts". Darkening the
+  // walking surface pushed against the reference read rather than toward it.
+  //
+  // The split is now conditional on what the surface actually is:
+  //
+  //   asphalt / rubber / dirt — a genuinely dirty carriageway. Kept 18% below
+  //     the footway so road and pavement stay two things.
+  //   everything else — flagstone, cobble, boardwalk, metal deck, terracotta,
+  //     board-formed concrete. These are the deck-and-terrace families, and for
+  //     them the spec's instruction is to let the whole corridor read as ONE
+  //     walking plane. No deck multiplier at all: the corridor becomes
+  //     continuous, which is what a timber deck or a paved terrace looks like,
+  //     and is the direct opposite of the "universal mid-dark grey road
+  //     material" the spec rejects.
+  //
+  // The footway is lifted in both cases, so the walking plane is the brightest
+  // ground surface — the relationship every section in the spec supports.
+  //
+  // Only the horizontal carriageway is scaled. The kerb face is vertical and
+  // carries `kerbAlbedo` at 1.8..2.9x the road; scaling it here would quietly
+  // undo `kerbTone` and every measurement of it.
+  let dirtyRoad = (fam == 0u || fam == 1u || fam == 2u);
   let isUp = abs(n.y) > 0.5;
   let raised = world.y > DECK_Y + 0.045;
   let onDeck = isUp && !raised && abs(world.y - PAINT_Y) > 0.006;
-  var alb = select(base, base * 0.62, onDeck);
-  alb = select(alb, alb * 1.12, isUp && raised);
+  let deckMul = select(1.0, 0.82, dirtyRoad);
+  var alb = select(base, base * deckMul, onDeck);
+  alb = select(alb, alb * 1.15, isUp && raised);
   var rough = 0.72;
   var metal = 0.0;
   var ao = 1.0;
