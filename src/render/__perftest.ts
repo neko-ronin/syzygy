@@ -563,6 +563,42 @@ function run(): void {
     check(Number.parseInt(written, 10) === expectedSeed,
       `the written seed ${written} round-trips to ${expectedSeed}`);
 
+    // ------------------------------------------------------------------
+    // ENTITY DRAWS MUST BE COUNTED WHERE THEY ARE ISSUED.
+    //
+    // `counter.entity` was incremented in `drawEntitySet` and nowhere else, and
+    // `drawEntitySet` has no callers: the crowd and the fleet go through
+    // `main.ts`'s own `drawEntityBlock`. So `entityDrawCalls` read 0 in every
+    // capture while `entityTriangles` read hundreds of thousands — instances
+    // uploaded, triangles counted, no draw call issued. It read as "counted, never
+    // issued" and was taken, correctly, to be the cause of R1.
+    //
+    // It was not: `drawEntityBlock` returns `(indexCount/3) * count` only after
+    // calling `pass.drawIndexed`, so a nonzero `entityTriangles` PROVES the draw
+    // was issued. Measured 356480 triangles against 0 draw calls. The counter was
+    // the lie.
+    const rs5 = rendererSrc;
+    // `counter.entity++` still exists, inside `drawEntitySet`, which currently has
+    // no callers — main.ts's comments treat it as the pending migration target for
+    // instance-offset draws. So the invariant is not "the increment is gone", it is
+    // "no published field is sourced from it".
+    check(!/s\.entityDrawCalls = c\.entity/.test(rs5) && !/s\.drawCalls = [^;]*c\.entity/.test(rs5),
+      'no published field is sourced from the single-caller entity counter',
+      'a published stat is reading counter.entity, which only drawEntitySet increments');
+    check(/this\.counter\.entity\+\+/.test(rs5),
+      'the dead drawEntitySet increment is still there and visible for the migration',
+      'drawEntitySet was removed or altered — re-read before trusting the counter story');
+    check(/s\.entityDrawCalls = issued/.test(rs5),
+      'entityDrawCalls is counted from the entityDraws ledger both paths push to',
+      'entityDrawCalls is not derived from the shared ledger');
+    check(/if \(!e\.endsWith\(':0'\)\)/.test(rs5),
+      "a ':0' entry (nothing submitted) is excluded from the draw count");
+    check(!/s\.drawCalls = c\.shadow \+ c\.gbuffer \+ c\.post \+ c\.entity/.test(rs5),
+      'drawCalls does not add the single-caller entity counter either',
+      'drawCalls is short by every crowd and fleet draw — same bug one field over');
+    check(/s\.triangles = c\.shadowTris \+ c\.gbufferTris \+ c\.postTris \+ c\.entityTris/.test(rs5),
+      'triangle accounting is unchanged and still honest');
+
     // Whatever the axis is, the box must still be a square of the advertised
     // size, or the culling above is dropping casters.
     const b0 = boxes[0];

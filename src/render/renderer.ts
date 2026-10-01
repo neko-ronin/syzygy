@@ -119,6 +119,18 @@ export interface RendererStats {
   gbufferDrawCalls: number;
   postDrawCalls: number;
   entityDrawCalls: number;
+  /**
+   * World seed and camera pose, published so a capture's provenance travels with
+   * it. `capture.mjs` writes both into `shots/latest.json` beside the image.
+   *
+   * The seed is here because it was invisible for an entire session: captures
+   * rendered seed 0 while every document said 0x5e7a17, so every coordinate a
+   * reviewer or an agent derived was from a different city than the frame they
+   * were describing. A number a reader cannot reconstruct should not be one they
+   * have to.
+   */
+  seed: number;
+  camera: { position: Vec3; lookAt: Vec3; fov: number };
   shadowTriangles: number;
   gbufferTriangles: number;
   postTriangles: number;
@@ -406,6 +418,8 @@ export class Renderer {
     cascadeDrawCalls: Array.from({ length: CASCADE_COUNT }, () => 0),
     cascadeTriangles: Array.from({ length: CASCADE_COUNT }, () => 0),
     residentChunks: 0, visibleChunks: 0, visibleDraws: 0, lights: 0, vramMB: 0,
+    seed: 0,
+    camera: { position: [0, 0, 0], lookAt: [0, 0, -1], fov: 1 },
     lightDelivery: {
       produced: 0, delivered: 0, binned: 0, starved: 0, rejectedFar: 0,
       culledByDay: false, cap: MAX_LIGHTS,
@@ -1232,7 +1246,8 @@ export class Renderer {
     this.lastCpu = this.lastCpu * 0.9 + cpu * 0.1;
     this.frameTimes.push(cpu);
     if (this.frameTimes.length > 60) this.frameTimes.shift();
-    this.publishStats(visible);
+    this.stats.seed = this.world.seed;
+    this.publishStats(visible, cam);
     void dt;
   }
 
@@ -1273,7 +1288,7 @@ export class Renderer {
    *                   driven by presentation, so a GPU-bound frame shows up here
    *                   as a late rAF. This is the frame time.
    */
-  private publishStats(gbufferDraws: number): void {
+  private publishStats(gbufferDraws: number, cam?: FlightCamera): void {
     const c = this.counter;
     const now = performance.now();
     const wall = this.lastFrameAt > 0 ? now - this.lastFrameAt : 16.7;
@@ -1282,16 +1297,50 @@ export class Renderer {
 
     const s = this.stats;
     s.cpuEncodeMs = this.lastCpu;
+    if (cam) {
+      const pose = cam.getPose();
+      this.stats.camera.position = [pose.position[0], pose.position[1], pose.position[2]];
+      this.stats.camera.lookAt = [pose.lookAt[0], pose.lookAt[1], pose.lookAt[2]];
+      this.stats.camera.fov = pose.fov;
+    }
     s.frameMs = this.wallAccum;
     s.fps = this.wallAccum > 0.0001 ? 1000 / this.wallAccum : 60;
     s.cpuFps = this.lastCpu > 0.0001 ? 1000 / this.lastCpu : 60;
 
-    s.drawCalls = c.shadow + c.gbuffer + c.post + c.entity;
+    // Same correction as `entityDrawCalls` below: `c.entity` counts callers of a
+    // function nobody calls, so adding it here would short the frame total by
+    // every crowd and fleet draw. Counted from the ledger instead.
+    let issued = 0;
+    for (const e of this.entityDraws) { if (!e.endsWith(':0')) issued++; }
+    s.drawCalls = c.shadow + c.gbuffer + c.post + issued;
     s.triangles = c.shadowTris + c.gbufferTris + c.postTris + c.entityTris;
     s.shadowDrawCalls = c.shadow;
     s.gbufferDrawCalls = c.gbuffer;
     s.postDrawCalls = c.post;
-    s.entityDrawCalls = c.entity;
+    // Counted from `entityDraws`, not from `c.entity`.
+    //
+    // `counter.entity` is incremented in exactly one place — `drawEntitySet` — and
+    // `drawEntitySet` has no callers. The crowd and the fleet are drawn by
+    // `main.ts`'s own `drawEntityBlock`, which calls `pass.drawIndexed` directly
+    // and pushes to `entityDraws`. So `entityDrawCalls` read **0** in every capture
+    // this session while `entityTriangles` read hundreds of thousands, and the
+    // pair looked like "counted, never issued": instances uploaded, triangles
+    // counted, no draw call issued. Developer 2 read that as the cause of R1.
+    //
+    // It is not. Measured at the market pose: `entityTriangles 356480`,
+    // `entityDrawCalls 0`. A nonzero `entityTriangles` can only come from the
+    // branch that calls `drawIndexed` — `drawEntityBlock` returns
+    // `(indexCount/3) * count` and only after issuing the draw — so the GPU was
+    // told. **The counter was the thing that was wrong, not the frame.** That is
+    // the fourth diagnostic in this project to lie while a sibling read healthily,
+    // and the most expensive one, because a plausible sibling (`entityTriangles`)
+    // is exactly what makes a broken counter believable.
+    //
+    // `entityDraws` is pushed by BOTH paths, so counting its non-empty entries is
+    // the honest number for the whole frame regardless of which one ran.
+    s.entityDrawCalls = issued;
+    // Kept for the record: what the single-caller counter would have said.
+    this.statsEntityCounterOnly = c.entity;
     s.shadowTriangles = c.shadowTris;
     s.gbufferTriangles = c.gbufferTris;
     s.postTriangles = c.postTris;
@@ -2082,6 +2131,13 @@ export class Renderer {
 
   /** Recent entity draw calls, for diagnosing "is it actually being issued". */
   entityDraws: string[] = [];
+  /**
+   * `counter.entity` as published — which is 0, because its only incrementer has
+   * no callers. Kept so the two can be compared rather than one silently
+   * replacing the other; see the `entityDrawCalls` assignment in the frame
+   * finaliser.
+   */
+  statsEntityCounterOnly = 0;
 
   get entityGeometry() { return this.entities; }
   get instanceBuffer() { return this.instBuf; }

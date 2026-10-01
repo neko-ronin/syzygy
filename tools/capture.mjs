@@ -922,6 +922,39 @@ async function main() {
   return failed ? 1 : 0;
 }
 
+/** Per-shot provenance sidecar. See the note in `writeIndex`. */
+function provenance(r) {
+  const s = r.stats || {};
+  const cam = s.camera || {};
+  return {
+    // The seed a reviewer needs and cannot infer. It was 0 for an entire session
+    // while every doc said 0x5e7a17, so it is now written next to the image it
+    // belongs to rather than being something a reader has to reconstruct.
+    seed: s.seed ?? null,
+    tier: s.tier ?? null,
+    camera: {
+      position: cam.position ?? null,
+      // A point on the view RAY, 400m ahead — `FlightCamera.lookTarget` is
+      // `position + forward * 400`, not the look-at the pose requested. Named to
+      // say so, because a reviewer comparing it to the pose they asked for would
+      // otherwise conclude the camera went somewhere else.
+      viewRayPoint400m: cam.lookAt ?? null,
+      fov: cam.fov ?? null,
+    },
+    lodHistogram: s.lodHistogram ?? null,
+    residentChunks: s.residentChunks ?? null,
+    lightDelivery: s.lightDelivery ?? null,
+    entity: {
+      drawCalls: s.entityDrawCalls ?? null,
+      triangles: s.entityTriangles ?? null,
+      draws: s.entityDraws ?? null,
+      inView: s.inView ?? null,
+    },
+    dayPhase: s.dayPhase ?? null,
+    weather: s.phase ?? null,
+  };
+}
+
 function writeIndex(runStamp, results, notes, opts) {
   const stats = {};
   for (const r of results) if (r.stats && typeof r.stats === 'object') stats[r.name] = r.stats;
@@ -931,7 +964,15 @@ function writeIndex(runStamp, results, notes, opts) {
     mode: opts.sequence ? 'sequence' : 'single',
     quality: opts.quality || null,
     url: BASE,
-    shots: results.map(({ name, file, ms, label, error }) => ({ name, file: file ?? null, ms: ms ?? null, label: label ?? null, error: error ?? null })),
+    // `provenance` on every shot, so the index answers "which world is this frame
+    // from?" without anyone opening a console. A reviewer looking at a warm pool
+    // needs the seed, the camera, the LOD histogram and the light delivery to
+    // believe it; all four are here now and none of them were before.
+    seed: DEFAULT_SEED,
+    shots: results.map(({ name, file, ms, label, error, stats: st }) => ({
+      name, file: file ?? null, ms: ms ?? null, label: label ?? null, error: error ?? null,
+      ...(st ? { provenance: provenance({ stats: st }) } : {}),
+    })),
     stats,
     notes,
   };
