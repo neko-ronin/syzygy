@@ -925,15 +925,43 @@ And the measurement that appeared to confirm cause 2 was itself wrong.
 means **on the footway** — which is exactly what the pavement hold I added in
 round 5 is for. It was never a defect; it was my probe misreading a sign.
 
-The depth histogram is the part I have not explained:
+The depth histogram is the part I chased longest and did not solve:
 
 ```
 depth bins of 20 m, forward only:  256 531 1152 247 157 85 0 0 0 0 0 0
 ```
 
-A spike at 40-60 m and **nothing at all beyond 100 m** out of a 160 m
-`viewRadius`. That is where the answer lives and I did not find it in this
-round. It is not the group-anchor sampling: those place centres out to 155 m.
+A spike at 40-60 m and **nothing beyond 100 m** out of a 160 m `viewRadius`.
+
+### Four mechanisms ruled out
+
+The gap is at **~109 m exactly**, and it is not sampling. Measured at frame 1 —
+before anything can move, so retirement is excluded outright:
+
+```
+frame 1: viewRadius=160 target=2550 live=858 instances=846
+  anchor sampling spans d = 4.4 .. 155.6 m
+  placed agents span   along = -16 .. 109 m
+```
+
+1. **`rng.fork` is correct.** Over groups 0-17 the drawn anchors are
+   `11 4 3 6 12 8 0 6 14 11 17 14 7 9 2 4 5 9` — 13 distinct of 18, depths 4 to
+   156 m, and consecutive forks are uncorrelated. Not this.
+2. **The build is sound** — `vite build` succeeds and the served bundle matches.
+3. **Not `snapToStreet` dragging far samples back.** Sampling group centres along
+   the camera's own street, so there is no free-space walk to undo, changed the
+   along-range by **zero metres**: still `[-16, 109]`. Disproved. I had tried this
+   in round 5 and discarded it on the street-emptiness metric, which cannot see
+   the along-range; it was the wrong metric and I did not check the right one then.
+4. **Not lateral spread.** Narrowing it to the street band regressed to 83%.
+
+So placement samples correctly to 156 m and something between seeding and the
+instance buffer removes everything past 109 m, before the first frame completes.
+`rebuildSlices` does not do it — the agents are not `active` at all in that
+range. That is where I stopped.
+
+The symptom, the frame-1 bound and four eliminated hypotheses are the useful
+part; the fix is not.
 
 ## GAP C — thresholds re-measured, including what I missed
 
