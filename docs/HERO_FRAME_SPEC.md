@@ -1,8 +1,9 @@
 # Market Spine Counter Walk — derived daylight and night pair
 
 This specifies the first hero-frame candidate. It approves a subject and a
-derivation, **not a rendered frame**. The pedestrian raster fault still blocks
-the visual judgement. The question remains: does this same occupied route hold
+derivation, **not a rendered frame**. The crowd renders, but the captured ribbon
+does not read as people. The derived hero pair still awaits visual judgement.
+The question remains: does this same occupied route hold
 its human-scale relationships in daylight and at night, or does darkness hide
 an unresolved street?
 
@@ -51,8 +52,9 @@ tops and dark lower band are difficult to separate. Its
 [night counterpart](../shots/2026-10-01T16-10-49/09-market-down.png) contains a
 warm pavement patch, but the nearby counter frontage largely vanishes. A pool
 on open floor does not yet join source, surface and occupant. These are
-historical images; visible figures in that older set do not establish the
-state of today's broken pedestrian draw.
+historical images. The rendering-fault premise under which this specification
+was originally written is superseded: the later captured band contains bodies,
+but its merged silhouette does not establish occupation.
 
 ## Derivation inputs that exist, and the missing contract
 
@@ -240,6 +242,25 @@ reason instead of a fallback pose. If the captured camera leaves the derived
 pose, the pair is invalid before visual review.
 
 ## What daylight and night must each show
+
+**Inhabitation passes as a relationship in the whole frame.** At the intended
+viewing size, each phase must independently show readable grounded near bodies
+occupying the selected walking strip, a passing stream with counter-facing
+occupation beside its frontage, and that occupation continuing through the
+middle distance towards the exit gap. These relationships must coexist along
+the same route in the same image. People must retain a visual identity apart
+from kerbs, rails, counter supports and facade rhythm. The evidence must let
+the eye read people using the place, rather than identify body parts in a
+magnified crop.
+
+This is D7's existing requirement made explicit at the approval point. A
+readable pavement, an illuminated counter, an isolated recognisable figure
+elsewhere and a busy distant background cannot be assembled into a pass when
+the selected strip still reads as a ribbon or marker field. Judge each member
+against this condition before comparing the pair. A successful member cannot
+compensate for the other's failed occupation; light may simplify the scene
+while preserving the human relationships that qualify it. See
+[the street and approval review](VISION_ROUND6.md).
 
 **Daylight resolves the street's construction and use.** The near counter
 must have a working face and support, goods or an intelligible working
