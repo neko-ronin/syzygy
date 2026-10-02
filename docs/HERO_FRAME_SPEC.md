@@ -287,6 +287,12 @@ night's local-light hierarchy to pass.
 
 All of D5's disqualifiers remain in force:
 
+- **People read as street construction:** a continuous ribbon or mechanically
+  repeated row or field of upright markers groups visually with the kerb,
+  railing or counter frontage instead of resolving as independent people
+  occupying ground. This fails at the intended whole-frame viewing size even
+  when the bodies are drawn, illuminated and distributed into depth. A
+  magnified crop identifying the meshes cannot approve the frame.
 - **Empty central slab surrounded by scenery:** the frame's principal route
   reads as unused open floor with market objects at its edges. This does not
   require filling the carriageway; open ground is acceptable when the occupied
@@ -301,6 +307,22 @@ All of D5's disqualifiers remain in force:
   impressive while hiding how people stand and move beside it.
 - **A tightly cropped attractive stall concealing the continuing street:**
   close material detail cannot replace the route this frame was chosen to show.
+
+The crowd disqualifier applies independently to daylight and night. Stronger
+ground contrast or warm light may make the ribbon or marker rhythm clearer;
+that does not satisfy the human-silhouette condition. A queue or narrow
+walking line can qualify when the people remain readable and belong to a
+destination. Straight alignment itself is not prohibited, and widening a
+ribbon into a uniform marker field does not escape the disqualifier. This
+spells out D7's existing condition rather than replacing it with a coordinate
+spread test. See [the specification ruling](VISION_ROUND5.md) for its basis.
+
+**Historical prediction:** the following prediction is retained as written
+before the captured ribbon was identified. Its rendering-fault premise is
+superseded: the crowd was drawn but merged into a line. The owner has since
+reported the kerb/deck fix. Current preparation for that frame is in
+[VISION_ROUND5.md](VISION_ROUND5.md); the original prediction below is not a
+claim about the unseen corrected street.
 
 **My first-expected disqualifier is the empty central slab.** The early
 [street-crowd image](../shots/2026-09-29T19-30-34/01c-street-crowd.png) spends its

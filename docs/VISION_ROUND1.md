@@ -142,6 +142,20 @@ followed by vacancy, luminous fixtures over black frontage, or an overhead view
 that conceals ground contact. A tightly cropped attractive stall also fails if
 it conceals the continuing street.
 
+**Explicit crowd disqualifier, added after the captured-band review:** the
+people read as street construction — a continuous ribbon or mechanically
+repeated row or field of upright markers that the eye groups with the kerb,
+railing or counter frontage. The hero fails when that read replaces independent
+human silhouettes occupying ground, even if the bodies are drawn, illuminated
+and distributed into depth. Judge this at the intended whole-frame viewing
+size; magnified identification of head and torso meshes cannot approve it.
+This applies to both members of the daylight/night pair defined in
+[HERO_FRAME_SPEC.md](HERO_FRAME_SPEC.md). A queue or narrow walking line can
+qualify when its people remain readable and belong to a destination; straight
+alignment itself is not the disqualifier. This makes D7's existing silhouette
+condition explicit in D5's rejection list. The reasoning and first inspection
+for the kerb-fixed frame are recorded in [VISION_ROUND5.md](VISION_ROUND5.md).
+
 An aerial cable-car vista is the more immediately photogenic choice. It would
 let atmospheric depth and skyline silhouette carry a frame while the missing
 human-scale relationships remained unresolved. This counter walk exposes the
