@@ -1318,3 +1318,101 @@ is only ~2 m across, and beyond that nothing in the market is warm at all.**
 
 Unchanged: 3.638 of high-frequency energy at grain 0 and chroma 0. Not investigated
 this round; no captures were taken.
+
+---
+
+## 4m. Round 18: R2's recorded prediction, executed and scored
+
+The prediction in ROADMAP.md was written before the round, after five mechanisms
+here were proposed on plausibility and killed on measurement. It was not adjusted
+to fit the result. Same sample points at both radii (236 frontage, 276 deck — the
+radius does not move a light, so the population is identical), projected through
+`frameUniforms()[0..15]`, and every run reported `0 shot(s)`.
+
+**Validation, both radii.** The hand-measured deck point from rounds 14–17:
+
+| | pixel | byte R | R−B |
+| --- | --- | --- | --- |
+| hand-measured, round 14 | (581, 621) | 60.6 | +38.3 |
+| probe at r=15 | (580, 627) | 64.5 | **+41.7** |
+| probe at r=30 | (580, 627) | 74.3 | **+50.0** |
+
+**KNOWN LIMIT, restated:** the occlusion ray covers the **market mesh only** — not
+buildings, props or the ground. A sample occluded by a building still counts as
+visible. No sample returned sky-black and the day control lights the same
+geometry, but this is an untested limit of the instrument.
+
+### Night, r=15 → r=30
+
+| lantD | deck n / med byte R / med R−B | frontage n / med byte R / med R−B |
+| --- | --- | --- |
+| 0–2 m | — | 18 / 5.3 / −16.0 → 5.5 / −16.1 |
+| 2–4 m | — | 9 / 6.3 / −7.0 → 7.5 / −4.4 |
+| 4–6 m | 78 / 4.5 / **−4.7** → 20.0 / **−1.6** | 10 / 4.8 / −3.4 → 8.6 / −2.1 |
+| 6–8 m | 34 / 4.5 / −6.2 → 6.3 / −2.9 | 14 / 4.9 / −3.5 → 6.0 / −1.5 |
+| 8–10 m | 41 / 4.6 / **−3.1** → 8.0 / **−2.3** | 21 / 4.7 / −4.4 → 5.3 / −3.5 |
+| 10–13 m | 41 / 5.0 / −2.3 → 8.4 / **+0.8** | 3 / 5.3 / −3.1 → 16.4 / **+4.8** |
+| **median** | **−4.0 → −1.8** | **−7.0 → −5.2** |
+
+Aisle points on the same lantern: core 64.5 → 74.3, and **5.0 m lateral
++39.6 → +50.8**. `delivered 933 / binned 933 / starved 0 / rejectedFar 0` at both.
+`frameMs` 107.9 → 97.6 night, 114.3 day.
+
+### The six predictions
+
+| # | predicted | measured | verdict |
+| --- | --- | --- | --- |
+| 1 | deck 4–6 m R−B → positive | −4.7 → **−1.6** | **held in direction, did not reach positive** (byte R ×4.4) |
+| 2 | 8–10 m → positive | −3.1 → **−2.3** | **largely failed** (byte R 4.6 → 8.0) |
+| 3 | frontage follows the deck, roughly equal | deck −4.0→−1.8, frontage −7.0→−5.2; gap **widened** 3.0 → 3.4 | **failed** |
+| 4 | **the 3 m core must NOT rise** | 64.5 → 74.3, R−B +41.7 → **+50.0** | **literal failure** |
+| 5 | delivered 933, starved 0 | 933 / 933 / 0 | **held** |
+| 6 | no cost regression | frameMs 107.9 → 97.6 | **held** |
+
+**Not the stated refutation, and not a confirmation.** The refutation clause was
+"if the 4–6 m and 8–10 m bands do not move while the 3 m core does". The 4–6 m
+band moved a great deal — byte R ×4.4. So the hypothesis is not killed outright.
+But the bands did not go positive, frontage did not come level with the deck, and
+the discriminating test failed in its letter.
+
+The discriminator's *intent* is a different question from its letter, and on
+intent the shape did change: the 4–6 m band gained **+344%** in byte R while the
+core gained **+15%**. Radius is a real lever on the far field and it is not
+merely an intensity change in disguise. It is also not enough, and it buys that
+reach with a core that is brighter and closer to clipping than it was.
+
+**Reverted to r=15.** The prediction did not hold, and this thread has spent five
+rounds refusing to ship changes a measurement did not back. `LANTERN_LIGHT_RADIUS`
+is unchanged in the tree; the market self-test is green at `pool/ambient 106x 80x
+41x 18x 7x 2x 1x` and legible out to 10.5 m.
+
+### Why I am not capturing
+
+The brief gated the two captures on the prediction holding. It did not, so the
+budget stays unspent.
+
+### The next candidate — and it is upstream of the radius
+
+**The probe's deck population is not the market walking plane.** The explicit
+point 5.0 m lateral from a lantern, on the aisle, read **+39.6 at r=15** — already
+warm, before any change. The 4–6 m *band median* over the same run is −4.7. Those
+two cannot describe the same surface.
+
+The dense deck set is barycentric sub-points on `bakeChunk().opaque` triangles
+within 12 m of a lantern, across every chunk within 40 m of the camera. Most of
+that is sidewalk and carriageway that is not the market corridor, and it is dark
+for reasons that have nothing to do with falloff. **Round 17's band medians, and
+therefore ROADMAP R2's premise that the pool is "a ~2 m bright spot every 17–31 m",
+were computed over a population that is mostly not the aisle.**
+
+So the hypothesis R2 rests on is not yet tested on the surface that matters. The
+measurement to run next is narrow and needs no captures: restrict the dense deck
+sampling to triangles whose `spineHit` lateral is inside the market half-width —
+the same corridor test `__selftest_market.ts` already uses — and re-read the
+bands. If the aisle turns out warm and continuous at r=15, the radius question is
+closed and the gate-5b gap is somewhere else entirely.
+
+### Moiré — parked
+
+Unchanged: 3.638 of high-frequency energy at grain 0 and chroma 0. No captures
+this round, so it was not re-examined.
