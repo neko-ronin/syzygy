@@ -134,6 +134,42 @@ Give it the **next unanswered question**, which is almost always already sitting
 in a document from a prior round. Round 13's slot was filled by writing R13's ABI
 section — work that had to happen anyway and needed no new planning.
 
+### 3.5 A report is a file, not a message
+
+**Every agent writes its findings to a document before it goes idle.** The
+orchestrator's message to the pane is a summary and points at the file.
+
+This is not tidiness. A terminal pane retains roughly the last thirty lines of
+scrollback, so **an agent report longer than that does not degrade — it
+evaporates.** In one round of this session two substantial reports were lost
+exactly this way: the vision agent's D1 and D2 reasoning — the target twelve
+engineers were about to build toward — and the renderer's entire four-hypothesis
+investigation into whether pedestrians rasterise at all. The code changes both
+agents made survived, because those are on disk. The reasoning did not, and
+reasoning is the expensive part.
+
+`PROCESS.md` rule 7 already says it: *a finding that is not written down is a
+finding that will be re-derived, badly.* The gap was that the rule was written
+for findings a session would want later, and not for findings the orchestrator
+needed **within the same round** to write the next brief.
+
+Two rules that follow from it:
+
+- **Reconstruct before restarting.** An agent that lost its notes reconstructs
+  what it can and marks the gaps honestly, rather than re-deriving from scratch
+  or quietly inventing plausible numbers. A confident reconstruction is worse
+  than an honest gap: this project has twice shipped a wrong figure because a
+  document was read at its word.
+- **The pane message is the executive summary.** Ten lines, the verdict first,
+  the file path. The file is the record.
+
+One consequence worth stating plainly: **the agent that answers a question
+nobody asked is doing its job.** When the vision agent replied that the brief
+should have asked which occupied route becomes the first approved frame rather
+than asking four design questions in the abstract, that was the most valuable
+line in its report — and it arrived in a message, in the one place it could not
+be lost.
+
 ---
 
 ## 4. Research and adversarial discussion, before the owner
