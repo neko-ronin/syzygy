@@ -133,8 +133,6 @@ class App {
   ui!: ConductorUI;
   port!: CameraPort;
 
-  readonly targetsW = 1600;
-  readonly targetsH = 900;
   private running = false;
   private last = 0;
   private fpsAccum = 0;
@@ -719,7 +717,6 @@ class App {
       },
       pop: app.crowd.population(),
       rawInst: app.crowd.rawInstance(0),
-      inView: app.crowd.inView(app.camera.position, app.camera.forward, app.camera.fov, app.targetsW / app.targetsH),
       pedMesh: { idx: app.renderer.entityGeometry.pedestrian.indexCount },
         crowdDebug: { ...app.crowd.debug(), instancesCount: app.crowd.instances.count },
         traffic: app.traffic.activeCount,

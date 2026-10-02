@@ -12,7 +12,7 @@
  */
 
 import {
-  clamp, lerp, makeRng, saturate, v3cross, v3norm, type Rng, type Vec3,
+  clamp, lerp, makeRng, saturate, v3norm, type Rng, type Vec3,
 } from '../core/math';
 import { defaultWorld, type WorldState } from '../core/state';
 import {
@@ -199,7 +199,6 @@ export class CrowdSim {
   private capacity: number;
 
   private grid = new HashGrid();
-  private lastCam: Vec3 = [0, 0, 0];
   private lastFwd: Vec3 = [0, 0, -1];
   private streetTangent = { x: 0, z: 0, tx: 1, tz: 0 };
   private nbr: Int32Array;
@@ -292,8 +291,6 @@ export class CrowdSim {
     // 3.0x and every one of those agents silently fell through to the generic
     // neighbourhood search instead. `WorldEvent.at` had no consumer at all.
     this.events = world.events;
-    this.lastCam[0] = camera.position[0];
-    this.lastCam[2] = camera.position[2];
     // Derive the view direction from the look target rather than trusting a
     // passed-in basis. Seeding ahead of the camera is what makes a street-level
     // view populated instead of empty, and getting the sign wrong puts the
@@ -318,7 +315,22 @@ export class CrowdSim {
     // Pass A: stagger the counting sort across `rebuildStride` frames.
     if (this.rebuildPhase === 0) this.grid.build(f, this.ids, this.capacity);
 
-    // Pass B: count active agents inside the radius.
+    // Pass B: count the agents inside the radius and write their instances.
+    //
+    // One predicate, evaluated once. This was two scans of the same population
+    // with `stepAgent` between them: Pass B counted an agent against its
+    // pre-step position, `stepAgent` moved it, and `buildInstances` re-tested
+    // the *post*-step position. Measured over 30 frames, 1032 counted agents
+    // were dropped by that second test — 107 in one frame — so `visibleCount`
+    // and `instances.count` disagreed on 17 of 30 frames while describing one
+    // quantity. The mover is the pavement hold in `stepAgent`: it is an
+    // unconditional positional projection, not a velocity term, and it is not
+    // scaled by dt. With dt=0 it still displaced agents 185 m in a single frame
+    // and still lost 1013 of them.
+    //
+    // Writing the record where the count happens makes the disagreement
+    // structurally impossible instead of merely rare, and costs less: one
+    // scan per frame instead of two.
     const r2 = this.viewRadius * this.viewRadius;
     let visible = 0;
     for (let i = 0; i < this.capacity; i++) {
@@ -335,17 +347,20 @@ export class CrowdSim {
       f[o + F.strand] = 0;
       visible++;
       this.stepAgent(i, dt, world);
+      // Written after the step, so the transform carries this frame's heading
+      // and gait; selected by this frame's position, so it is the agent the
+      // count just reported.
+      this.writeInstance(visible - 1, o);
     }
     this.visibleCount = visible;
+    this.instances.count = visible;
+    this.diag.instances = visible;
     this.diag.live = this.liveCount;
     this.diag.target = this.targetVisible;
     this.diag.radius = this.viewRadius;
     this.diag.cursor = this.rebuildCursor;
     this.diag.navNodes = this.nodes.length;
     this.diag.ms = this.lastMs;
-
-    // Pass C: rebuild instance data for the visible set.
-    this.buildInstances();
 
     // Advance the staggered rebuild.
     this.rebuildPhase = (this.rebuildPhase + 1) % this.rebuildStride;
@@ -378,33 +393,6 @@ export class CrowdSim {
       spread = Math.max(spread, Math.hypot(f[o + F.x] - cx, f[o + F.z] - cz));
     }
     return { n, cx: +cx.toFixed(0), cz: +cz.toFixed(0), spread: +spread.toFixed(0), minY: +minY.toFixed(1), maxY: +maxY.toFixed(1) };
-  }
-
-  /** How many instances actually land inside the view cone, and their depth range. */
-  inView(cam: Vec3, fwd: Vec3, fovY: number, aspect: number): { inside: number; total: number; minD: number; maxD: number } {
-    const d = this.instData;
-    const n = this.instances.count;
-    const ty = Math.tan(fovY * 0.5);
-    const tx = ty * aspect;
-    // Build a basis around the view direction.
-    const f = v3norm([fwd[0], fwd[1], fwd[2]]);
-    const upRef: Vec3 = Math.abs(f[1]) > 0.98 ? [1, 0, 0] : [0, 1, 0];
-    const r = v3norm(v3cross(upRef, f));
-    const u = v3cross(f, r);
-    let inside = 0, minD = Infinity, maxD = 0;
-    for (let i = 0; i < n; i++) {
-      const b = i * INSTANCE_FLOATS;
-      const px = d[b + 12] - cam[0], py = d[b + 13] - cam[1], pz = d[b + 14] - cam[2];
-      const z = px * f[0] + py * f[1] + pz * f[2];
-      if (z <= 0.5) continue;
-      const xx = px * r[0] + py * r[1] + pz * r[2];
-      const yy = px * u[0] + py * u[1] + pz * u[2];
-      if (Math.abs(xx / z) > tx || Math.abs(yy / z) > ty) continue;
-      inside++;
-      if (z < minD) minD = z;
-      if (z > maxD) maxD = z;
-    }
-    return { inside, total: n, minD: +minD.toFixed(1), maxD: +maxD.toFixed(1) };
   }
 
   /** One full 24-float instance record, so a bad matrix is legible. */
@@ -976,53 +964,48 @@ export class CrowdSim {
   /** Set each frame from the world so colour lookups see live weather. */
   private seedRef: WorldState = defaultWorld(0x5e7a17);
 
-  private buildInstances(): void {
+  /**
+   * Write one agent's 24-float instance record into slot `n`.
+   *
+   * Called from Pass B under the same `active` guard and the same radius test
+   * that produced `visibleCount`, which is why the two agree by construction
+   * rather than by luck. `o` is the agent's field offset. At most one record is
+   * written per iteration of a loop bounded by `capacity`, and `instData` is
+   * `capacity * INSTANCE_FLOATS` long, so the write is in bounds by
+   * construction — there is no capacity guard here because none is reachable.
+   */
+  private writeInstance(n: number, o: number): void {
     const f = this.f;
     const d = this.instData;
-    const camX = this.lastCam[0], camZ = this.lastCam[2];
-    let n = 0;
-    const cap = this.capacity;
-
-    for (let i = 0; i < cap; i++) {
-      const o = i * F.LOCAL;
-      if (f[o + F.active] < 0.5) continue;
-      const dx = f[o + F.x] - camX, dz = f[o + F.z] - camZ;
-      if (dx * dx + dz * dz > this.viewRadius * this.viewRadius) continue;
-      if (n >= cap) break;
-
-      const b = n * INSTANCE_FLOATS;
-      const x = f[o + F.x], y = f[o + F.y], z = f[o + F.z];
-      const h = f[o + F.heading];
-      const ch = Math.cos(h), sh = Math.sin(h);
-      // Column-major TRS: translate · rotY · uniform scale.
-      d[b] = ch; d[b + 1] = 0; d[b + 2] = -sh; d[b + 3] = 0;
-      d[b + 4] = 0; d[b + 5] = 1; d[b + 6] = 0; d[b + 7] = 0;
-      d[b + 8] = sh; d[b + 9] = 0; d[b + 10] = ch; d[b + 11] = 0;
-      d[b + 12] = x; d[b + 13] = y; d[b + 14] = z; d[b + 15] = 1;
-      // Tint: the clothing colour, with alpha carrying the gait-driven limb mask.
-      const gait = f[o + F.gait];
-      const mask = 0.5 + 0.5 * Math.sin(gait);
-      d[b + 16] = f[o + F.cr];
-      d[b + 17] = f[o + F.cg];
-      d[b + 18] = f[o + F.cb];
-      d[b + 19] = mask;
-      // Params: matId, roughness, emissive (0), gait phase, density.
-      // MAT.PLAIN, not MAT.DIFFUSE: a pedestrian is 1.7m tall, so under the
-      // building facade synthesiser it lands entirely inside one 3.1m x 3.6m
-      // window cell and is shaded as dark glass. People were being drawn the
-      // whole time and were simply invisible.
-      d[b + 20] = MAT.PLAIN;
-      d[b + 21] = 0.66;
-      d[b + 22] = 0;
-      d[b + 23] = gait;
-      d[b + 24] = f[o + F.density];
-      d[b + 25] = f[o + F.speed];
-      d[b + 26] = 0;
-      d[b + 27] = 0;
-      n++;
-    }
-    this.instances.count = n;
-    this.diag.instances = n;
+    const b = n * INSTANCE_FLOATS;
+    const x = f[o + F.x], y = f[o + F.y], z = f[o + F.z];
+    const h = f[o + F.heading];
+    const ch = Math.cos(h), sh = Math.sin(h);
+    // Column-major TRS: translate · rotY · uniform scale.
+    d[b] = ch; d[b + 1] = 0; d[b + 2] = -sh; d[b + 3] = 0;
+    d[b + 4] = 0; d[b + 5] = 1; d[b + 6] = 0; d[b + 7] = 0;
+    d[b + 8] = sh; d[b + 9] = 0; d[b + 10] = ch; d[b + 11] = 0;
+    d[b + 12] = x; d[b + 13] = y; d[b + 14] = z; d[b + 15] = 1;
+    // Tint: the clothing colour, with alpha carrying the gait-driven limb mask.
+    const gait = f[o + F.gait];
+    const mask = 0.5 + 0.5 * Math.sin(gait);
+    d[b + 16] = f[o + F.cr];
+    d[b + 17] = f[o + F.cg];
+    d[b + 18] = f[o + F.cb];
+    d[b + 19] = mask;
+    // Params: matId, roughness, emissive (0), gait phase, density.
+    // MAT.PLAIN, not MAT.DIFFUSE: a pedestrian is 1.7m tall, so under the
+    // building facade synthesiser it lands entirely inside one 3.1m x 3.6m
+    // window cell and is shaded as dark glass. People were being drawn the
+    // whole time and were simply invisible.
+    d[b + 20] = MAT.PLAIN;
+    d[b + 21] = 0.66;
+    d[b + 22] = 0;
+    d[b + 23] = gait;
+    d[b + 24] = f[o + F.density];
+    d[b + 25] = f[o + F.speed];
+    d[b + 26] = 0;
+    d[b + 27] = 0;
   }
 
 
