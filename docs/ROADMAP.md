@@ -50,17 +50,40 @@ respectively. Do them in that order; the third is nearly free.
    at eye height. The `bakeGround` kerb strips exist but are barely visible.
    *Why it matters:* it is 60% of the pixels in a street-level shot, and it is
    the cheapest large-area quality win available. → **F5**
-2. **Crowd density and distribution.** **Blocked on F1 and F2 first.** The
-   crowd's two visibility predicates report 250 and 0 in the same frame, and the
-   two poses meant to show it are hardcoded at the world origin while the crowd
-   centroid sits ~975 units away. Until both are settled, do not tune density:
-   you cannot tell a distribution problem from a rendering one, and two
-   previous sessions misread this as a winding bug and then a culling bug.
-   *Watch out:* raising the count without fixing distribution just produces a
-   clump — see `PITFALLS.md` §9. → **F1, F2**
-3. **Traffic on screen.** `TrafficSim` already produces 207 vehicles on real rail
-   lines. `Renderer.drawEntitySet` already works. This is wiring, not design.
-   → **F4**
+2. **Crowd density and distribution.** **UNBLOCKED — and the blocker was a phantom,
+   measured.** There is no rasterisation bug. The crowd has been rendering the
+   whole time: 2550 pedestrians, correct cloth palette, correct cloth-coloured box
+   forms, packed shoulder to shoulder along the street. They were invisible
+   because **`F.lateral` never reached the instance transform** — `crowd.ts:985`
+   computes and stores the lateral offset, `crowd.ts:1019` writes only x/y/z from
+   `F.x`/`F.y`/`F.z` — so every agent sat at `z = 0.35` on a single 1-D line.
+   A one-dimensional smear of bodies reads as an empty street. Two sessions
+   opened those frames, correctly saw no *figures*, and reported the crowd as not
+   rendering; then two more sessions searched for a winding bug and a culling bug.
+   Full record, including the four refuted hypotheses and the A/B that settled it:
+   [`F1F2_GPU_HALF.md`](F1F2_GPU_HALF.md).
+
+   F1 (the two counters disagreeing) and F3 (deleting the lying `inView`) are
+   closed and measured. What remains is **lateral spread**, then avoidance and
+   flow — and those are now measurable, which is the whole point of the
+   unblocking.
+
+   *Watch out, harder than before:* once the spread is fixed the crowd becomes
+   visible for the first time and every visual judgement in the project will be
+   applied to it. The vision reviewer has already named the failure it expects —
+   a crowd that resolves into a counter-like band. Fixing the spread makes that
+   judgement possible; it does not make it pass. → **F1 closed, F2 was never a
+   render bug, spread fix + R12**
+3. **Traffic on screen.** **DONE — this row was stale for a session.**
+   `buildVehicleInstances` packs vehicles after the pedestrians into one
+   contiguous instance buffer and issues a per-mesh draw at the correct instance
+   offset (`main.ts:440-455`). Measured per kind from a live tram: tram 240/240,
+   trolley 180/180, cablecar 180/170, and rail alignment is exact — the written Y
+   column equals `forward[1]/|forward|`, so vehicles ride the rail tangent rather
+   than a yaw, and the float-above/sink-below failure this row predicted does not
+   occur. `cull`-by-distance explains the kinds that draw zero at any single pose,
+   which makes this row's old "non-zero per kind" close condition unsatisfiable.
+   → **F4 closed**
 
 **Done when:** a street-level pose contains trams on the rails, cable cars above,
 and people on the pavements, at a density where the far end of the street is
