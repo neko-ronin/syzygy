@@ -206,6 +206,23 @@ function main(): void {
   const bad = (ok: boolean, why: string): void => console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${why}`);
   bad(sideOk, 'both footways carry a real share of the crowd (30-70%)');
   bad(zOk, 'z IQR about the centroid exceeds 1.0 m (not a line)');
+
+  // How many active agents does the hold actually reach? Its guard is
+  // `F.lateral !== 0`, and holdRuns/frame came to ~1711 against a population of
+  // ~2550 — so a third of the crowd may never be held at all.
+  {
+    let act = 0, zero = 0, inside = 0, zeroInside = 0;
+    const rr = sim.debug().radius * sim.debug().radius;
+    for (let i = 0; i < CAP; i++) {
+      if (f[i * FLOCAL + FACTIVE] < 0.5) continue;
+      act++;
+      if (f[i * FLOCAL + FLAT] === 0) zero++;
+      const dx = f[i * FLOCAL + FX] - pos[0], dz = f[i * FLOCAL + FZ] - pos[2];
+      if (dx * dx + dz * dz <= rr) { inside++; if (f[i * FLOCAL + FLAT] === 0) zeroInside++; }
+    }
+    console.log(`\n  HOLD REACH: active ${act}, F.lateral === 0 -> ${zero} (${((100 * zero) / (act || 1)).toFixed(1)}%)`);
+    console.log(`              inside radius ${inside}, F.lateral === 0 -> ${zeroInside} (${((100 * zeroInside) / (inside || 1)).toFixed(1)}%)`);
+  }
   if (!(sideOk && zOk)) console.log('\nSPREAD VIOLATIONS 2');
 }
 

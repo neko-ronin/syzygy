@@ -375,3 +375,134 @@ runtime break, and both times the import test was what found it.
 
 All numbers are counts, distributions or percentiles. No wall-clock figure is
 reported.
+---
+
+# Round 5 — the restoring force: four candidates refuted, one contradiction sharpened
+
+Developer 2. Branch `dev2/crowd-spread`. **`src/sim/crowd.ts` byte-identical to
+`e96ba15`; no fix ships.** Import test → **ALL PASS**. All instrumentation
+removed; the tree carried no experiment while the round ran.
+
+## 1. The arithmetic, and what it predicted
+
+Hold applies ~0.10 m/frame; offset stable at ~16 m. So the restorer writes
+~0.1 m/frame, every frame, opposite the hold. That correctly excludes the
+seeder (runs once) and churn (1 per 470 frames), and points at a per-frame
+positional writer. Candidates tested by **instrumentation, not reasoning**:
+
+## 2. Results — four refutations and one new datum
+
+| candidate | verdict | measurement |
+| --- | --- | --- |
+| **1. the footway projection** | **refuted (round 4 control)** | correction set to zero → z IQR **0.01 m**, *tighter* than 0.04 m with it on |
+| **2. `F.lateral` rewritten per frame** | **REFUTED** | target frozen: `14.65 → 14.65`, mean \|target change\| **0.0000 m** over 60 frames |
+| **3. `snapToStreet` fighting the hold** | **REFUTED** | called only from `seedAgent`, once per agent. Not per-frame. |
+| **4. the `side` sign** | **symptom, not cause** | targets are sensibly signed both ways (p50 **+7.64**, IQR **29.32**) and simply are not reached |
+
+Two further hypotheses opened and closed this round:
+
+| hypothesis | verdict | measurement |
+| --- | --- | --- |
+| building ejections make the line | **REFUTED** | **283 ejections total** across ~930 frames = **0.3/frame**; needs ~2550/frame. Top face z = 30.1 (125 hits), −14.4 (35) — discrete faces, not a continuum |
+| a third of the crowd is never held | **REFUTED** | **0.0%** of active agents have `F.lateral === 0`; the hold's guard reaches all 2550 |
+
+And one measurement that rules out an error in *my own* instrument:
+
+```
+  plan object identity: true
+  mean |F.lateral - lat| against cityPlan(SEED):  14.48 m
+  mean |F.lateral - lat| against crowd's own plan:  14.48 m
+```
+
+The crowd's internal plan and the one I measure against are **the same object**.
+The 14.48 m error is real, not a reference mismatch.
+
+## 3. The contradiction, now fully characterised
+
+This is the sharpest statement of the defect to date:
+
+```
+    agent    6  target 14.65   realised -11.25 -> -11.25
+    agent    7  target 14.51   realised -11.21 -> -11.18
+    agent    8  target 14.45   realised -11.26 -> -11.22
+    agent    9  target 14.21   realised -11.21 -> -11.19
+    mean |target change| = 0.0000 m over 60 frames
+```
+
+**Target +14.65, realised −11.25 — a 25.9 m error — and the body moves 0.07 m in
+60 frames.** Meanwhile the hold:
+
+* reaches **every** active agent (0.0% excluded),
+* is not blocked (0.0% inside a footprint),
+* runs 1.59 M times applying mean **0.1004 m/frame**,
+* is asked to close a mean error of **16.71 m**, with 3.7× the authority required.
+
+A body with a 25.9 m error, under 0.13 m/frame of correction, should cross the
+street in ~200 frames. It crosses 0.07 m in 60.
+
+**Every per-frame positional writer I can identify in `stepAgent` has now been
+measured and excluded**: locomotion, building ejection, wind (0.015 m/frame),
+and the hold itself. The restoring force is real, per the arithmetic, and is
+**not in the list of writers I have enumerated.**
+
+One number remains unreconciled and I flag it rather than explain it:
+`holdRuns` implies the hold fires for ~69% of active agent-frames, yet
+`F.lateral === 0` for none of them. Those two facts cannot both hold, and one of
+my two measurements is wrong. **That is the next thing to check** — it is the
+last internal inconsistency in the investigation, and it may be where the
+restorer lives.
+
+## 4. Acceptance test status: NOT MET, thresholds untouched
+
+```
+  FOOTWAY BALANCE  left 1599  right 91  (left share 94.6%)
+  z IQR about centroid = 0.04 m
+  FAIL  both footways carry a real share of the crowd (30-70%)
+  FAIL  z IQR about the centroid exceeds 1.0 m (not a line)
+SPREAD VIOLATIONS 2
+```
+
+I did not relax a threshold to make anything land.
+
+## 5. Silhouette variety: not attempted, and why that is the honest call
+
+The reviewer's prediction stands untested. Fixing the spread would trade a
+continuous ribbon for a row of posts, and varying silhouettes is what stops it
+being a row of posts. But:
+
+* it can only be judged against a captured frame, and **no capture may be taken
+  this round**;
+* doing it blind would put a second unvalidated change into the same round as a
+  spread change that has not landed.
+
+So I have **not** produced "spread alone yields posts" or "spread plus variety
+yields varied bodies". I have produced neither, and I am not going to describe
+a result I did not observe. The reviewer's stated refutation test — "a spread
+result with distinct walker postures and readable leg gaps would contradict it" —
+**remains untested**.
+
+## 6. Standing numbers, updated
+
+| quantity | value |
+| --- | --- |
+| z IQR about centroid | **0.04 m** (FAIL, needs > 1.0) |
+| footway balance | **94.6% left** (FAIL, needs 30–70%) |
+| street tangent | (0.880, 0.099) bearing 6.4° |
+| perpendicular offset IQR | 12.70 m |
+| realised lateral | p50 −10.20 m |
+| `F.lateral` targets | p50 +7.64 m, IQR 29.32 m, **frozen** (0.0000 m drift / 60 frames) |
+| hold | 1.59 M runs, 0.1004 m/frame, mean error 16.71 m, reaches 100% of agents |
+| building ejections | 283 total (~0.3/frame) |
+| agents inside a footprint | 0.0% |
+| wind | 0.015 m/frame at default `windSpeed 4.2` |
+| churn | 163 retired / 162 seeded per 30 frames |
+| crowd plan == probe plan | **same object** — measurement reference sound |
+
+## 7. Process
+
+Branched before probing; `crowd.ts` never carried an unvalidated experiment;
+instrumentation added, measured, and removed within the round. Import test run
+before calling the tree usable. All numbers are counts, distributions or
+percentiles — no wall-clock figure, the box is loaded.
+
+No visual claim is made anywhere in this report.
