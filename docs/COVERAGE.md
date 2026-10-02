@@ -122,7 +122,7 @@ where it went*.
 | `precip` | `weather3.w` (`common.wgsl:26`) | **No shader reads `weather3.w`.** No precipitation renderer |
 | `structure-collapse` | An `EventKind` in `core/state.ts:177`; a tool in `agent/tools.ts:132,162` | No fracture renderer. **You can ask the LLM to collapse a structure and it will report success** |
 | `debrisChunk()` | Defined at `citymesh.ts:900` | Never called. The GPU debris field R5 depends on does not exist |
-| Canal water | `bakeGround()` builds a water mesh (`citymesh.ts:787`) | Dropped on the floor — `renderer.ts:400` uploads `ground.mesh` and discards `ground.water` |
+| Canal water | `bakeGround()` returns a water mesh (`citymesh.ts:898-902`) | **Still PHANTOM, and thinner than described:** nothing is ever pushed into the `w` builder, so the mesh is empty by construction — and no `ground.water` reference exists anywhere in `renderer.ts` (previously cited `renderer.ts:400`, gone to line drift; `renderer.ts:701` uploads `ground.mesh` only). Water as *data* (`waterDepthAt`) is live in lot placement. Re-verified round 5 |
 
 Two consequences worth stating plainly:
 
