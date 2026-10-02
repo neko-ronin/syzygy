@@ -30,6 +30,8 @@ import {
   type CityPlan,
   type StreetSample,
 } from './citygen';
+import { districtAtField } from './districts';
+import { groundGrammarFor } from './groundgrammar';
 import type { Vec3 } from '../core/math';
 
 /** The shape `CrowdSim.population()` returns; declared here so this file does not import the sim. */
@@ -42,7 +44,7 @@ export interface Population {
   maxY: number;
 }
 
-export type DerivedPoseId = 'street-crowd' | 'crowd-closeup' | 'facade-base';
+export type DerivedPoseId = 'street-crowd' | 'crowd-closeup' | 'facade-base' | 'kerb-face';
 
 /** Where a pose is standing, and what it was derived from. */
 export interface DerivedPoseSource {
@@ -79,6 +81,12 @@ export interface DerivedPoseSource {
   distanceToCrowd: number;
   /** The samples that were rejected as too narrow to be worth the shot. */
   rejected: { x: number; z: number; kind: string; width: number }[];
+  /**
+   * District the subject stands in, when the pose is district-constrained
+   * (kerb-face: one of the B districts). Absent for crowd poses, whose
+   * subject is the population, not a district.
+   */
+  districtId?: number;
 }
 
 export interface DerivedPose {
@@ -137,6 +145,9 @@ const SPECS: Record<DerivedPoseId, {
   // Facade height on the same footway, aimed across the street and up. The
   // ground-contact check, on a carriageway instead of inside a lot.
   'facade-base': { eye: 6, fov: 1.05, aim: 34, back: 0, wide: true },
+  // Kerb readability: eye/fov consumed by deriveKerbFace; aim/back are computed
+  // from the kerb geometry itself (there is no crowd offset to apply).
+  'kerb-face': { eye: 1.7, fov: 0.85, aim: 0, back: 0, wide: false },
 };
 
 /** Second scratch, so the traffic path cannot stomp the crowd path's. */
@@ -147,6 +158,165 @@ const scratch2 = (): StreetSample => ({
 const scratch = (): StreetSample => ({
   dist: 0, px: 0, pz: 0, tx: 1, tz: 0, width: 1, kind: 'street', clearance: 0,
 });
+
+/**
+ * Derive the kerb-readability pose from the live street field.
+ *
+ * The reviewer could not tell a raised kerb from a painted stripe, and none
+ * of the existing poses can answer it: `01d` looks down the street (the kerb
+ * is a line), `01f` looks across and up (buildings, not kerbs). This stands
+ * on the footway ~2.4 m past a real kerb line and looks obliquely along it,
+ * so one frame holds pavement, vertical face and carriageway together.
+ *
+ * The kerb is FOUND, not typed in. A fixed lattice over the street field is
+ * scanned for a street/artery in a B district whose grammar gives it a real
+ * kerb face, with a straight 20 m run (same kind, same width — the same
+ * guards `traceOne` walks under, so a traced kerb exists where this points).
+ * No kerb in bounds refuses loudly; there is no fallback coordinate, for the
+ * usual reason (F2).
+ *
+ * Constrained to B districts (glass-foxholes, rust-hangars, canal-district)
+ * on purpose: the review that motivated this pose is about kerb edges, and
+ * B's sheet is the one whose stair and kerb edges are the reference. The
+ * district is recorded in provenance, so any other use is auditable, and
+ * `compare.mjs --auto` needs a `kerb-face` key in `references/sections.json`
+ * before this row resolves against a sheet (not added here).
+ */
+const KERB_DISTRICTS = [3, 5, 9];
+const KERB_SCAN_STEP = 32;
+const KERB_SCAN_EXTENT = 1024;
+const KERB_MIN_WIDTH = 20;
+/**
+ * How far past the kerb line the camera stands. 1.2 m is on every footway
+ * (narrowest authored is 2.2 m) and provably outside every conforming facade:
+ * `makeBuilding` shrinks each footprint to `room = clearance − 1.6`, so a
+ * facade face stands ≥ 1.6 m past its road's edge, and lean is a shear that is
+ * zero at the base. 2.4 m would frame more pavement but gambles 0.8 m of that
+ * guarantee on roads the lot was not placed against.
+ */
+const KERB_CAM_SIDE = 1.2;
+const KERB_CAM_BACK = 2.8;
+const KERB_LOOK_AHEAD = 2.5;
+
+function deriveKerbFace(seed: number, pop: Population): DerivedPoseResult {
+  const id: DerivedPoseId = 'kerb-face';
+  const spec = SPECS[id];
+  const plan: CityPlan = cityPlan(seed);
+  const s = scratch();
+  const probe = scratch();
+  const rejected: DerivedPoseSource['rejected'] = [];
+
+  interface KerbHit { x: number; z: number; kind: string; width: number; district: number }
+  const consider = (gx: number, gz: number): KerbHit | null => {
+    sampleStreetPlan(plan, gx, gz, s);
+    if (s.kind !== 'street' && s.kind !== 'artery') return null;
+    if (s.width < KERB_MIN_WIDTH) {
+      if (rejected.length < 8) rejected.push({ x: gx, z: gz, kind: s.kind, width: s.width });
+      return null;
+    }
+    const districtId = districtAtField(plan.districts, gx, gz);
+    if (!KERB_DISTRICTS.includes(districtId)) return null;
+    const grammar = groundGrammarFor(districtId, s.kind);
+    // 'bollard-line' (market) is posts, not a face; everything else in the
+    // enum is raised geometry groundbake emits a face for.
+    if (grammar.kerb === 'bollard-line') return null;
+    // Straight run: the kerb the trace walks must still be this road 10 m
+    // either way, or the edge point belongs to a junction, not a kerb line.
+    for (const dt of [-10, 10]) {
+      sampleStreetPlan(plan, s.px + s.tx * dt, s.pz + s.tz * dt, probe);
+      if (probe.kind !== s.kind || Math.abs(probe.width - s.width) > 1.5) {
+        if (rejected.length < 8) rejected.push({ x: gx, z: gz, kind: s.kind, width: s.width });
+        return null;
+      }
+    }
+    return { x: gx, z: gz, kind: s.kind, width: s.width, district: districtId };
+  };
+  let hit: KerbHit | null = null;
+  for (let r = 0; r <= KERB_SCAN_EXTENT && !hit; r += KERB_SCAN_STEP) {
+    if (r === 0) { hit = consider(0, 0); continue; }
+    for (let e = -r; e <= r && !hit; e += KERB_SCAN_STEP) {
+      hit = consider(e, -r) ?? consider(e, r) ?? consider(-r, e) ?? consider(r, e);
+    }
+  }
+  if (!hit) {
+    return {
+      ok: false, id, population: { ...pop },
+      reason: `no street/artery with a kerb face in a B district within ±${KERB_SCAN_EXTENT} m ` +
+        `(step ${KERB_SCAN_STEP} m, width ≥ ${KERB_MIN_WIDTH} m) — refusing rather than guessing`,
+    };
+  }
+  const found = { x: hit.x, z: hit.z };
+  const foundKind = hit.kind;
+  const foundWidth = hit.width;
+  const foundDistrict = hit.district;
+
+  // Re-sample at the anchor so the frame below reads the road, not the lattice.
+  sampleStreetPlan(plan, found.x, found.z, s);
+  const { tx, tz } = s;
+  const nx = -tz, nz = tx;
+  const half = s.width * 0.5;
+  const ex = s.px + nx * half, ez = s.pz + nz * half;
+  const position: [number, number, number] = [
+    ex + nx * KERB_CAM_SIDE - tx * KERB_CAM_BACK,
+    GROUND_Y + spec.eye,
+    ez + nz * KERB_CAM_SIDE - tz * KERB_CAM_BACK,
+  ];
+  const lookAt: [number, number, number] = [
+    ex + tx * KERB_LOOK_AHEAD,
+    GROUND_Y + 0.25,
+    ez + tz * KERB_LOOK_AHEAD,
+  ];
+
+  // Self-check: the kerb point the pose is FOR must be inside its own cone.
+  // Same arithmetic as derivePose's subject check, with a 2 m kerb extent
+  // instead of the crowd spread.
+  const dx = lookAt[0] - position[0], dy = lookAt[1] - position[1], dz = lookAt[2] - position[2];
+  const dl = Math.hypot(dx, dy, dz) || 1;
+  const fx = dx / dl, fy = dy / dl, fz = dz / dl;
+  const sx = ex - position[0], sy = (GROUND_Y + 0.25) - position[1], sz = ez - position[2];
+  const along = sx * fx + sy * fy + sz * fz;
+  const perp = Math.hypot(sx - fx * along, sz - fz * along);
+  const reach = Math.tan(Math.min(Math.PI * 0.45, spec.fov * 0.75)) * Math.max(along, 1);
+  const subjectInView = along > 0 && perp <= reach + 2;
+  const eyeHeight = +(position[1] - GROUND_Y).toFixed(2);
+  if (!subjectInView || !(eyeHeight > 0 && eyeHeight < 12)) {
+    return {
+      ok: false, id, population: { ...pop },
+      reason: `derived kerb at (${ex.toFixed(1)}, ${ez.toFixed(1)}) is ${perp.toFixed(1)} m off-axis ` +
+        `at ${along.toFixed(1)} m (reach ${reach.toFixed(1)} m) — refusing a blind pose`,
+    };
+  }
+
+  const lateral = half + KERB_CAM_SIDE;
+  return {
+    ok: true,
+    id,
+    position,
+    lookAt,
+    fov: spec.fov,
+    roll: 0,
+    source: {
+      id,
+      seed,
+      population: { ...pop },
+      carriageway: {
+        kind: foundKind, width: +foundWidth.toFixed(2),
+        px: +s.px.toFixed(1), pz: +s.pz.toFixed(1),
+        tx: +tx.toFixed(4), tz: +tz.toFixed(4),
+        dist: +s.dist.toFixed(2), clearance: +s.clearance.toFixed(2),
+      },
+      footwayOffset: +lateral.toFixed(2),
+      eye: spec.eye,
+      aimMetres: +Math.hypot(lookAt[0] - position[0], lookAt[2] - position[2]).toFixed(1),
+      distanceToCrowd: pop.n > 0
+        ? +Math.hypot(position[0] - pop.cx, position[2] - pop.cz).toFixed(1)
+        : -1,
+      subjectInView, eyeHeight,
+      rejected,
+      districtId: foundDistrict,
+    },
+  };
+}
 
 /**
  * Derive a diagnostic pose from the live crowd population and the street plan.
@@ -172,6 +342,11 @@ export function derivePose(id: DerivedPoseId, pop: Population, seed: number): De
   if (!Number.isFinite(pop.cx) || !Number.isFinite(pop.cz)) {
     return { ok: false, id, population: pop, reason: `population centroid is not finite (${pop.cx}, ${pop.cz})` };
   }
+
+  // The kerb pose derives from the street field, not the crowd — but it still
+  // takes the population for provenance, and still refuses on an empty one,
+  // because a pose shot before anything is settled is a pose of nowhere.
+  if (id === 'kerb-face') return deriveKerbFace(seed, pop);
 
   const plan: CityPlan = cityPlan(seed);
   const s = sampleStreetPlan(plan, pop.cx, pop.cz, scratch());

@@ -185,6 +185,22 @@ const POSES = [
     settle: 40,
   },
   {
+    // Derived: the position is computed in diagnosticposes.ts from the live
+    // street field (first B-district street/artery with a kerb face on a
+    // straight run, rings out from the origin). Nothing here is typed in.
+    // FOR the reviewer's kerb question: pavement, vertical kerb face and
+    // carriageway in one oblique frame — raised kerb vs painted stripe.
+    // NOTE (rule 4): `compare.mjs --auto` has no `kerb-face` key in
+    // `references/sections.json`, so this row is skipped by --auto until one
+    // is added mapping it at B. Judge it against the B sheet by hand.
+    name: '01g-kerb-face',
+    label: 'oblique kerb close-up on a derived B-district kerb line — raised face or painted stripe?',
+    derive: 'kerb-face',
+    weather: { sky: 'clear', haze: 0.16 },
+    lens: { tiltShift: 0, focusWidth: 1, bokeh: 0, chroma: 0, grain: 0, saturation: 1.1, vignette: 0.15 },
+    settle: 40,
+  },
+  {
     name: '02-canyon-up',
     label: 'deep in the canyon looking straight up',
     position: [190, 9, 330], lookAt: [230, 150, 150], fov: 1.43, roll: 0.08,
