@@ -26,6 +26,14 @@ import {
 } from '../world/districts';
 
 const MAX_DT = 1 / 15;
+/**
+ * Ceiling on the pavement hold's correction, m/s.
+ *
+ * A walking pace. The hold is a standing constraint on where a body sits
+ * relative to the kerb; it is not a mechanism for moving one, so it corrects at
+ * the speed a person covers ground rather than at the speed of the error.
+ */
+const HOLD_SPEED = 1.4;
 
 /**
  * Agents per readable group, and the chance a group slot is left empty.
@@ -262,6 +270,32 @@ export class CrowdSim {
 
   setCount(n: number): void {
     this.targetVisible = clamp(n | 0, 0, this.capacity);
+  }
+
+  /**
+   * Retire the whole population, synchronously.
+   *
+   * `setCount(0)` does not do this, and claiming it did was the §20 failure
+   * class: it only sets `targetVisible`, which caps *seeding*. Pass B counts
+   * every agent that is `active` and inside `viewRadius`, so asking for zero
+   * measured ~2528 — the control the automation surface advertised could not
+   * be performed. `setCount` keeps its seeding meaning; this is the explicit
+   * "no bodies" state.
+   *
+   * `setCount(n > 0)` refills over `rebuildStride` frames, because
+   * `rebuildSlices` seeds one slice per frame.
+   */
+  clearPopulation(): void {
+    const f = this.f;
+    for (let i = 0; i < this.capacity; i++) {
+      f[i * F.LOCAL + F.active] = 0;
+      f[i * F.LOCAL + F.strand] = 0;
+    }
+    this.liveCount = 0;
+    this.visibleCount = 0;
+    this.instances.count = 0;
+    this.diag.instances = 0;
+    this.diag.live = 0;
   }
 
   setDensity(d: number): void {
@@ -643,8 +677,32 @@ export class CrowdSim {
       const wob = Math.sin(this.wanderClock * 0.31 + f[o + F.seed] * 17.3) * 0.9
         + Math.sin(this.wanderClock * 0.11 + f[o + F.seed] * 41.7) * 0.6;
       const d = f[o + F.lateral] + wob - lat;
-      nx += nxx * d;
-      nz += nzz * d;
+      // The correction is a *rate*, not a snap. Measured with the clamp removed
+      // as a control, over 60 frames at each of dt = 0, 1/120, 1/60, 1/30, 1/15:
+      // the hold displaced the median agent **24.12 m in a single frame**, with
+      // 74% of agents displaced more than 20 m. It did so identically at dt=0
+      // (p50 24.117 m) as at dt=1/15 (p50 24.169 m) — a 0.2% spread across a
+      // 60-fold change in dt. It was not a velocity term at all; it was
+      // `nx += normal * error`, applied in full, every frame.
+      //
+      // The error never converged because it was never allowed to. `resolveBuildings`
+      // pushes an agent out of a footprint, the hold snapped it straight back
+      // in, and the next frame repeated: **20.8% of the active population stood
+      // inside a building at the start of every frame**. Each of those made two
+      // ~24 m internal moves per frame which cancelled to a **net 0.000 m** —
+      // the crowd was pinned in place, not flying. Two systems were fighting
+      // over the same bodies, and the crowd not being alive was the symptom.
+      //
+      // Rate-limiting keeps the constraint and loses the teleport. A walking
+      // pace is 4x the correction's own demand (the `wob` target moves at
+      // 0.9*0.31 + 0.6*0.11 = 0.35 m/s), so the band is still tracked; an agent
+      // shoved 20 m off now walks back instead of snapping. After: hold p50
+      // 0.000 m at dt=0 and exactly `HOLD_SPEED * dt` at every other dt, max
+      // 0.09 m; agents inside a building 20.8% -> 0.0%.
+      const lim = HOLD_SPEED * dt;
+      const corr = d > lim ? lim : d < -lim ? -lim : d;
+      nx += nxx * corr;
+      nz += nzz * corr;
     }
     const step = Math.hypot(nx - x, nz - z);
     f[o + F.speed] = dt > 0 ? step / dt : 0;
@@ -965,14 +1023,33 @@ export class CrowdSim {
   private seedRef: WorldState = defaultWorld(0x5e7a17);
 
   /**
-   * Write one agent's 24-float instance record into slot `n`.
+   * Write one agent's instance record into slot `n`.
    *
    * Called from Pass B under the same `active` guard and the same radius test
    * that produced `visibleCount`, which is why the two agree by construction
    * rather than by luck. `o` is the agent's field offset. At most one record is
    * written per iteration of a loop bounded by `capacity`, and `instData` is
-   * `capacity * INSTANCE_FLOATS` long, so the write is in bounds by
-   * construction — there is no capacity guard here because none is reachable.
+   * `capacity * INSTANCE_FLOATS` long, so no capacity guard is reachable.
+   *
+   * **The array write is in bounds; the record is 28 floats wide and the stride
+   * is 24.** `INSTANCE_FLOATS` is 24, and so is `INSTANCE_STRIDE / 4` on the GPU
+   * side, but the block below writes `d[b + 24..27]` (density, speed, 0, 0).
+   * Those four floats land on slot `n + 1`'s floats `0..3` — the first column
+   * of its rotation.
+   *
+   * That is benign *only* because records are written in ascending `n`, so each
+   * slot's head is rewritten after the previous slot's tail has clobbered it,
+   * and the last slot's tail spills past `count`, which `main.ts` never uploads.
+   * Measured determinant 1.000 across 2511 instances, confirmed independently
+   * from the GPU side.
+   *
+   * **What breaks it:** any change that writes slots out of ascending order —
+   * a `firstInstance`-offset path, compaction, or sorting instances by depth.
+   * Then every record after the first clobbered one gets a rotation column of
+   * `(density, speed, 0, 0)` and collapses, silently, with the counter still
+   * reading correctly. The clean fix is to drop the four floats or widen the
+   * stride; no shader can read them, since it only ever sees 24. Recorded here
+   * rather than changed, so this commit stays one change.
    */
   private writeInstance(n: number, o: number): void {
     const f = this.f;

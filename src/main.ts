@@ -739,15 +739,23 @@ class App {
       warm: (target?: number, maxTicks?: number, maxMs?: number) =>
         app.warmChunks(target ?? 96, maxTicks ?? 400, maxMs ?? 90_000),
       /**
-       * Set the crowd population directly.
+       * Set the crowd population directly, for one control: the same camera,
+       * the same frame, the population changed and nothing else.
        *
-       * This exists to make one control possible: the same camera, the same
-       * frame, the population changed and nothing else. "2550 instances were
-       * submitted and the frame is empty" and "2550 instances were submitted
-       * and 2550 were drawn" are distinguishable by diffing a frame against the
-       * same frame with the population set to zero, and by nothing else.
+       * `0` calls `clearPopulation()`, which retires every agent immediately.
+       * That distinction is the whole point: `setCount(0)` alone only caps
+       * *seeding*, and Pass B still counts every agent already `active` and
+       * inside `viewRadius` — it measured ~2528, so the control this comment
+       * advertises could not actually be performed. With `0` it is real.
+       *
+       * A positive `n` sets the seeding target; the population refills over
+       * `rebuildStride` frames (one slice per frame), so wait ~10 frames
+       * before reading the counters back.
        */
-      setCrowdCount: (n: number) => { app.crowd.setCount(n | 0); },
+      setCrowdCount: (n: number) => {
+        if ((n | 0) <= 0) app.crowd.clearPopulation();
+        else app.crowd.setCount(n | 0);
+      },
       setPose: (pose: {
         position?: [number, number, number]; lookAt?: [number, number, number];
         fov?: number; roll?: number; derive?: DerivedPoseId;

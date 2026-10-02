@@ -96,54 +96,135 @@ Two open threads the last session did not close:
 ## Open work items — read this before starting
 
 Six proposed fixes, in dependency order. F1 and F2 are **measure-first**: neither
-may be closed by reading code and deciding which side looks right. Do them
-together, in one run. Everything downstream of the crowd is blocked until they
-are both settled.
+may be closed by reading code and deciding which side looks right.
 
-Nothing here has been implemented. Each item states the evidence, the proposed
+**Status.** **F1, F3, F4 and F5b are closed.** Each section below carries the
+commit or the printed number that closed it, and F3's harness line is gone.
+**F2 is still open**: the poses point at the crowd, the CPU counters agree and
+the pavement hold no longer teleports bodies, but pedestrians still do not
+rasterise — that half is `src/render/`.
+
+Items not marked closed are unchanged. Each states the evidence, the proposed
 fix, and the check that proves it closed.
 
-### F1 — The crowd's two visibility predicates disagree
+### F1 — The crowd's two visibility predicates disagreed — **CLOSED, measured**
 
-**Evidence.** One frame at the `01b-crowd-closeup` pose:
+**Cause.** Not staleness, not a mid-frame `viewRadius` write, not frame parity.
+The predicate was simply **evaluated twice against two different states**.
+Pass B counted an agent against its *pre-step* position, `stepAgent` then moved
+it, and `buildInstances` re-tested the *post-step* position. An agent the step
+moved across the radius boundary was counted by one and dropped by the other.
+
+The mover is the **pavement hold** in `stepAgent` — an unconditional positional
+projection, `nx += nxx * d; nz += nzz * d`, applied to `d = lateral + wob - lat`.
+It is not a velocity term and it is **not scaled by `dt`**. Measured with
+`dt = 0` (velocity contributes exactly nothing): agents still moved **185 m in
+one frame** and **1013 of them were still lost** over 30 frames. That control is
+what kills "a pedestrian simply walked out of frame".
+
+**Evidence.** 30 consecutive frames, flying camera, seed 42, camera derived from
+`crowd.population()` (rule 4 — the first rig run pointed at the world origin
+because `population()` is 0 before warm-up, which is `PITFALLS` §16 all over
+again). `pop.n = 2550`, `viewRadius = 160`, `r² = 25600`.
 
 ```
-crowd: 250              // visibleCount, Pass B        crowd.ts:265-276
-instancesCount: 0       // buildInstances()            crowd.ts:794-841
+  frame | visibleCount | instances.count | lost | identity | first agent counted then dropped
+     16 |         2545 |            2522 |   23 |      yes | #13  passD2=25370 nowD2=26367 speed=210.18 lateral=-17.05
+     24 |         2434 |            2327 |  107 |      yes | #132 passD2=25361 nowD2=26417 speed=231.86 lateral=-21.49
 ```
 
-Same guard (`f[o + F.active] < 0.5`), same radius test
-(`dx*dx + dz*dz > viewRadius*viewRadius`), same `cam`, same `update()`, and
-`viewRadius` is not written between them. Both cannot be right.
+`visibleCount − lost == instances.count` held on **30/30 frames**, in both the
+flight run and the `dt = 0` control. 17 of 30 frames lost something; 1032
+agents were lost over 30 frames, up to **107 in a single frame**. Intermittency
+is positional, not periodic: 0 lost while the crowd sits wholly inside the
+radius, tens to hundreds lost once the camera flies through the rim. That is why
+it reproduced on 8 of 11 poses.
 
-This also contradicts the `1481e47` claim that the crowd renders, which rested
-on framing one known agent once and has not been re-verified since.
-**Treat crowd rendering as unverified** until F1 closes.
+All three candidate causes in the old F1 text are **refuted by that identity
+holding 30/30**: `d.b` never collided (`det = 1`, `|col0| = 1` on every sampled
+instance); the `if (n >= cap) break` guard could not fire (`n ≈ 2400` against
+`cap = 6000`); and `buildInstances` ran *after* `rebuildSlices`, not before —
+an independent reconstruction of its predicate from a post-frame snapshot
+matched `instances.count` on 30/30 frames.
 
-**Proposed fix.** Do not reason about which side is wrong. Add a diagnostic that
-prints, for the same frame:
+**Fix.** The instance record is now written inside Pass B, by `writeInstance`,
+under the same guard and the same radius test that produced the count. The two
+counters are one quantity by construction, not by luck — and it costs *less*,
+because the population is scanned once per frame instead of twice. The
+`n >= cap` guard is gone because it is no longer reachable: at most one record
+per iteration of a loop bounded by `capacity`, into a buffer of
+`capacity * INSTANCE_FLOATS`.
 
-1. `visibleCount` and `instances.count` side by side.
-2. `viewRadius` read at three points — before `rebuildSlices`, before Pass B,
-   and inside `buildInstances` — to rule out a mid-frame write.
-3. Raw per-agent state for the first ~8 agents passing the guard: index, `x`,
-   `z`, `active`, and the computed `d2`.
+**After.** 30/30 agreement, `dt = 1/60` **and** `dt = 0`, including the frames
+that previously lost 107 and 99:
 
-Then find the first agent counted by Pass B and dropped by `buildInstances` and
-compare its two distances. Candidate causes worth *checking against that
-evidence*, not assuming:
+```
+  frame | visibleCount | instances.count | agree
+     16 |         2545 |            2545 |  yes      (was 2545 / 2522)
+     24 |         2434 |            2434 |  yes      (was 2434 / 2327)
+  RESULT: the two counters agree on 30/30 frames
+```
 
-- `d.b` (the instance write cursor) colliding with the field writes, so
-  `buildInstances` writes the TRS but `n` never advances.
-- The `if (n >= cap) break` guard at `crowd.ts:806` tripping early, since it is
-  placed *after* the distance test and compares against `capacity`, not the
-  number of eligible agents.
-- `buildInstances` running before the seeding arm of `rebuildSlices` has
-  refilled, reading a stale `active` state.
+**Still true, and not F1:** whether pedestrians *rasterise* is the GPU half, in
+`src/render/`. F1 never claimed they were visible — it claimed the two CPU
+counters disagreed. They no longer do. See F2.
 
-**Closed when:** the two counts agree, or the divergence is localised to a named
-agent and a named line. If they agree, the bug was ordering or staleness and F1
-closes with a one-line reorder — not by deleting whichever counter disagreed.
+#### The cause underneath it: the pavement hold was teleporting bodies
+
+F1's "lost agents" were not agents walking out of frame. The pavement hold in
+`stepAgent` applied its **whole** error as a position snap every frame:
+`nx += normal * (lateral + wob - lat)`. It is not a velocity term and it is not
+scaled by `dt`.
+
+Measured with the rate limit removed as a **control**, 60 frames at each of
+`dt = 0, 1/120, 1/60, 1/30, 1/15`:
+
+```
+  hold  p50 24.117 m at dt=0 ... p50 24.169 m at dt=1/15   (0.2% spread, 60x change in dt)
+  hold  max 33.97 m;  97.9% of agents > 0.5 m;  87.4% > 5 m;  74.4% > 20 m
+  NET travel (|locomotion + hold|)  p50 0.000 m
+  agents standing inside a building footprint  529 of 2550 = 20.8%
+```
+
+The `NET travel p50` is the finding. The bodies were **not flying** — the hold
+moved agents ~24 m and `resolveBuildings` moved them ~24 m straight back, and
+the two cancelled to zero. 20.8% of the crowd stood inside a building at the
+start of every frame, being shoved out and pulled back in, forever. That is why
+Pass B and `buildInstances` disagreed by up to 107: the agents crossed the
+radius boundary twice per frame and cancelled in between.
+
+**Fixed** by making the correction a rate — `clamp(d, ±HOLD_SPEED * dt)` with
+`HOLD_SPEED = 1.4 m/s`, a walking pace. After, the same sweep:
+
+```
+  hold  p50 0.000 m at dt=0 (all 6000 slots exactly zero), and exactly HOLD_SPEED*dt otherwise
+  hold  max 0.09 m;  0.0% of agents > 0.5 m at every dt
+  agents inside a building footprint  0 of 2550 = 0.0%
+  NET travel p50 0.023 m at dt=1/60   (was 0.000 — the crowd was pinned)
+```
+
+**Standing numbers, `__selftest_density.ts`, before -> after:**
+
+| | before | after |
+| --- | --- | --- |
+| gap mode (>= 40 px), all in-frame | 0.0% | **0.0%** |
+| gap mode (>= 40 px), 20–30 px band | 0.0% | **0.0%** |
+| merged (< 2 px), all in-frame | 18.7% | 19.0% |
+| merged (< 2 px), **20–30 px band** | 28.4% | **18.9%** |
+| p50 separation, 20–30 px band | 3.7 px | **6.2 px** |
+| figures in the 20–30 px band | 48 | **517** |
+| population spread | 169 m | 112 m |
+| self-test violations | 1 | **none** |
+
+**Read this honestly.** The `>= 40 px` gap mode did **not** appear — the
+prediction that it would was wrong, and it is not chased here. What moved is the
+band `LEGIBILITY_TARGETS.md` §2 actually names (20–24 px body separation): merged
+fell 9.5 points and the number of figures in that band rose 10x, because the
+crowd is no longer pinned and now spreads down the street rather than heaping
+at the camera. The gap mode needs *group structure*, which is a different
+mechanism — `GROUP_EMPTY_P` — and is R1's remaining work, not this fix's.
+The reviewer's recorded verdict still stands: rebuilding alone will not resolve
+overlapping placement.
 
 ### F2 — The crowd diagnostic poses do not point at the crowd — **POSES DONE, SUBJECT STILL INVISIBLE**
 
@@ -183,48 +264,103 @@ the PNG             zero visible pedestrians
 
 The camera and the subject are in the same place (rule 4 satisfied by
 construction — the pose is *derived* from the centroid), the instance buffer
-holds valid transforms, the draw is issued, and the counters agree. Nothing
-rasterises. That is F1's remaining half, and it is in `src/render/renderer.ts`
-(entity pipeline / `uploadInstances` / `drawEntity`) and
-`src/render/citymesh.ts` (`instanceVertexLayout`), none of which this session
-owned. **F2 cannot close until pedestrians are actually visible.**
+holds valid transforms, the draw is issued, and the counters now agree. Nothing
+rasterises. That half is in `src/render/renderer.ts` (entity pipeline /
+`uploadInstances` / `drawEntity`) and `src/render/citymesh.ts`
+(`instanceVertexLayout`), none of which the session that found this owned.
+**F2 cannot close until pedestrians are actually visible.**
 
-A second, intermittent symptom was seen and is worth a look: `pedestrian:0`
-alongside `population().n ≈ 2550`. It reproduced on 8 of 11 poses in a
-pre-change baseline run and on one derived run, and did not reproduce on seven
-others. F1 recorded this divergence as *fixed*; it is not reliably fixed. It is
-the `instances.count` arm of F1.
+**Two different mechanisms were called one symptom, and they must not be
+conflated.** The F1 counter divergence was real and is closed — Pass B counted
+against the pre-step position while `buildInstances` re-tested the post-step
+position, disagreeing on 17 of 30 frames by up to 107 agents. That was
+**positional**: zero while the crowd sat wholly inside `viewRadius`, tens to
+hundreds once the camera flew through the rim.
+
+The *other* intermittency — `pedestrian:0` sampled once from
+`renderer.entityDraws`, "reproduced on 8 of 11 poses" — has a different cause
+and is **not** explained by F1. Measured from the GPU side: this box drops ~80%
+of frames, and only 12 of 60 stepped frames issued any draw at all, because
+`renderer.render()` returns early under the frame budget at `renderer.ts:1230`
+while `main.ts:438` has already cleared `entityDraws`. On a skipped frame the
+draw ledger reads **empty**. Anything that samples that ledger once is reading
+skipped frames, not a crowd that vanished.
+
+So the standing rule from this: **`crowd`'s `diag`/`visibleCount` counters are
+trustworthy and the GPU draw ledger is not** — the opposite of the usual
+assumption. Sample the counters, and sample the ledger over a run rather than
+once.
 
 **Closed when:** a shot from `01d-street-crowd` contains visible pedestrians.
 
-### F3 — Delete `crowd.inView()`
+### F3 — Delete `crowd.inView()` — **CLOSED**
 
-**Evidence.** `PITFALLS.md` §12: it reported 0 in the camera cone repeatedly,
-even with a dense crowd plainly in frame. It is still in the tree
-(`crowd.ts:326`, called from `main.ts:431`).
+`inView()`, its call site in `main.ts`, and the hardcoded
+`targetsW = 1600 / targetsH = 900` fields that existed only to feed it are
+deleted. Nothing else read `targetsW`/`targetsH`, so both went with it. Per
+§12, a diagnostic that has lied once does not get a second chance, and the
+`pass A/B/C` counts and `population()` answer the question it was answering.
 
-**Proposed fix.** Delete it and its call site, plus the hardcoded
-`targetsW/1600, targetsH/900` arguments that only existed to feed it. Per §12, a
-diagnostic that has lied once does not get a second chance — and F1 is currently
-proving that counters in this file are not trustworthy, so a third opinion would
-only add noise. `pass A/B/C` counts replace it.
+**Also closed.** `tools/capture.mjs:1144`'s `inView: s.inView ?? null` is gone,
+so the key is absent from the stats sidecar rather than present and null. That
+was the last step and it is the close condition F3 actually named.
 
-**Closed when:** `inView` no longer appears in `shots/latest.json` stats.
+### F4 — Wire traffic to the instanced draw path — **DONE; this section was wrong**
 
-### F4 — Wire traffic to the instanced draw path
+**The old text was false and has been deleted.** It claimed "`main.ts:243`
+submits only pedestrians". `buildVehicleInstances` exists, and `main.ts` packs
+the vehicle instances into the same buffer immediately after the pedestrians and
+issues one `drawEntityBlock` per vehicle mesh with a correct instance offset
+(`ped.count + b.start`). PROCESS rule 6: the executable one won, and the document
+was corrected in the same change.
 
-**Evidence.** `TrafficSim` produces 207 vehicles and 64 lights on real rail
-lines; `main.ts:243` submits only pedestrians.
+**Measured**, camera derived from a live tram (rule 4), 10 frames:
 
-**Proposed fix.** Build a traffic instance buffer in the same 24-float layout as
-the crowd (D18) — `TrafficSim` already has position, heading and kind — and
-extend the `pendingEntities` hook to carry a second set keyed `'tram'`,
-`'cablecar'`, etc. `Renderer.drawEntitySet` already works; this is wiring, not
-design. Rail-aligned vehicles must use the suspension's own transform, or trams
-will float above and sink below their cables.
+```
+  per-kind   alive / drawn / culledFar / dropped
+    tram        240 /  240 /    0 /    0
+    trolley     180 /  180 /    0 /    0
+    cablecar    180 /  170 /   10 /    0
+    funicular   120 /    0 /  120 /    0
+    zipline     240 /    0 /  240 /    0
+    blimp       120 /   40 /   80 /    0
+    balloon     180 /   20 /  160 /    0
+    cycle        30 /    0 /    0 /   30
 
-**Closed when:** the `03-tram-level` pose shows vehicles on the rails, with
-`entityDraws` reporting a non-zero count per kind.
+  blocks issued per frame:
+    count=65 [tram:42@0 cablecar:17@42 rider:0@59 blimp:4@59 balloon:2@63]
+    maxGrade=0.8129 maxGradeError=0
+```
+
+**Rail alignment is correct.** Distance from a tram's position to its own
+resampled rail spline, and the vertical term alone:
+
+```
+    tram       railDist=0  |dy|=0  suspension=catenary  nearestCam=29.6
+    trolley    railDist=5.2  |dy|=0  suspension=catenary  nearestCam=28.6
+    cablecar   railDist=0  |dy|=0  suspension=free     nearestCam=850
+    funicular  railDist=0  |dy|=0  suspension=ground   nearestCam=1894
+    zipline    railDist=0  |dy|=0  suspension=catenary  nearestCam=1745
+```
+
+`|dy| = 0` means trams are on the rail, not floating above or sinking below it.
+The 5.2 m on `trolley` is the authored twin offset ("run beside the tram, ~5 m to
+one side"). `maxGradeError = 0` is the stronger statement: the written Y column
+equals `forward[1] / |forward|` exactly, so the vehicles use the rail tangent
+and not a yaw-only transform. That is the failure the old F4 text predicted and
+it is not present.
+
+**Two things a reviewer should know, both pre-existing and correct:**
+
+- `funicular` and `zipline` drew 0 from a tram-adjacent camera because their
+  nearest instance was 1894 m and 1745 m away against ranges of 460 m and 620 m.
+  They are culled by distance, not broken. F4's old close condition — "non-zero
+  `entityDraws` per kind" — is therefore pose-dependent, and no single pose
+  satisfies it for all eight kinds.
+- `cycle` is `dropped` every frame with `range: 0`. That is deliberate and
+  commented at `traffic.ts` (`VEHICLE_DRAW.cycle`): no mesh exists for a cycle.
+  It is a documented absence, not a wiring fault, but it is the same *shape* as
+  a phantom, so it is recorded here rather than left to be rediscovered.
 
 ### F5 — Ground detail at eye height — **CLOSED, measured**
 
@@ -284,7 +420,7 @@ in the commits; the two worth carrying forward:
 **Closed when:** a street-level pose shows kerbs catching light and reading as a
 kerb, with painted lines on the carriageway. **See the capture below.**
 
-### F5b — The street field is not a distance field (new, from F5)
+### F5b — The street field is not a distance field — **CLOSED, `2037d6c`**
 
 `sampleStreetPlan` evaluates the domain warp `warpAt(x, z)` at the **query
 point**, so for the grid and alley families `out.dist` is the distance to a line
@@ -299,9 +435,27 @@ than their footprints suggest — and `__selftest.ts` reports "carriageway
 signed distance (evaluate the warp at the line, not at the query) would fix lot
 placement, the kerb edge, and probably the canyon widths at once.
 
-**Not attempted** — `citygen.ts` was out of scope for F5, and a change to how
-every building is placed is not a change to make inside a ground-detail task.
-**Closed when:** the kerb edge stops needing a field query per segment.
+**Closed.** `2037d6c`, "citygen: the street field is a distance field now, and
+the check is committed". The warp is now evaluated at the line by fixed-point
+iteration, and the error was measured against the bisected line by two
+independent methods that agreed:
+
+```
+  |reported - true|   p50 0.71m   p90 3.30m   max 20.12m
+```
+
+That is the *pre-fix* error. `src/world/__selftest.ts` now asserts the result
+directly and currently reports:
+
+```
+  34647 unambiguous kerb-face vertices sit on the carriageway edge: p50 0.12m, p90 2.71m
+  134906/134906 deck vertices inside a street corridor (worst 0.00m clear)
+```
+
+The close condition ("the kerb edge stops needing a field query per segment") is
+met. Note the downstream consequence was wider than the kerbs and is still worth
+watching: every building setback was derived from this `clearance`, so the city
+stands differently than it did before `2037d6c`.
 
 ### F5c — `MeshOpts.emissive` is a PHANTOM (new, from F5)
 

@@ -1141,7 +1141,6 @@ function provenance(r, req) {
       drawCalls: s.entityDrawCalls ?? null,
       triangles: s.entityTriangles ?? null,
       draws: s.entityDraws ?? null,
-      inView: s.inView ?? null,
     },
     dayPhase: s.dayPhase ?? null,
     weather: s.phase ?? null,
