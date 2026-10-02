@@ -1039,13 +1039,30 @@ async function main() {
       const ok = await shoot(page, file);
       if (!ok) throw new CaptureError('screenshot produced no file');
       const stats = await page.evaluate(() => (typeof window.__syzygy?.stats === 'function' ? window.__syzygy.stats() : null)).catch(() => null);
+      // What the app actually derived and is currently holding, if any.
+      const derived = stats?.derivedPose ?? null;
+      const derivedPos = derived?.ok ? derived.position : null;
+      const derivedLook = derived?.ok ? derived.lookAt : null;
+      const derivedFov = derived?.ok ? derived.fov : null;
       results.push({
         name: pose ? pose.name : runStamp,
         label: pose?.label ?? null,
         file: `shots/${runStamp}${pose ? `-${pose.name}` : ''}.png`,
         stats,
+        // `pose.position` is a static config value and is null for every DERIVED
+        // pose (the 01d/01e/01f family is computed at runtime), so recording it
+        // wrote `requested: {position: null}` and the check below could not fail.
+        // Record what was actually derived instead, and say which it was.
         requested: pose ? {
-          position: pose.position ?? null, lookAt: pose.lookAt ?? null, fov: pose.fov ?? null,
+          position: pose.position ?? derivedPos, lookAt: pose.lookAt ?? derivedLook,
+          fov: pose.fov ?? derivedFov ?? null,
+          derived: pose.position == null && derivedPos != null,
+          // A derived pose is computed once, from a population that is usually
+          // still filling. By capture time that crowd has moved, so the
+          // derivation-time population is a number about a crowd that no longer
+          // exists. Record both so the guard cannot read as a working one.
+          populationAtDerivation: derived?.source?.population ?? null,
+          populationAtCapture: stats?.pop ?? null,
         } : null,
       });
       writeIndex(runStamp, results, notes, opts);
@@ -1055,10 +1072,22 @@ async function main() {
         // check is cheap, and printing "view off by 0.00 deg" next to the frame
         // is what makes a reader trust the frame without re-deriving it.
         const hp = stats?.camera?.position;
-        const d = (hp && pose.position) ? Math.hypot(
-          hp[0] - pose.position[0], hp[1] - pose.position[1], hp[2] - pose.position[2]) : null;
+        const want = pose.position ?? derivedPos;
+        const d = (hp && want) ? Math.hypot(
+          hp[0] - want[0], hp[1] - want[1], hp[2] - want[2]) : null;
+        // A derived pose with no live derivation is the case this used to miss
+        // entirely: `heldDerivedPose()` returns null once the camera has drifted
+        // off the pose it was derived for, and that is exactly when the frame is
+        // no longer the frame the pose describes. Fail rather than pass quietly.
+        if (pose.position == null && derivedPos == null) {
+          throw new CaptureError(
+            `pose ${pose.name} is derived, but no live derivedPose was reported: ` +
+            `the camera is not held at any pose derived from the crowd.`);
+        }
+        const src = pose.position == null ? 'derived' : 'requested';
         say(`  pose      ${pose.name}` +
-          (d === null ? '' : `  (camera ${d.toFixed(2)}m from requested, within ${POSITION_TOLERANCE_M}m)`));
+          (d === null ? '  (no position to check against)'
+                      : `  (camera ${d.toFixed(2)}m from ${src}, within ${POSITION_TOLERANCE_M}m)`));
       }
       if (stats) say(`  stats     ${JSON.stringify(stats)}`);
     }
