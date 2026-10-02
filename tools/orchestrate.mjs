@@ -312,15 +312,27 @@ if (cmd === 'watch') {
   console.log(`workspace ${ws} — ${mine.length} team panes`);
   for (const a of mine) {
     const st = a.agent_status ?? 'unknown';
-    const mark = st === 'working' ? '..' : st === 'idle' ? 'IDLE' : st === 'blocked' ? 'BLK' : '???';
+    // `unknown` is NOT `working`. An agent mid-long-build reports `unknown`
+    // because herdr cannot classify it, and reading that as "busy" once left
+    // four panes idle for a full round while the orchestrator reported no idle
+    // time. Treat it as needing attention.
+    const mark = st === 'working' ? '..' : st === 'idle' ? 'IDLE'
+      : st === 'blocked' ? 'BLK' : st === 'done' ? 'DONE' : 'UNKN';
     console.log(`  [${mark}] ${String(labelOf.get(a.pane_id) ?? '?').padEnd(20)} ${a.pane_id}`);
   }
   const blocked = mine.filter((a) => a.agent_status === 'blocked');
   const idle = mine.filter((a) => a.agent_status === 'idle');
-  console.log(`  working ${mine.length - idle.length - blocked.length}  idle ${idle.length}  blocked ${blocked.length}`);
+  // Unclassifiable is not the same as working, and neither is it the same as idle:
+  // it is a pane nobody has read recently. Both need a look.
+  const unknown = mine.filter((a) => !['working', 'idle', 'blocked', 'done'].includes(a.agent_status));
+  console.log(`  working ${mine.length - idle.length - blocked.length - unknown.length}` +
+    `  idle ${idle.length}  blocked ${blocked.length}  unclassified ${unknown.length}`);
   if (blocked.length) console.log('  ACTION: a pane is BLOCKED on a prompt — read it and answer.');
   if (idle.length) console.log('  ACTION: an idle pane needs the next brief (WORKFLOW §3.4).');
-  process.exit(0);
+  if (unknown.length) console.log(
+    '  ACTION: a pane is UNCLASSIFIED — herdr cannot tell if it is running. Read it; ' +
+    'do not assume busy. All four sat `unknown` while idle for a whole round.');
+  process.exit(idle.length + unknown.length ? 1 : 0);
 }
 
 if (cmd === 'lock-status') {
