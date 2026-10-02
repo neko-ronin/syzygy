@@ -459,6 +459,12 @@ R8 (WebGL 2)       ──  CLOSED: shelved by decision 2026-10-01, not work (D1)
 R10 (iteration)    ──  partly done: compare.mjs landed, warm boot is F6
 R12 (living)       ──  R1 makes streets read occupied; this makes the occupants
                          read alive. Independent of R1's density work.
+
+      ── after R2's radius round, before R11 ──
+R13 (audit)        ──  find which guarantees are ENFORCED and which sit in the
+                         wrong path. Cheap now; expensive after R11 §C work
+R11 (sections)     ──  §C is not a reskin and is the item most likely to stress
+                         the frame graph, which is why the audit precedes it
 ```
 
 ## What "spectacle" means here
@@ -508,6 +514,7 @@ detail at 3 m and no such pose exists for any section yet.
 
 ---
 
+---
 ## R12 — Living systems: crowd dynamics and locomotion
 
 **Status: todo** · **Priority: high** · *Vision: "realistically active living city
@@ -563,3 +570,67 @@ still crowd alone. A still crowd can be produced by a uniform lattice, and has
 been.
 
 ---
+
+---
+## R13 — Renderer and engine review (audit only)
+
+**Status: proposed** · **Priority: high** · *Vision: "make performance tricks" /
+"use webgpu" — both of which are statements about the engine*
+
+**This is an audit. The deliverable is a document, not a migration.** Read that
+sentence before spending anything on it. No new abstraction layer, no framework
+adoption, no second backend, no rewrite. Portability to three.js remains wanted
+and is *not* this row (D1).
+
+**Why now, and not at the end.** Every expensive fault in this project's history
+has been silent, and repeatedly the guard existed but sat in the wrong place. The
+sharpest recent instance: `--pose=<substr>` without `--sequence` never applied the
+pose, and the requested-vs-held check — correct, tolerance-tuned, with two
+paragraphs of written reasoning — lived one branch away from the documented
+one-shot command. It reported `PASS` and wrote two frames of a rooftop 444 m up
+(`b2ea352`, `PITFALLS.md` §20). Five of the seven night-market rounds were spent
+not on the renderer being wrong but on not knowing which part was wrong, and five
+mechanisms were proposed on plausibility before a validated probe settled it
+(§21).
+
+That is the argument for an audit now rather than later: **the highest-value
+output is not a verdict on the architecture, it is an inventory of which
+guarantees are actually enforced, and where.** Finding a structural problem after
+R11's §C grammar work means redoing that work.
+
+**Scope, in priority order:**
+
+1. **Enforcement inventory.** For every invariant the renderer claims — reverse-Z
+   comparison direction, shadow camera along the sun, light count round-trip,
+   crowd-centroid refusal for diagnostic poses, LOD swapping, seed fidelity —
+   mark each **enforced / unenforced / enforced-in-one-path**. The third
+   category is the one that has cost real time.
+2. **The WGSL↔TypeScript ABI.** Enumerate every struct written from TS and read
+   by a shader, and check each against `FRAME_UNIFORM_SIZE` and its WGSL
+   counterpart. This is already known to be load-bearing ("WGSL struct offsets
+   are an ABI", `AGENTS.md` pitfall 3) and is *documented as a risk rather than
+   checked by a test*. Convert it into one.
+3. **Diagnostic trustworthiness.** Catalogue every value that appears in
+   `shots/latest.json` or `stats()` and mark whether it can lie. Precedents to
+   fold in: `entityDrawCalls` (no callers), `derivedPose` (published stale),
+   `pedestrian: ?` (a name with no system), `requested: null` on a passing run,
+   `culledByDay` (outlived its cause), and the ≥40 px gap bin that dev2 nearly
+   deleted while tidying — which is the strongest argument for the whole row.
+4. **Which remaining items are blocked on a renderer limit.** Specifically: is R3's
+   moiré (3.638 HF energy at grain 0) the same problem as TAA non-convergence, or
+   independent? Are R5 fracture, R7 water and R11 §C smoke blocked on a frame-graph
+   limit, or merely unwritten? Answering this reorders work rather than adding it.
+5. **Portability assessment — output, not input.** Where the code is coupled to
+   WebGPU specifics, and what a three.js port would actually cost. Recorded so the
+   next session is not asked to re-derive it. **This section may not contain
+   work items**, or it becomes a rewrite with a roadmap row.
+
+**Watch out.** An audit that concludes "we should adopt X" is the failure mode,
+and it is the reason this row is written with a scope rather than a goal. The
+question is *what is enforced*, not *what would be nicer*. A negative result is a
+legitimate and useful outcome: if the answer is "the architecture is sound and the
+guards are in the wrong three places", that is three cheap fixes and no migration.
+
+**Done when:** the document exists, every claim in it cites a file and line, and
+each of the five sections above has an answer. **Not** when a framework has been
+chosen.
