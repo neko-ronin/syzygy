@@ -1198,3 +1198,123 @@ question has not been posed correctly yet. **More work needed.**
 ### Moiré — parked
 
 Unchanged: 3.638 of high-frequency energy at grain 0 and chroma 0.
+
+---
+
+## 4l. Round 17: a probe with real geometry, and a validated reading
+
+Measurement only. No authoring change, no capture — every run of the harness in
+this round reported `0 shot(s)`, and the frames on disk are untouched.
+
+### The instrument
+
+Sample points are triangle centroids of **baked** geometry, never placed by hand:
+
+- **frontage** — `bakeMarketDetail`, triangles with `|n.y| < 0.35` and a normal
+  that faces the camera, unoccluded by a ray against the market mesh, 2.5–45 m.
+- **deck** — `bakeChunk(...).opaque`, triangles with `n.y > 0.9` below 1.2 m.
+
+Two probe bugs, both caught by the validation and both worth recording:
+
+1. **The market mesh has no carriageway.** `bakeMarketDetail` makes stalls,
+   canopies, crates and cords. The first "deck" set was sampled from it and was
+   therefore canopy tops — which is why the first validation read byte 4 at 2.6 m
+   from a lantern. The deck has to come from `bakeChunk`.
+2. Triangle centroids are too sparse. Only **3** deck points in the whole market
+   lay within 1.2 m of a lantern, all 35 m out. The deck set was resampled as
+   barycentric sub-points on real deck triangles under a lantern: 276 points.
+
+Projection uses the renderer's **own** matrix — `frameUniforms()[0..15]` is
+`d.set(this.viewProj, 0)`, column-major, reverse-Z `[0,1]` ndc — not a
+reconstruction from `position`/`lookAt`/`fov`.
+
+### Validation: PASS
+
+The hand-measured quantity from rounds 14/15, deck under the nearest lantern:
+
+| | pixel | byte R | R−B |
+| --- | --- | --- | --- |
+| round 14, manual projection | (581, 621) | 60.6 | +38.3 |
+| **this probe, renderer's viewProj** | **(580, 627)** | **64.3** | **+41.5** |
+
+Inside 6 px and 4 byte. The probe reproduces a number someone else measured, which
+is the only kind worth trusting after round 16.
+
+### The two histograms — R−B, 5-byte bands
+
+| R−B band | frontage (N·L>0.3) | deck (under a lantern) |
+| --- | --- | --- |
+| −40..−35 | 1 | 0 |
+| −30..−25 | 1 | 0 |
+| −20..−15 | 3 | 3 |
+| −15..−10 | 3 | 19 |
+| −10..−5 | 8 | 52 |
+| −5..0 | 16 | 104 |
+| 0..+5 | 2 | 16 |
+
+n = 37 frontage, 194 deck.
+
+```
+frontage  median R-B -5.0   mean -10.8   p90 -0.1   max +0.7
+deck      median R-B -3.7   mean  -4.7   p90 -0.2   max +2.0
+```
+
+Matched distance, `lantD` 2–12 m both sets:
+
+| | n | median lantD | median byte R | median R−B | warm (R−B>0) |
+| --- | --- | --- | --- | --- | --- |
+| frontage | 27 | 7.91 m | **4.7** | −2.7 | **7%** |
+| deck | 194 | 7.25 m | **4.8** | −3.7 | **8%** |
+
+### R−B against distance to the nearest lantern
+
+| lantD | deck n / median R−B / warm | frontage n / median R−B / warm |
+| --- | --- | --- |
+| 0–1 m | — | 6 / **−16.1** / 0% |
+| 1–2 m | — | 4 / **−9.2** / 0% |
+| 3–4 m | — | 2 / +0.2 / 50% |
+| 4–6 m | 78 / −4.8 / 3% | 5 / −3.1 / 0% |
+| 6–8 m | 34 / −5.6 / 12% | 8 / −3.4 / 0% |
+| 8–10 m | 41 / −3.3 / 5% | 10 / −2.8 / 0% |
+| 10–13 m | 41 / −3.0 / 17% | 2 / −1.5 / 50% |
+
+### What this says
+
+**Frontage and deck are indistinguishable at matched distance** — median byte R
+4.7 against 4.8, R−B −2.7 against −3.7, 7% warm against 8%. So the round-15/16
+residual, "a face receives 12% of what its geometry predicts", is not a
+frontage-versus-deck problem at all. Both surfaces fail identically.
+
+**The warm pool is a spot roughly 2 m across, directly under each lantern.** The
+validation point — 3.0 m from a lantern, straight down — reads +41.5. Nothing at
+4 m or beyond is warm: deck at 4–6 m is −4.8 with 3% warm, at 8–10 m is −3.3 with
+5% warm. That is a very small bright spot on a very cold field, and it is what the
+reviewer read as "a warm pool on the deck and nothing else".
+
+**Frontage at 0–1 m from a lantern is the coldest thing measured** (R−B −16.1).
+Not shadow — clustered lights have no shadow lookup — but almost certainly
+orientation: a market triangle a metre from a lantern whose normal points away
+from it gets `NoL = 0` and only blue ambient.
+
+### Sample count and occlusion, stated plainly
+
+- frontage: 587 candidates → 236 unoccluded → 75 in frame → **37 with N·L > 0.3**.
+- deck: 276 dense sub-points → **194 in frame**.
+- **The occlusion test is partial.** It ray-casts against the market mesh only.
+  Buildings, props and the ground mesh are not in that test, so a sample occluded
+  by a *building* would still be counted as visible. No sample in either set
+  returned sky-black, and the day control lights the same geometry, so I do not
+  think this corrupted the histograms — but it is a known limit of the instrument,
+  not a property I verified.
+
+### The answer, in one line
+
+**At a stall frontage genuinely lit by a market lantern the rendered radiance is
+byte R ≈ 4.7 with R−B ≈ −3 — indistinguishable from the deck at the same distance
+— so frontage is not specially starved; the defect is that the lantern pool itself
+is only ~2 m across, and beyond that nothing in the market is warm at all.**
+
+### Moiré — parked
+
+Unchanged: 3.638 of high-frequency energy at grain 0 and chroma 0. Not investigated
+this round; no captures were taken.
