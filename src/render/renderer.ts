@@ -1470,9 +1470,18 @@ export class Renderer {
       ? this.cascadePlanes[cascade]
       : cam.frustumPlanes;
 
-    // The street deck goes down first with depth writes off, so it only fills
-    // pixels nothing else claims. Without it, a top-down view is all sky and a
-    // street-level view has a void under the buildings.
+    // The street deck goes down first so it only fills pixels nothing else
+    // claims. Without it, a top-down view is all sky and a street-level view
+    // has a void under the buildings.
+    //
+    // It DOES write depth, contrary to what this comment used to say. There is
+    // no second pipeline here and the G-buffer pipeline sets
+    // `depthWriteEnabled: true` (renderer.ts:612), so the deck occupies the
+    // depth buffer like everything else. That is correct and load-bearing for
+    // reverse-Z — a nearer surface wins on `greater` — but it is why a deck
+    // fragment and a crowd member's feet can contend at the same distance.
+    // Recorded here because a comment that says the opposite of the code is a
+    // landmine for whoever reads this next (PROCESS rule 6).
     if (this.ground.indexCount > 0) {
       pass.setVertexBuffer(0, this.ground.vbo);
       pass.setVertexBuffer(1, this.groundInst);
@@ -1599,15 +1608,22 @@ export class Renderer {
   pendingEntities: ((p: GPURenderPassEncoder) => void) | null = null;
 
   /**
-   * TEMPORARY (F1/F2 round 2): gate on the entity draw, so a frame with
-   * pedestrians and a frame without them can be taken at the SAME camera and
-   * diffed. `setCrowdCount(0)` cannot do this — `Pass B` counts any `active`
-   * agent inside `viewRadius` regardless of `targetVisible` (crowd.ts:338-384),
-   * so asking for a population of zero still submits ~2500 instances and the
-   * "population set to zero" control `main.ts:753` advertises does not zero the
-   * instances. Flip this to false, re-run, diff.
+   * Gate on the entity draw, so a frame with entities and a frame without them
+   * can be taken at the SAME camera and diffed. Default `true`, so it changes no
+   * behaviour; it exists because the obvious control does not work.
    *
-   * Remove when F2 closes. A switch nobody flips is a landmine.
+   * `setCrowdCount(0)` cannot do this. `Pass B` counts every `active` agent
+   * inside `viewRadius` regardless of `targetVisible` (`crowd.ts:338-384`), so
+   * asking for a population of zero still submitted ~2500 instances — measured.
+   * The "population set to zero" control `main.ts:753` advertises is therefore
+   * void, and this flag is what replaced it: flip to false, re-shoot, diff. That
+   * is how F2 was closed, and how the pedestrian band was identified as the
+   * crowd rather than as chunk geometry (docs/F1F2_GPU_HALF.md §4.2).
+   *
+   * F2 turned out NOT to be a rendering bug — the crowd had been drawing the
+   * whole time and the defect was its lack of lateral spread. Keep this: the
+   * next question of the shape "are entities reaching the frame" is otherwise
+   * unanswerable without editing `main.ts`.
    */
   entityDrawEnabled = true;
 

@@ -629,8 +629,28 @@ fn fs(i: VSOut) -> GOut {
   // pavement — slab joints, kerb tones and all — instead of cloth. A heuristic
   // that can claim an entity is a diagnostic pointing at the wrong subject, which
   // is the F2 mistake in a shader.
-  let isChunkDeck = i.matId == MAT_DIFFUSE && abs(n.y) > 0.55
-                 && i.world.y > DECK_Y - 0.4 && i.world.y < DECK_Y + 0.75;
+  //
+  // The MAT_DIFFUSE term is what stopped that, and it is sufficient on its own. The
+  // `abs(n.y) > 0.55` that rode along with it did not: it is *mutually exclusive
+  // with groundSurface()'s own definition of a kerb*, which is `vertical =
+  // abs(n.y) < 0.5`. Measured over one baked chunk: **3520 kerb-face vertices in the
+  // height band, 0 of them admitted by this gate.** Every kerb in the city was
+  // therefore falling through to the MAT_DIFFUSE *facade* branch below and being
+  // shaded with window cells and sills across a 12 cm strip — which is why the deck
+  // reads as one bare slab: the authored kerb/deck contrast (4.3x in vertex colour)
+  // had no consumer left to reach the frame.
+  //
+  // So the normal test is now split by surface class, because the two classes it has
+  // to admit are perpendicular to each other and the old single threshold could only
+  // hold one of them. Horizontal keeps the wide band (deck, footway, kerb top).
+  // Vertical gets a tight one — kerbs stand 0.06..0.20 m proud, so a window of
+  // DECK_Y-0.05 .. DECK_Y+0.22 admits the kerb run and excludes the 40 wall-base
+  // vertices above it (measured), which would otherwise pick up kerb block joints on
+  // the bottom 22 cm of a facade.
+  let isChunkDeck = i.matId == MAT_DIFFUSE && (
+       (abs(n.y) > 0.55 && i.world.y > DECK_Y - 0.40 && i.world.y < DECK_Y + 0.75)
+    || (abs(n.y) < 0.50 && i.world.y > DECK_Y - 0.05 && i.world.y < DECK_Y + 0.22)
+  );
 
   if (isDeckMat || isChunkDeck) {
     // Distance drives the joint width floor below; without it every paving
