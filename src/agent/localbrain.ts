@@ -152,7 +152,7 @@ const RULES: Rule[] = [
 
   // ---- crowds / traffic ---------------------------------------------------
   { re: /\b(celebrat\w*|party|festival|feast|carnival|parade|celebratory)\b/, calls: () => [{ name: 'trigger_event', input: { kind: 'bloom-festival', ttl: 120, radius: 500 } }, { name: 'set_crowd', input: { count: 14000, density: 0.95, agitation: 0.55 } }], say: 'Festival. The terraces are packed.' },
-  { re: /\b(panic|chaos|riot|scare|frighten|terrify|scared)\b/, calls: () => [{ name: 'set_crowd', input: { agitation: 0.95 } }, { name: 'trigger_event', input: { kind: 'structure-collapse', ttl: 14, radius: 260 } }], say: 'Panic.' },
+  { re: /\b(panic|chaos|riot|scare|frighten|terrify|scared)\b/, calls: () => [{ name: 'set_crowd', input: { agitation: 0.95 } }], say: 'Panic.' },
   { re: /\b(crowd|crowded|crowds|busts|busy|people|pedestrians|mass(?:es)? of people)\b/, calls: () => [{ name: 'set_crowd', input: { count: 12000, density: 0.9, agitation: 0.2 } }], say: 'Thick with people.' },
   { re: /\b(empty|desolate|abandoned|quiet|calm streets|nobody|lonely)\b/, calls: () => [{ name: 'set_crowd', input: { count: 120, density: 0.08, agitation: 0.02 } }, { name: 'set_traffic', input: { count: 12, density: 0.1 } }], say: 'Empty. Nobody home.' },
   { re: /\b(rush hour|gridlock|traffic jam|jam)\b/, calls: () => [{ name: 'set_traffic', input: { count: 900, density: 1 } }], say: 'Gridlock.' },
@@ -164,7 +164,7 @@ const RULES: Rule[] = [
   { re: /\b(balloons?|release)\b/, calls: () => [{ name: 'trigger_event', input: { kind: 'balloon-release', ttl: 150, radius: 400 } }], say: 'Letting them go.' },
   { re: /\b(lanterns?|sky lanterns?|paper lanterns?)\b/, calls: () => [{ name: 'trigger_event', input: { kind: 'lantern-rise', ttl: 180, radius: 400 } }], say: 'Lanterns.' },
   { re: /\b(blimps?|zeppelins?|dirigibles?|airships?)\b/, calls: () => [{ name: 'trigger_event', input: { kind: 'blimp-parade', ttl: 200, radius: 600 } }], say: 'Blimp parade.' },
-  { re: /\b(collapse|collapse it|demolish|destroy|wreck|topple|bring it down)\b/, calls: () => [{ name: 'trigger_event', input: { kind: 'structure-collapse', ttl: 20, radius: 280 } }], say: 'Letting a tower come down.' },
+  { re: /\b(collapse|collapse it|demolish|destroy|wreck|topple|bring it down)\b/, calls: () => [], say: 'I cannot collapse structures — nothing here comes down.' },
   { re: /\b(power ?(?:out|outage|failure)|blackout|lights out|power cycle|darkness)\b/, calls: () => [{ name: 'trigger_event', input: { kind: 'power-cycle', ttl: 45, radius: 900 } }], say: 'Power cycle. The city blinks out.' },
   { re: /\b(flood|flash ?flood|inundat\w*)\b/, calls: () => [{ name: 'trigger_event', input: { kind: 'flash-flood', ttl: 90, radius: 700 } }, { name: 'set_weather', input: { precip: 'rain', wetness: 1, haze: 0.5 } }], say: 'Flash flood.' },
   { re: /\b(aurora|aurora borealis|northern lights|northern light)\b/, calls: () => [{ name: 'trigger_event', input: { kind: 'aurora-borealis', ttl: 240, radius: 1400 } }], say: 'Aurora.' },
@@ -215,7 +215,7 @@ export function localBrain(input: string, world: WorldState, cam: [number, numbe
         `I can't steer that without an API key configured (set ANTHROPIC_API_KEY and restart the dev server).\n\n` +
         `What I do understand: weather ("make it rain", "storm", "fog", "clear it up"), ` +
         `time ("golden hour", "night", "freeze time", "faster"), camera ("go to the canyon", "orbit", "fly up"), ` +
-        `lens ("miniature", "blurrier", "dutch angle", "warp"), and events ("lanterns", "festival", "collapse").\n\n` +
+        `lens ("miniature", "blurrier", "dutch angle", "warp"), and events ("lanterns", "festival").\n\n` +
         `Current state —\n${describeWorld(world)}`,
       calls,
     };

@@ -129,7 +129,7 @@ export interface ToolCall {
 export const EVENT_KINDS: readonly EventKind[] = [
   'rain-burst', 'sunbreak', 'fog-bank', 'aurora', 'lightning',
   'bloom-festival', 'migration', 'market-rush', 'balloon-release',
-  'blimp-parade', 'structure-collapse', 'lantern-rise', 'spore-bloom',
+  'blimp-parade', 'lantern-rise', 'spore-bloom',
   'monsoon', 'aurora-borealis', 'power-cycle', 'flash-flood',
 ];
 
@@ -159,7 +159,6 @@ const EVENT_LABELS: Record<EventKind, string> = {
   'market-rush': 'market rush',
   'balloon-release': 'balloon release',
   'blimp-parade': 'blimp parade',
-  'structure-collapse': 'structure collapse',
   'lantern-rise': 'lantern rise',
   'spore-bloom': 'spore bloom',
   monsoon: 'monsoon',

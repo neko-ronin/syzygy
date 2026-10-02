@@ -421,7 +421,7 @@ class Blend {
 export const EVENT_TTL: Record<EventKind, number> = {
   'rain-burst': 26, sunbreak: 30, 'fog-bank': 45, aurora: 42, lightning: 9,
   'bloom-festival': 55, migration: 42, 'market-rush': 46, 'balloon-release': 58,
-  'blimp-parade': 48, 'structure-collapse': 18, 'lantern-rise': 62,
+  'blimp-parade': 48, 'lantern-rise': 62,
   'spore-bloom': 58, monsoon: 95, 'aurora-borealis': 72, 'power-cycle': 11,
   'flash-flood': 36,
 };
@@ -438,7 +438,6 @@ const EVENT_TAG: Record<EventKind, string> = {
   'market-rush': 'the bazaar at full pitch',
   'balloon-release': 'balloons letting go',
   'blimp-parade': 'blimp parade overhead',
-  'structure-collapse': 'a tower coming down',
   'lantern-rise': 'lanterns rising',
   'spore-bloom': 'spores in the air',
   monsoon: 'monsoon',
@@ -451,7 +450,6 @@ const AURORA_GREEN: Vec3 = [0.16, 0.62, 0.42];
 const AURORA_VIOLET: Vec3 = [0.3, 0.2, 0.66];
 const NIGHT_AMBIENT: Vec3 = [0.09, 0.12, 0.26];
 const LANTERN_AMBIENT: Vec3 = [0.46, 0.24, 0.12];
-const DUST_AMBIENT: Vec3 = [0.4, 0.34, 0.26];
 const MARKET_AMBIENT: Vec3 = [0.5, 0.38, 0.22];
 
 const mixC = (a: Vec3, b: Vec3, t: number): Vec3 => [
@@ -536,16 +534,6 @@ const EVENT_FX: Record<EventKind, (l: Blend, w: number, e: WorldEvent) => void> 
   'blimp-parade': (l, w) => {
     l.wx(w, { haze: 0.46, godRays: 0.68, bloomStrength: 0.6, windSpeed: 12, motes: 0.3 });
     l.lens(w, { fov: 70 * D2R, saturation: 1.18, chroma: 0.5, bloom: 0.68 });
-  },
-  'structure-collapse': (l, w) => {
-    l.sky('hazy', w);
-    l.sun(w, { ambientIntensity: 0.4 });
-    l.sunColor(w, 'ambient', DUST_AMBIENT);
-    l.wx(w, {
-      haze: 0.82, hazeFalloff: 0.115, motes: 0.94, godRays: 0.06,
-      bloomStrength: 0.5, scatter: 0.62, wetness: 0.3, cloudCover: 0.5,
-    });
-    l.lens(w, { exposure: 0.88, bloom: 0.72, grain: 0.34, chroma: 0.5 });
   },
   'lantern-rise': (l, w) => {
     l.sky('night', w);

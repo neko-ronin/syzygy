@@ -174,7 +174,7 @@ export const defaultLens = (): Lens => ({
 export type EventKind =
   | 'rain-burst' | 'sunbreak' | 'fog-bank' | 'aurora' | 'lightning'
   | 'bloom-festival' | 'migration' | 'market-rush' | 'balloon-release'
-  | 'blimp-parade' | 'structure-collapse' | 'lantern-rise' | 'spore-bloom'
+  | 'blimp-parade' | 'lantern-rise' | 'spore-bloom'
   | 'monsoon' | 'aurora-borealis' | 'power-cycle' | 'flash-flood';
 
 export interface WorldEvent {

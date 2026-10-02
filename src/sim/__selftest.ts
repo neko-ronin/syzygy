@@ -24,7 +24,7 @@ const vec3s = (c: Vec3): string => `${f2(c[0])} ${f2(c[1])} ${f2(c[2])}`;
 const EVENT_KINDS: EventKind[] = [
   'rain-burst', 'sunbreak', 'fog-bank', 'aurora', 'lightning',
   'bloom-festival', 'migration', 'market-rush', 'balloon-release',
-  'blimp-parade', 'structure-collapse', 'lantern-rise', 'spore-bloom',
+  'blimp-parade', 'lantern-rise', 'spore-bloom',
   'monsoon', 'aurora-borealis', 'power-cycle', 'flash-flood',
 ];
 

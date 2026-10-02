@@ -249,7 +249,7 @@ export class ConductorUI {
         return;
       }
       case 'event': {
-        const kinds = ['lantern-rise', 'bloom-festival', 'migration', 'aurora-borealis', 'lightning', 'monsoon', 'blimp-parade', 'market-rush', 'balloon-release', 'structure-collapse', 'fog-bank', 'sunbreak', 'spore-bloom', 'rain-burst', 'flash-flood', 'power-cycle', 'migration'];
+        const kinds = ['lantern-rise', 'bloom-festival', 'migration', 'aurora-borealis', 'lightning', 'monsoon', 'blimp-parade', 'market-rush', 'balloon-release', 'fog-bank', 'sunbreak', 'spore-bloom', 'rain-burst', 'flash-flood', 'power-cycle', 'migration'];
         const kind = kinds.find((k) => arg.includes(k)) ?? (kinds.includes(arg) ? arg : '');
         if (!kind) { this.pushBot(`Usage: /event ${kinds.slice(0, 8).join('|')}...`); return; }
         await this.apply([{ name: 'trigger_event', input: { kind, ttl: 120 } }], '');
