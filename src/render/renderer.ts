@@ -1439,7 +1439,7 @@ export class Renderer {
     pass.setBindGroup(0, this.frameBg, [0]);
     pass.setVertexBuffer(1, this.identityInst);
     const visible = this.drawChunks(pass, cam, false, -1);
-    if (entities) entities(pass);
+    if (entities && this.entityDrawEnabled) entities(pass);
     pass.end();
     return visible;
   }
@@ -1597,6 +1597,19 @@ export class Renderer {
 
   /** Set by the app each frame; invoked inside the G-buffer pass. */
   pendingEntities: ((p: GPURenderPassEncoder) => void) | null = null;
+
+  /**
+   * TEMPORARY (F1/F2 round 2): gate on the entity draw, so a frame with
+   * pedestrians and a frame without them can be taken at the SAME camera and
+   * diffed. `setCrowdCount(0)` cannot do this — `Pass B` counts any `active`
+   * agent inside `viewRadius` regardless of `targetVisible` (crowd.ts:338-384),
+   * so asking for a population of zero still submits ~2500 instances and the
+   * "population set to zero" control `main.ts:753` advertises does not zero the
+   * instances. Flip this to false, re-run, diff.
+   *
+   * Remove when F2 closes. A switch nobody flips is a landmine.
+   */
+  entityDrawEnabled = true;
 
   /** Draw a named entity set with the given instance block. */
   drawEntitySet(
