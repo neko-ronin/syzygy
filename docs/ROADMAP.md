@@ -67,6 +67,30 @@ and people on the pavements, at a density where the far end of the street is
 visibly busy — and that pose is derived from the crowd centroid, so the shot
 cannot be quietly framing empty ground (D21).
 
+**The inhabitation judgement has three deciding things** ([`VISION_ROUND1.md`](VISION_ROUND1.md)
+D7), fixed in advance so the verdict cannot drift into a general impression.
+Missing any one of them means `more work needed`, regardless of palette, cable
+density or skyline:
+
+1. **Readable grounded bodies** — silhouettes that separate from each other,
+   from stall supports, and from the ground. Heads and shoulders establish a
+   body; feet, occlusion and shading establish where it stands. *A merged dark
+   bar, a floating figure, or a repetition that reads as fence posts fails.*
+2. **Occupation belonging to the route** — a passing stream on the clear aisle
+   with counter-facing bodies beside the frontage. *A scatter across an empty
+   slab fails even if every individual model renders cleanly.*
+3. **Occupation continuing into depth** — the near people connect to occupied
+   middle distance and a busy destination further along. *A convincing
+   foreground clump over a street that then goes empty fails.*
+
+The **first failure expected** is a crowd that becomes visible as a
+counter-like band — overlapping bodies and repeated poses forming a dark comb
+with coloured tops. That is a prediction, not a diagnosis of the current raster
+fault, and the recognition test is whether the eye sees people using counters or
+another set of rectangular street objects. **Visible pixels alone cannot close
+this row**; a crowd produced by a uniform lattice has been mistaken for a
+populated street before.
+
 ## R2 — Fix the night
 
 **Status: in progress. Five mechanisms refuted with arithmetic; the cause is
@@ -539,8 +563,43 @@ the ordering and the done-when, so the roadmap is not a second source of truth.
    already. **Blocked on two phantoms**: the water mesh is discarded at
    `renderer.ts:400` and `godRays` is read by no shader. Both are load-bearing
    for this section.
-4. **C fire-lit** — **not a reskin.** No district is a ruin. Needs new grammar
-   (soot, collapse, ember emissive, smoke) and has no design yet.
+4. **C fire-lit** — **not a reskin.** No district is a ruin, so C needs new
+   form grammar, not a palette. **Its design now exists** —
+   [`VISION_ROUND1.md`](VISION_ROUND1.md) D6 — and it is *not* the design this
+   row previously assumed:
+
+   > **SUPERSEDED — the burning-ruin premise was wrong.** C is **an inhabited,
+   > weathered vertical quarter under amber backlight**. "Fire-lit" describes
+   > the amber impression of the light, not a destruction state. The district
+   > stays occupied; there is no ruin renderer to build and no default fire
+   > emitter below the city, no blanket ember emissive on masonry, and no
+   > billowing smoke.
+
+   So the soot/collapse/ember/smoke list that stood here **is not a requirement
+   of this design** and must not be picked up as one. What C actually needs is
+   authored, per D6: accretion grammar (projecting box rooms, balconies,
+   brackets, planted ledges around tall cores), walking decks that wrap the
+   projections and cross the void, and — the part that is genuinely missing —
+   that assembly continued **down to a readable landing at the base**, so a
+   tower is not perched over an empty slab. Ochre/cream/rust on the surfaces,
+   amber and honey catching projections and window reveals, recesses falling to
+   charcoal and cool blue-grey, near wall and human silhouettes kept dark
+   enough to frame the luminous canyon opening. C must be recognisable by its
+   irregular assembled silhouette *before* the amber light is applied;
+   recolouring the existing terracotta tiers cannot provide that.
+
+   **Consequence for this row:** the absence of a ruin renderer was never C's
+   blocker, so `R5` destructible structures is **not** on C's critical path.
+
+**The hero frame is named, and it is not a section shot.** The first frame this
+project will call approved is **Market Spine Counter Walk** —
+[`VISION_ROUND1.md`](VISION_ROUND1.md) D5. The vision reviewer's judgement was
+that a spectacular aerial vista is the more immediately photogenic choice and
+the *wrong* one: it would let atmospheric depth and skyline silhouette carry a
+frame while the missing human-scale relationships stayed unresolved. So R11
+does not get to declare itself done on four sheets alone — **the hero frame has
+to hold too**, and it exercises `R1` (inhabitation) and `R2` (received warm
+light) at once, which is why both outrank a reskin.
 
 **Done when:** a pose in each section holds up against its own sheet at close
 focus, **and** `wide-skyline` still reads as a city of visibly different places.
