@@ -17,6 +17,11 @@
 >
 > Full record, open items with owners, and the three questions for the owner:
 > **[`SESSION_2026-10-01.md`](SESSION_2026-10-01.md)**.
+>
+> **Working with more than one agent?** Read
+> [`WORKFLOW.md`](WORKFLOW.md) first — agent specialties and hard limits, dispatch
+> by file ownership, capture and GPU budgets on this machine, drift checks,
+> platform thresholds, and the session ceremony.
 
 ## 0. The one thing that changed this project's process most recently
 

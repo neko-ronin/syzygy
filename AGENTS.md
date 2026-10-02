@@ -36,6 +36,7 @@ which document answers your question.
 | Document | What it is | Read it when |
 | --- | --- | --- |
 | [`PROCESS.md`](docs/PROCESS.md) | Ten working rules. Measure, run controls, check artifacts, confirm your diagnostic points at its subject | **Before you change anything.** Start every session here |
+| [`WORKFLOW.md`](docs/WORKFLOW.md) | How the team actually works: agent roles and limits, dispatch, budgets, drift checks, platform, session ceremony | **Before dispatching an agent**, and whenever more than one person is in the loop |
 | [`DESIGN.md`](docs/DESIGN.md) | **The art direction.** Target finish, the four sections, district mapping, and the two agent roles | **Before any visual or design work.** It was missing and the gap cost a session |
 | [`sections.json`](references/sections.json) | The machine-readable design contract: sections, pose→section map, checks. Read by `compare.mjs --auto` | When tooling needs it, or you are changing the section definitions |
 | [`README.md`](README.md) | Human-facing overview: what it is, how to run it, how to verify it | For someone new to the project who will not be editing it |
@@ -151,6 +152,22 @@ Full catalogue in [`PITFALLS.md`](docs/PITFALLS.md).
 This is a `herdr` workspace; the `claude` and `developer` panes are free, as are
 task-tool subagents. Split work along ownership boundaries — citygen,
 camera+input, weather+traffic, agent+harness — so parallel agents do not collide.
+
+**Read [`docs/WORKFLOW.md`](docs/WORKFLOW.md) before dispatching.** It is the
+operating procedure this team converged on: agent specialties and their hard
+limits, file ownership as a dispatch constraint, capture and GPU budgets on this
+8-core/16 GB machine, how to keep agents from sitting idle, when to research
+instead of asking the owner, how to check for drift after every round, the
+platform checks (`df`, `sysctl vm.swapusage`) and the `shots/` prune procedure,
+the session ceremony, and the four ways the workflow has already failed.
+
+Two rules from it that override habit:
+
+- **Every round is closed with a written reflection**: *is this still the task I
+  dispatched?* and *am I building, or now characterising?* A round whose output is
+  a number and whose successor's output will also be a number is not progress.
+- **An owner question must be a decision, never a fact.** If it can be found in
+  the repository, the code, or the web, find it first.
 
 **A subagent that returns an empty result did nothing.** `ls` the paths before
 believing the report. Twice, a subagent claimed work that was never written.
