@@ -246,3 +246,264 @@ Probe `src/render/__probe_kerb.ts` **deleted**. Findings reproduced in §1.1 and
   shader back with everything else pinned. The vertex-level measurement does not need it.
 - The LOD gate fix is **not mine** — `tools/capture.mjs` and `src/main.ts` are outside this
   role. Reported, not edited.
+---
+
+## Round 6 — the harness gate, a truthful capture, and what the renderer owes legibility
+
+### 6.1 Capture health — the best window of the session
+
+```
+preflight OK   swap 4.09/5.0GB   disk 14.1GB   mem-unused 860MB   load 4.60/8
+  warn: swap 4.09GB used — approaching the 4.5GB block
+  warn: disk free 14.1GB — below the 20GB comfort line
+shot     shots/2026-10-02T22-45-46-01d-street-crowd.png
+pose     01d-street-crowd  (camera 0.15m from derived, within 0.5m)
+```
+
+It took **37 preflight attempts** to get this window; the box sat at 64–202 MB unused for
+36 of them. No `--force` was passed. Frame-side health, from the sidecar:
+
+```
+framesSkipped 0    tier high    residentChunks 106    visibleChunks 20
+rebakePending  0    lodHistogram [9, 97, 0, 0]        entityDrawCalls 5
+camera pos [1033.9, 2.6, -2.21]  lookAt [1427.46, 1.86, 69.25]
+pop {n:2550, cx:1094, cz:0, spread:97}
+```
+
+`framesSkipped: 0` and `residentChunks: 106` (the highest of any capture this session) make
+this the most trustworthy crowd frame taken so far. **Caveat that survives:** `lodHistogram`
+is `[9, 97, 0, 0]` — 9 chunks at LOD 0, the rest at LOD 1. Per §2 the camera's own chunk
+*is* at LOD 0; this is still not a LOD-0-everywhere city-detail frame.
+
+This is the first frame in the project showing **both** a legible street (kerbs) and the
+crowd.
+
+### 6.2 The harness gate is fixed, and the message is now truthful
+
+`tools/capture.mjs:596-611` (granted this round). Before:
+
+```js
+if (settled && settled.lod === 0 && settled.resident >= chunks) return {...};
+...
+say(`    ! warm did not reach LOD 0 on the camera chunk in 12 passes ...`);
+```
+
+`chunks` is a fixed warm target. Residency is bounded by the tier's `viewDistance`, not by
+the bake budget, so `resident >= chunks` was **unpassable** — measured 70 against 96 — and
+the failure named the one condition that had held on every pass.
+
+The replacement gates on the condition that means something, and reports the one that
+failed:
+
+```js
+const lodOk   = !!settled && settled.lod === 0;
+const drained = !!settled && settled.pending === 0;   // rebakePending: nothing left to bake
+if (lodOk && drained) return { ...report, passes: i + 1 };
+...
+const why = !settled ? 'could not read the renderer state'
+          : settled.lod !== 0 ? `camera chunk is at LOD ${settled.lod}, not 0`
+          : `bake queue still holds ${settled.pending} chunk(s)`;
+say(`    ! warm did not settle in 12 passes: ${why} (...) — the frame may be low-detail`);
+```
+
+`rebakePending === 0` is the target-free settled condition: it means the renderer has
+nothing left to bake, so it cannot be defeated by a target chosen for a different tier.
+
+**Is the message now truthful? Yes, and it is verified by absence.** This capture printed
+**no `!` line at all** — the gate passed on the first pass, because `lod === 0` and
+`rebakePending === 0` (`0`, in the sidecar). The false warning is gone rather than
+reworded, which is the stronger outcome: the condition that was always true is no longer
+part of a failure path.
+
+The old message is in the sidecar of **every capture this project has ever taken**. Those
+sidecars are historical and are not rewritten; this file and the harness comment are the
+correction, per PROCESS rule 6.
+
+### 6.3 Item 3 was already closed — it is in `f24ff19`
+
+The brief lists two items as open. Both were done in Round 5 and are in the commit the
+brief is built on:
+
+- `renderer.ts:1477` now reads *"It DOES write depth, contrary to what this comment used to
+  say"*, with the reverse-Z reason.
+- `entityDrawEnabled` (`:1628`) carries a rewritten comment: it no longer says "remove when
+  F2 closes" (stale — F2 was not a render bug) and records *why it stays*: `setCrowdCount(0)`
+  cannot zero the instances (measured ~2500 surviving), so this is the only way to answer
+  "are entities reaching the frame" without editing `main.ts`.
+
+Not redone.
+
+### 6.4 Legibility: what the renderer contributes to the crowd verdict
+
+Flagged **before** the review, as asked. I opened the frame and a 3× crop of the near end.
+
+**Measured context.** Bodies are `cz = 0` — a single line (developer 2's lateral spread is
+not landed). Nearest sampled agent x=1155 is 121 m away; the near end of the ribbon is
+2–4 m from the camera, where a 1.7 m figure is ~700 px tall. So "16×25 px" applies to the
+*mid* field (~40 m → 37 px measured); the near field is far larger and still does not read
+as a figure.
+
+**What helps.**
+
+- *Figure-ground separation is strong.* Saturated warm/dark bodies against a light
+  blue-grey deck. Not the problem.
+- *The kerb fix raised the bar honestly.* The deck now has structure, so "do bodies read as
+  people" became a fair question instead of a rhetorical one.
+
+**What is on my side and hurts. Three findings, all verified in code.**
+
+**(i) Every pedestrian is the same rigid body and effectively the same colour.**
+`citymesh.ts:976-995`. Eight `cloth` colours and four `skin` colours are defined; line 983
+takes `cloth[0]` and `skin[0]`; line 993 is `void skin; void cloth;`. **The arrays are dead
+code.** All 2550 pedestrians are one 5-box figure with two vertex colours, and the only
+per-instance variation is the `crowdColorFor` tint multiplying a fixed base. There is no
+pose variation, no height variation, and no per-body-part colour.
+
+This is the reviewer's *predicted next failure* — "repeated rigid post-like bodies" — and the
+renderer is **already producing it**. The ribbon is the lateral-spread symptom of it. Fixing
+spread alone will turn the ribbon into a row of identical posts, which is the middle step of
+the predicted sequence, not the end of it.
+
+**(ii) Entities cast no shadow — there is no contact shadow.**
+`renderer.ts:1249` calls `this.recordShadow(enc, cam)` and `recordShadow` (`:1397`) takes
+**no entities parameter**; only `recordGBuffer` receives the entity callback. Every body
+floats: nothing ties a pedestrian to the deck. This is the single largest legibility
+contribution on my side, it is invisible in a counter, and no amount of lateral spread will
+substitute for it. A person on a street with a contact shadow reads as a person; without one
+they read as a sticker.
+
+**(iii) The gait mask is a dead wire — the crowd is completely static.**
+`crowd.ts` writes a gait-driven limb mask into `tint.a`. In `gbuffer.wgsl:606` it becomes
+`var alpha = i.tint`, is touched once more for foliage (`:678`), and is **never written to
+`GOut`** — which carries only `albedoRough`, `normalMetal`, `emissive`. The gbuffer targets
+have **no blend state** (`renderer.ts:604-608`), so per-instance opacity has no path to the
+screen by construction. So: authored, uploaded, read by the shader, discarded. Structurally
+the same failure as the kerb — a value computed and thrown away one stage later — and worth
+naming as such, because it means the sim's animation work cannot reach the frame without a
+G-buffer that has somewhere to put it.
+
+**Ordering, cheapest first.** (ii) contact shadow is one call-site change and the biggest
+legibility win per line. (i) is `citymesh.ts` only and can be done as body-part colour
+indexing before the spread lands, so the first spread frame is not a row of clones. (iii)
+needs a design answer, not a patch — a deferred G-buffer has no per-instance opacity, so
+either the gait drives vertex colour/emissive instead, or the crowd gets a forward pass.
+
+**Not mine, flagged for routing:** no height or scale variation (the model matrix is rigid,
+`crowd.ts:1019-1022`) — developer 2.
+
+### 6.5 Verification
+
+```
+./node_modules/.bin/tsc --noEmit   5.9.3 — 0 errors, repo-wide
+```
+
+Files changed this round: `tools/capture.mjs` (gate + message), and this document. The
+Round 5 shader fix and renderer comment fixes are in `f24ff19`. No probe files remain.
+
+---
+
+## Round 7 — the frame, on `main`
+
+**Branch.** I was on `dev2/crowd-instrument`, not `main`. Both pointed at `0152426`, so
+moving was content-neutral; I switched to `main` and landed here. Recorded because the
+episode is the lesson: three lanes sharing one checked-out branch is not parallelism, it is
+three agents editing a file none of them checked. Branch deliberately, name it for the task,
+and state the branch in the report.
+
+### 7.1 Capture health — marginal, and labelled as such
+
+```
+preflight OK   swap 3.95/5.0GB   disk 13.9GB   mem-unused 297MB   load 11.40/8
+  warn: mem 297MB — under the 500MB line
+  warn: swap 3.95GB — approaching the 4.5GB block
+  warn: disk 13.9GB — below the 20GB comfort line
+shot     shots/2026-10-02T23-17-05-01d-street-crowd.png
+pose     01d-street-crowd  (camera 0.14m from derived, within 0.5m)
+```
+
+It took **23 preflight attempts** (the box sat at 64–144 MB unused for 22 of them). No
+`--force`. Frame-side: `framesSkipped 0`, `tier high`, `residentChunks 114`,
+`rebakePending 0`, `entityDrawCalls 5`.
+
+**This frame is evidence of a weaker kind than Round 6's** (`mem 297MB / load 11.4` against
+`860MB / load 4.6`), and it is on the same build, so **Round 6's
+`shots/2026-10-02T22-45-46-01d-street-crowd.png` remains the better-trustworthy crowd
+frame.** Both are cited below; neither is treated as the sole basis for a claim.
+
+### 7.2 The gate fix: free test passed
+
+This capture printed **no `!` line at all**, and the sidecar contains no warm-failure string.
+`rebakePending 0` and camera-chunk LOD 0 satisfied the new gate on the first pass. The
+corrected message was therefore not exercised — which is the better outcome: the false
+warning is **gone**, not reworded. If a warm failure occurs later, the message will name
+the queue depth or the LOD value that actually failed.
+
+### 7.3 What the frame shows — my read, before the review
+
+I opened it. Kerbs, deck and crowd, all in one frame for the first time.
+
+**Measured, not eyeballed** (RGB/HCL from the PNG; the frame wins over any earlier note of
+mine):
+
+```
+KERB band   RGB(121, 66, 56)   hue   2 deg   lum 36.8%
+DECK        RGB(109,123,141)   hue 213 deg   lum 12.6%
+CROWD body  RGB( 69, 48, 38)   hue  19 deg   lum 20.8%
+
+realised kerb/deck luminance contrast = 2.91x   (authored 4.32x in vertex colour)
+```
+
+**A correction to my own Round 7 measurement.** My first pass reported kerb/deck at
+**0.93×** and concluded the kerb fix had not carried. That number was an artifact: the
+sample window straddled kerb and deck and averaged them. The row-by-row probe puts the kerb
+at rows 496–500 and gives **2.91×**. The 0.93× is withdrawn. PROCESS rule 6 — the frame
+beats the document, including the document I wrote twenty minutes earlier.
+
+**Does the deck read as pavement?** Yes. Blue-grey, tonally varied, with kerb lines, block
+joints on the kerb, and road paint. The ground fix works and the street reads as a place.
+
+**Does a body at 16×25 px still separate from it?** By colour, emphatically: 194° of hue
+difference and ~1.65× luminance. It is not a separation problem.
+
+**Did the kerb fix move the picket-fence read either way?** Measured, it moved it slightly
+the wrong way, and this is the useful part:
+
+> **kerb hue 2°, crowd hue 19° — 17° apart, the same warm family.** The kerb runs parallel
+> to and immediately alongside the crowd line for the length of the frame.
+
+Before the fix the kerb was facade-shaded (window cells, cool tones), so the ribbon stood
+against a cool neutral line. Now it stands against a warm rust line of its own hue family.
+Net: the **ground** is unambiguously better, and the **crowd's** separation from its
+immediate background is slightly worse. The reviewer's worry — that higher contrast makes
+an unspread crowd read as a picket fence *more confidently* — is **supported**, by hue
+proximity rather than by brightness.
+
+### 7.4 The renderer's outstanding contribution to that verdict
+
+Unchanged from §6.4 and re-confirmed against this frame. Bodies are flat-topped slabs with
+no head reading, no contact shadow, and no pose variation; the gait mask is a dead wire.
+The three findings stand:
+
+| # | finding | site | cost to fix |
+|---|---|---|---|
+| i | 8 cloth + 4 skin colours defined, `void skin; void cloth;` — every pedestrian is one 5-box figure with two colours | `citymesh.ts:983,993` | body-part colour indexing; do it **before** spread lands |
+| ii | `recordShadow` takes no entities param — **no contact shadow**, bodies float | `renderer.ts:1249,1397` | one call site; largest legibility win per line |
+| iii | `var alpha = i.tint` never written to `GOut`, and the G-buffer has no blend state — **gait is a dead wire, the crowd is static** | `gbuffer.wgsl:606` | needs a design answer, not a patch |
+
+(i) is the reviewer's predicted "repeated rigid post-like bodies" already in production.
+Fixing lateral spread alone converts the ribbon into a row of clones — the middle step of
+the predicted sequence, not its end.
+
+### 7.5 Needs the vision gate — I am not self-certifying this
+
+The kerb contrast went from discarded to realised at **2.91×**. Whether that reads as a
+**kerb**, as a **painted stripe**, or as a **step too tall to walk on** is a frame judgement,
+and DESIGN.md §6 says the implementer does not self-certify it. **Flagged for the gate, not
+claimed.** Specifically for the reviewer:
+
+1. Do the kerbs read as kerbs, or as paint?
+2. Given kerb hue 2° and crowd hue 19°, does the crowd line merge with the kerb line?
+3. With bodies now judged against a legible deck, do they read as figures or as a fence?
+
+I have answered (2) with a number and deliberately **not** answered (1) or (3) — those are
+the gate's.

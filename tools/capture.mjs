@@ -596,18 +596,49 @@ async function warmPose(page, chunks, maxTicks) {
     const settled = await page.evaluate(() => {
       const g = window.__syzygy;
       const [cx, cz] = g.cameraChunk();
-      return { lod: g.chunkLod(cx, cz), resident: g.stats().residentChunks ?? 0 };
+      const st = g.stats();
+      return {
+        lod: g.chunkLod(cx, cz),
+        resident: st.residentChunks ?? 0,
+        // "Nothing left to bake" is the target-free settled condition. Comparing
+        // residency to a fixed chunk count is not: residency is bounded by the
+        // tier's `viewDistance`, so it plateaus well below the warm target and
+        // the comparison can never be satisfied.
+        pending: st.rebakePending ?? 0,
+      };
     }).catch(() => null);
-    // The camera's own chunk resident at LOD 0 is the real precondition; the
-    // residency target is the secondary one.
-    if (settled && settled.lod === 0 && settled.resident >= chunks) {
-      return { ...report, passes: i + 1 };
-    }
-    if (report?.stopped === 'target' && settled?.lod === 0) return { ...report, passes: i + 1 };
+    // TWO conditions, and only the first is a precondition for a correct frame.
+    //
+    // The camera's own chunk must be resident at LOD 0 — that is the real
+    // precondition. Residency *count* is secondary, and it must be compared
+    // against what the renderer can actually reach, not against `chunks`.
+    //
+    // This gate used to be `settled.lod === 0 && settled.resident >= chunks`.
+    // Measured: `lod` was 0 on every one of 12 passes, while `resident`
+    // plateaued at 70 against a target of 96 — bounded by the tier's
+    // `viewDistance`, not by the bake budget. The gate was therefore
+    // unpassable, and the failure message named LOD, the one condition that had
+    // been satisfied the whole time. That message is in the sidecar of every
+    // capture this project has ever taken, and it has been read as a measurement
+    // rather than as a symptom (PITFALLS.md §12).
+    const lodOk = !!settled && settled.lod === 0;
+    const drained = !!settled && settled.pending === 0;
+    if (lodOk && drained) return { ...report, passes: i + 1 };
+    if (report?.stopped === 'target' && lodOk) return { ...report, passes: i + 1 };
     await sleep(60);
   }
-  if (report) say(`    ! warm did not reach LOD 0 on the camera chunk in 12 passes ` +
-    `(resident ${report.residentChunks}, lod [${report.lodHistogram.join(',')}]) — the frame may be low-detail`);
+  if (report) {
+    // Name the condition that actually failed. A reader who cannot tell which of
+    // the two conditions held is exactly the reader who mis-instruments this.
+    const why = !settled
+      ? 'could not read the renderer state'
+      : settled.lod !== 0
+        ? `camera chunk is at LOD ${settled.lod}, not 0`
+        : `bake queue still holds ${settled.pending} chunk(s)`;
+    say(`    ! warm did not settle in 12 passes: ${why} ` +
+      `(resident ${settled?.resident ?? report.residentChunks}, ` +
+      `lod [${report.lodHistogram.join(',')}]) — the frame may be low-detail`);
+  }
   return report;
 }
 
