@@ -285,3 +285,134 @@ headless probes, so the control is re-run on the real pipeline.
   depth-accepted pixels. *Falsified if the diff is within the off-vs-off noise floor —
   which would mean pedestrians contribute nothing on the GPU and Round 1's CPU model
   diverges from the real pipeline.*
+---
+
+## Round 4 — CAPTURES. The premise was false. Pedestrians DO rasterise.
+
+`53d0627` + this section. Verdict up front: **the crowd has been rendering the whole
+time.** The "nothing rasterises" investigation — four of my own hypotheses, two before
+me — was chasing a phantom, and the actual defect is that the crowd has **no lateral
+spread**.
+
+### 4.1 Health reading at the moment of each shot
+
+```
+SHOT 1  preflight OK  swap 4.27/5.0GB  disk 14.3GB  mem-unused 486MB  load 26.18/8
+        warn: mem 486MB under the 500MB line; load 26.18 = 3.27/core, box shared
+SHOT 2  preflight OK  swap 3.88/5.0GB  disk 14.2GB  mem-unused 260MB  load 119.96/8
+        warn: mem 260MB under the 500MB line; load 119.96 = 14.99/core
+```
+
+Both frames are **evidence of a weaker kind than a quiet box would give**: shot 1 at
+486 MB unused with the box 3× oversubscribed, shot 2 at 260 MB with load 120. Shot 2 is
+marginal. Both are labelled accordingly. Shot 1 needed `--timeout=420` (the 120 s default
+timed out at this load).
+
+Both frames are also **low-detail**: `lodHistogram` shot 1 `[9,25,44,0]`, shot 2
+`[9,105,0,0]` — **no chunk at LOD 0 in either**, and the harness warned "warm did not reach
+LOD 0 on the camera chunk in 12 passes". Neither frame is a statement about city detail.
+
+### 4.2 The controlled A/B — and it is sound even though the diff was not
+
+`Renderer.entityDrawEnabled` (`renderer.ts:1442`, added Round 2, default `true`) gates
+**only** `entities(pass)`. Chunks, deck, buildings, post are untouched.
+
+| | shot 1 `shots/2026-10-02T20-50-51-01d-street-crowd.png` | shot 2 `shots/2026-10-02T21-04-00-01d-street-crowd.png` |
+|---|---|---|
+| `entity.drawCalls` | 5 | **0** |
+| `entity.triangles` | 1423548 | **0** |
+| `entity.draws` | populated | **`[]`** |
+| `gbufferDrawCalls` | 41 | 43 |
+| `triangles` | 6526027 | 5508477 |
+| band of coloured vertical bars | **PRESENT** | **ABSENT** |
+| street deck | band along its right edge | bare |
+
+**A raw pixel diff of the two frames is void** — it read 1,206,676 differing pixels, 83.8%
+of the frame — because each capture re-derives its own pose from the boot-time crowd, so
+the camera and the sun differ (`dayPhase` 0.409 vs 0; `residentChunks` 78 vs 114). The two
+frames are **not a controlled pair** and must not be diffed numerically.
+
+**The A/B is still decisive anyway, and the logic does not depend on the camera.** The
+switch gates the entity draw and nothing else, so in shot 2 every chunk, the deck and the
+buildings still rendered (5.5 M triangles, 43 G-buffer draws) — and the band is absent
+from geometry that was never gated. A band produced by chunk geometry would still be
+there. **Reading (c) is eliminated.**
+
+I opened both PNGs and cropped the band from shot 1 at 3× magnification. It is not a
+railing, not market boards and not z-fighting: it is **discrete box forms with individual
+tops at individual heights**, in exactly the `entityMeshes.pedestrian()` cloth palette
+(citymesh.ts:979-982 — red, orange, green, teal, yellow-green, near-black), packed
+shoulder to shoulder and receding along the street. Reading (b), "instance-buffer garbage",
+is also eliminated: garbage does not produce recognisable pedestrian silhouettes with
+cloth colours.
+
+**Reading (a) is confirmed: it is the crowd, bodies rendered and merged.**
+
+### 4.3 Where they actually are — and this is the real defect
+
+The sidecar of shot 1 answers it without inference:
+
+```
+crowdSample  [[1174.05,0.35,0.35,...], [1177.24,0.35,0.35,...],
+              [1173.34,0.35,0.35,...], [1173.76,0.35,0.35,...]]
+rawInst      translation (1174.051, 0.35, 0.35)
+pop          { n: 2550, cx: 1104, cz: 0, spread: 86 }
+```
+
+**Every sampled agent is at `z = 0.35`.** The crowd's centroid `cz` is **0**. 2550 agents
+are packed into a single 1-D line along `x`, so they merge into a picket wall instead of
+reading as individuals, and the street deck they should be standing on is empty. That is
+why two sessions looked at these frames and reported "zero visible pedestrians": they were
+looking for figures, and there are no figures — there is one long smear of bodies with no
+lateral spread.
+
+**This is in `src/sim/crowd.ts` — developer 2's file, not mine.** `crowd.ts:985` sets
+`f[o + F.lateral] = lat + rm.jitter(0.55)`, so a lateral offset field exists and is being
+written; it is evidently not reaching the instance transform at `crowd.ts:1019-1022`,
+which writes only `x`, `y`, `z` from `F.x`, `F.y`, `F.z`. Route it there.
+
+### 4.4 Two further findings from the captures
+
+**Finding R4-a — the held-camera check is vacuous for every derived pose.**
+`capture.mjs:1047-1061` builds `requested` from `pose.position` / `pose.lookAt` — the
+**static** pose config. The whole `01d/01e/01f` family is derived at runtime and has no
+literal position, so `d === null`, the agreement suffix never prints, and the check cannot
+fail. Both sidecars read `requested: {position: null, lookAt: null, fov: null}` next to a
+`PASS`. This is **PITFALLS §20's exact failure shape recurring on the derived-pose family**,
+and it means rule 4's mechanical guard does not fire on any pose that most needs it. Not my
+file. `capture.mjs:1047-1061` is the fix site.
+
+**Finding R4-b — the derived pose's own provenance goes stale immediately.** Shot 1's
+sidecar records `derivedPose.source.population = {n: 1600, cx: 1032, cz: 5}` and
+`distanceToCrowd: 8`, but by capture time `pop = {n: 2550, cx: 1104, cz: 0}` — the crowd
+had moved **72 m** from the point the pose was derived from. The pose is computed once at
+boot from a population that is still filling, so the number rule 4 checks is a number
+about a crowd that has since moved. This is a weaker cousin of §12: the guard is not wrong,
+it is about a different subject than the one in frame.
+
+### 4.5 Shot 3 (`cull: 'none'`) was not run, and is now moot
+
+Culling was refuted twice by measurement before a capture was possible — framebuffer-space
+winding 30 CCW / 30 CW, and the CPU control `cull:'back'`→`'none'` = 26571 → 31289 px
+(ratio 1.178). Shot 1 shows 2550 pedestrians rendering **under `cull: 'back'`**, which is
+the direct refutation: culling is not removing them. Reopening hypothesis 1 on the
+strength of a predicted result would be exactly the substitution failure of §21. Not run.
+
+### 4.6 Corrected conclusion
+
+The four hypotheses were all correctly refuted, and the reason none of them was the answer
+is that the question was wrong. **There is no rasterisation bug.** `pedestrian:N/180`
+counters, valid transforms, correct winding, correct depth and a correctly issued draw were
+all true *and consistent with a rendering crowd*. The bug is a **placement** bug in the
+sim: the crowd is a 1-D line at `z = 0.35` instead of a distribution across the street.
+
+### 4.7 Still open / next
+
+1. **`src/sim/crowd.ts`** — lateral spread. Developer 2. Highest value in the project now.
+2. **`tools/capture.mjs:1047-1061`** — make the held-pose check fire for derived poses.
+3. **`renderer.ts:1473-1475`** — the "depth writes off" comment is still false (§2.2).
+4. **`entityDrawEnabled`** is still in `renderer.ts`, default `true`, no behaviour change.
+   It is the instrument for any future "do entities draw" question. Keep or remove —
+   it is now 3 lines with a comment saying to remove it when F2 closes.
+5. Both frames are low-detail (no LOD 0 chunks). A crowd shot on a quiet box at LOD 0 is
+   the honest picture of this fix and should be re-shot once the box allows.
