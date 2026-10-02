@@ -631,3 +631,81 @@ than the crowd — and that is what found the error, in my report rather than in
 the code.
 
 No visual claim is made.
+
+---
+
+# Round 7 — the design call is recorded; the first implementation did not land it
+
+Developer 2. Branch `dev2/goal-lane-coupling`. **`src/sim/crowd.ts` reverted to
+`e96ba15`; no fix ships.** Import test → **ALL PASS**.
+
+## 1. D25 is written, with the reasoning
+
+`docs/DECISIONS.md` D25: *a pedestrian's lane is a hard constraint, and goals
+must respect it.* It records the standoff measurement, both options, and why the
+lane won — chiefly that (b), yielding the hold, trades a solved problem for an
+unsolved one (R12.2, bodies inside bodies) and that **"making progress" is not a
+safe test**, because an agent being dragged backwards always retains residual
+velocity and can be dragged indefinitely. It also states plainly what the
+decision does **not** claim: crossings are not implemented.
+
+## 2. Implementation: lane-aligned goals, measured, NOT shipped
+
+Every goal — Wander, Commute, RideStop, and the Market/Event attractors — is now
+drawn from the agent's **own side** of the carriageway, by lateral sign, with an
+unfiltered destination as fallback so a crossing stays reachable.
+
+```
+  FOOTWAY BALANCE  left 1602  right 89  (left share 94.7%)
+  z IQR about centroid = 0.04 m
+  FAIL  both footways carry a real share of the crowd (30-70%)
+  FAIL  z IQR about the centroid exceeds 1.0 m (not a line)
+```
+
+**Before: 94.6% left. After: 94.7% left. z IQR unchanged at 0.04 m.**
+
+Nothing moved. **The change was reverted.** Thresholds untouched.
+
+## 3. Why it failed — and it is informative
+
+Goal selection is **not** the opposing term. Two reasons, both measurable:
+
+1. **Goals are not repicked during a settle.** A goal is re-rolled only on arrival
+   or when `ttl` expires, and `ttl` is `35–150 s`. A 600-frame settle is 10 s, so
+   most agents never repick at all. The coupling could not have acted.
+2. **The steering aims at a waypoint, not the goal.** `stepAgent` steers toward
+   `pathNodeAt(i, k)` — the *k-th node on the path*. A lane-aligned destination
+   still produces a path whose early waypoints may lie across the carriageway.
+
+**So the opposing force is a force, not a destination.** The agent is walking at
+~1.34 m/s in −z (measured in round 6) and that motion survives a lane-aligned
+goal. The next thing to measure is what the steering is actually aiming at,
+before changing anything.
+
+## 4. Tangent-relative distribution, as asked
+
+Standing, unchanged by this round (tangent (0.880, 0.099), bearing 6.4°):
+
+| measure | value |
+| --- | --- |
+| perpendicular offset IQR from the nearest carriageway | **12.70 m** |
+| realised lateral | p50 **−10.20 m** |
+| z IQR about the centroid (world) | 0.04 m — FAIL |
+| footway balance | 94.6–94.7% left — FAIL |
+| hold reach | 99.4% (corrects round 5's 69%) |
+| max \|correction\| | 0.0233 m = `HOLD_SPEED * dt` exactly, every frame |
+
+I cannot yet report "does the crowd follow the street rather than spreading as a
+uniform blob", because the crowd is still a line. **There is no post-fix
+distribution to report**, and I will not present a before number as an after one.
+
+## 5. Silhouette variety: still not attempted
+
+Spread has not landed, so the reviewer's prediction is still untested. I will not
+produce a second unvalidated change against an unchanged defect, and I make no
+visual claim.
+
+## 6. Files changed
+
+`docs/DECISIONS.md` (D25 + its status), `docs/CROWD_SPREAD.md` (this section).
+`src/sim/crowd.ts` unchanged.

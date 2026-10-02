@@ -500,3 +500,86 @@ sheets an agent can read are design documentation, not bulk binary.
 **The check that catches failure:** a *section* shot must hold up against its own
 sheet, and a *wide* shot must still read as a city of visibly different places.
 Optimising only the first is how a city quietly becomes one place.
+
+---
+
+## D25 — A pedestrian's lane is a hard constraint, and goals must respect it
+
+**Decision.** The pavement hold stays a **non-negotiable** constraint. Goal
+assignment is what changes: an agent's destination is drawn from **its own side
+of the carriageway**, so path-following and the lane constraint stop opposing
+each other. Crossings are possible; they are not continuous.
+
+**The measurement that forced it.** Watching one agent's `z` across frames:
+
+```
+  frame |  z before | hold corr |  z after
+      0 |   0.3763  |   0.0233  |   0.3761
+      1 |   0.3761  |   0.0233  |   0.3759
+      3 |   0.3757  |   0.0233  |   0.3755
+```
+
+The hold adds **+0.0233 m** in z. The written z **falls 0.0002 m**. About
+0.0224 m/frame is removed — at `dt = 1/60` that is **−1.34 m/s**, and `pace` is
+seeded in `[0.85, 1.75]`, so this agent was walking in −z at essentially its
+full speed while the lane hold cancelled it. `max |correction|` is exactly
+`HOLD_SPEED * dt`, so the hold sat **at its ceiling on every agent, every
+frame** — straining, never easing.
+
+The standoff was **25.9 m**, and every body settled on the surface where its own
+goal and its own lane happened to cancel. That surface is a straight line. It is
+the kerb-hugging comb the vision gate rejected as "a continuous frontage-like
+ribbon", and it read as an empty street to two sessions.
+
+**Why the lane wins and the goal yields.** Two options were on the table:
+
+| | option | why not / why |
+| --- | --- | --- |
+| (a) | goal respects the lane | **chosen** |
+| (b) | the hold yields to an agent making progress | rejected |
+
+(b) is rejected twice over. First, a soft constraint is how bodies end up inside
+bodies again — `R12` sub-problem 2 exists *because* agents overlap freely, and
+trading a solved problem for an unsolved one is a bad trade. Second, and more
+sharply: **"making progress" is not a safe test.** An agent being dragged
+backwards by the hold always retains some residual velocity, so a
+progress-based yield lets some agents be dragged indefinitely. The failure is
+silent and the guard does not catch it.
+
+A person crosses a street; they do not walk permanently into oncoming footway
+traffic. So an agent whose destination is genuinely across the carriageway should
+**cross and settle on the far footway** — a transient, not a permanent standoff.
+
+**What this decision does NOT claim.** Crossings are not implemented. An agent
+whose real destination is across the road still gets an unfiltered destination as
+a fallback, so a crossing is reachable; it is not modelled, not animated, and
+not verified. What this fixes is the permanent standoff that made the street
+unreadable.
+
+**Do not "fix" this by softening the hold.** If the street reads badly again, the
+next question is whether goals are lane-aligned, not whether the lane should
+yield. Reversing this trades a legible street for a crowd of bodies inside one
+another, and it will look like progress.
+
+**The check that catches failure:** `npx vite-node src/sim/__selftest_spread.ts`
+asserts both footways carry 30–70% of the crowd and that z IQR about the centroid
+exceeds 1.0 m. Both thresholds are the standing contract and are not to be
+relaxed to make a change land.
+
+**Status: the decision is in force; the first implementation did not land it.**
+Lane-aligned goal selection was implemented (goals drawn from the agent's own
+side, with an unfiltered fallback so a crossing stays reachable) and measured:
+footway balance **94.7% left** against 94.6% before, z IQR **0.04 m** unchanged,
+**both assertions still FAIL**. The change was reverted rather than shipped.
+
+So the standoff is real and measured, but goal selection is **not** the term that
+opposes the hold — at least not through `randomNodeNear`, and not within one
+600-frame settle (goals are repicked on arrival or `ttl`, and `ttl` is 35–150 s,
+so many agents never repick during a settle at all).
+
+**What this means for the next round.** The opposing force is a force, not a
+goal: the agent is walking at ~1.34 m/s in −z, and that motion survives a
+lane-aligned destination. The next place to look is the steering term itself —
+`stepAgent` steers toward `pathNodeAt(i, k)`, the *k-th waypoint*, not the goal,
+so the waypoint can still lie across the carriageway even when the destination
+does not. Measure what the steering is actually aiming at before changing it.
