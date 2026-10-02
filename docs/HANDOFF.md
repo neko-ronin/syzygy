@@ -5,6 +5,44 @@
 [`PITFALLS.md`](PITFALLS.md) before you touch the renderer, and
 [`DECISIONS.md`](DECISIONS.md) before you change the architecture.**
 
+> ### If you are starting a new session: read §0 first.
+>
+> The 2026-10-01 session ended by correcting itself. Nine rounds were spent
+> inventing numeric targets for a **subjective** question — whether the night
+> market reads as a lit place — instead of asking a reviewer to look at a frame.
+> Six mechanisms were proposed, all six refuted, and each refutation was reported
+> as a successful round. `PROCESS.md` rule 1 now scopes measurement to questions
+> that have a right answer, and rule 9 says *a refutation is not a successful
+> round*.
+>
+> Full record, open items with owners, and the three questions for the owner:
+> **[`SESSION_2026-10-01.md`](SESSION_2026-10-01.md)**.
+
+## 0. The one thing that changed this project's process most recently
+
+**Do not measure toward a target that was invented rather than derived.**
+
+The owner, closing the 2026-10-01 session:
+
+> Applying hard quantifiable scores toward a goal that is considered subjective,
+> on a product that isn't yet remotely presentable let alone MVP, is not an
+> acceptable practice.
+
+This is not an argument against rigour — `PROCESS.md` rule 1 is unchanged for
+bugs, and every significant finding in this project came from measuring rather
+than reasoning. It is an argument against **substitution**: warm/cool separation
+is a proxy for "does this look like a market", and six rounds were spent moving
+the proxy because proxies are measurable.
+
+Consequences already written down:
+
+- `PROCESS.md` rule 1 — "…but only where there is a right answer"
+- `PROCESS.md` rule 9 — "a refutation is not a successful round"
+- `PITFALLS.md` §21 — four mechanisms killed by measurement, and the substitution
+  behind each
+- `ROADMAP.md` R2 — the next move for the night market is **a frame review**, and
+  its recorded prediction is marked superseded rather than left standing
+
 ## Where things stand
 
 Two sessions of audit and design work sit on top of the build: `27f3b66`

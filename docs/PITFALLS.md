@@ -693,6 +693,69 @@ check the instrument against a known quantity before trusting it.
 
 ---
 
+## 22. The measurement was never answering the question
+
+**This is the most expensive entry in this file, and it is not a code bug. It is
+a way of working that produced correct measurements of the wrong thing.**
+
+**Symptom.** One unlit night market frame. Over nine rounds: byte targets, N·L
+ratios, warm/cool separation histograms, distance-band medians. Six mechanisms
+proposed, **all six refuted**, each refutation reported as a successful round.
+Net: no fix, fifteen captures, and a defect report against the work that only
+surfaced in round nine.
+
+**The owner's correction**, given at the session's close:
+
+> Applying hard quantifiable scores toward a goal that is considered subjective,
+> on a product that isn't yet remotely presentable let alone MVP, is not an
+> acceptable practice.
+
+**The mechanism.** Not carelessness. **Substitution.** "Warm-dominant versus
+cold-dominant" is a *proxy* for "does this read as a lit market". Six rounds were
+spent moving the proxy, because a proxy is measurable and measurable is the only
+thing an agent knows how to trust. The substitution was never checked — nobody
+ever asked whether moving the proxy moved the thing it stands for.
+
+Three compounding errors, each individually invisible:
+
+1. **Refutation read as progress.** A clean negative result is only good news if
+   the round's question was the right one. Six in a row is a signal to stop and
+   ask what is being measured, not a queue of six successes.
+2. **The instrument's own defect reported as insight.** Round nine found the
+   sample population was mostly non-market floor — 2.36 m of empty aisle where a
+   stall face should have been, and the "byte 4" was **night sky**. That is a
+   finding about the *instrument*, and it invalidates six rounds. It was written
+   up as "the real shape of the problem".
+3. **Rule 1 misread as unconditional.** "Measure, do not reason" is about bugs. A
+   reverse-Z comparison that renders the world as empty sky has a right answer. A
+   market's mood does not. Applying an engineering instrument to a taste question
+   produces clean, rigorous, entirely useless results.
+
+**The rule this bought**, now in `PROCESS.md` rule 1 as *"…but only where there is
+a right answer"*:
+
+> Atmosphere, mood, "does this read as a lit market" — these have no right answer
+> to measure toward. The instrument is **the frame review**, by a non-implementer,
+> against the reference sheets, judged by eye. Numeric targets for aesthetic
+> properties are **derived after** a frame is approved, never invented before one is
+> requested.
+
+**Why it took nine rounds to notice.** Every intermediate output looked healthy.
+The probe validated. The refutations were clean. The histograms were
+well-constructed. Nothing errored, nothing was implausible, and by every signal
+this project normally trusts the work was going well. The failure was invisible
+*by construction* — which is the strongest argument for the frame review that was
+skipped, since a reviewer's `more work needed` would have arrived in round one.
+
+**The generalisable form.** Before optimising toward a number, ask: **where did
+this number come from?** If the answer is "I chose it", stop. If the answer is "a
+reviewer approved a frame and this was measured from it", proceed. Most numbers in
+this project came from the second kind — the byte that broke the reverse-Z bug, the
+119 luma on the day control. The night-market ones came from the first kind, and
+they were invented specifically because inventing them felt like rigour.
+
+---
+
 ## Working norms that held up
 
 - **Measure before theorising.** Every bug above cost far less time to measure

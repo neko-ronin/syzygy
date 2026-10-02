@@ -157,7 +157,40 @@ visible. No sample returned sky-black and the day control lights the same
 geometry, so the histograms are probably sound — but this is untested and is
 recorded rather than glossed.
 
-#### PROPOSED — widen the lantern pool, not its intensity
+#### ~~PROPOSED — widen the lantern pool, not its intensity~~ — **SUPERSEDED, DO NOT PICK UP**
+
+> **Closed 2026-10-01. Executed as `882f434`: scored 3 held / 3 failed, reverted.**
+> The discriminating prediction — *the 3 m core must not rise* — **failed**: the core
+> rose R-B +41.7 -> +50.0. Deck 4-6 m moved -4.7 -> -1.6 (byte R x4.4) without
+> reaching positive; the 8-10 m band moved -3.1 -> -2.3; frontage did not come level
+> with the deck (the gap **widened**, 3.0 -> 3.4). Radius is a genuine far-field lever
+> and insufficient, and it buys reach with a core closer to clipping. Zero captures
+> were spent, which is exactly what gating captures on the prediction was for.
+>
+> **The next candidate was invalid too.** Round 18 observed an explicit aisle point
+> 5.0 m lateral from a lantern reading **+39.6 at r=15** while the same run's 4-6 m
+> band median read -4.7 — two numbers that cannot describe the same surface. The deck
+> sample set is barycentric points across every chunk within 40 m, so it is mostly
+> sidewalk and carriageway, **not the market corridor**. Round 17's band medians,
+> and the "2 m pool every 17-31 m" premise above, were computed over a population
+> that is mostly not the aisle.
+>
+> **And the method was wrong.** See `SESSION_2026-10-01.md` §1 and `PROCESS.md`
+> rule 1. Nine rounds of numeric targets on a subjective question produced six
+> refutations and no fix. **The next move for this item is a frame review by a
+> non-implementer against the reference sheets — not another histogram, and not a
+> corridor-restricted re-sample.** The original text is kept below because
+> pre-registering a prediction is worth copying, and because the correction is part
+> of the record.
+>
+> **What survives as genuinely established:** light delivery is plumbing-sound
+> (`lights == delivered`, 933/933, 0 starved); the lantern drop to 3.85 m is baked
+> and correct as far as it goes; frontage and deck **fail identically** (R-B -5.0
+> vs -3.7), so stall faces are not starved relative to the paving; and albedo and
+> `matAo` are both exonerated by arithmetic.
+
+<details>
+<summary>Original proposal, exactly as written before the round</summary>
 
 **Written down before the round, deliberately.** Four mechanisms in this thread
 were proposed on plausibility and refuted on measurement, two of them by the
@@ -189,6 +222,8 @@ of any shadowing term for clustered lights — which the −16.1 frontage readin
 already points at.
 
 **Cost:** one constant, one round, no authoring change. Owned by R2.
+
+</details>
 
 ---
 
@@ -449,8 +484,11 @@ R2 (night)         ─┘  cheap, unlocks a whole visual register
 
 R4 (perf)          ──  MEASURED DONE: LOD swaps, 63.8% fewer shadow draws. Atlas
                          sizing and draw-call instancing still open
-R2 lantern radius  ──  the one constant five refutations point at. Prediction is
-                         recorded in R2 BEFORE the round, on purpose
+R2 (night) 2nd   ──  the lantern-radius round is CLOSED and reverted (882f434).
+                         The next move is a FRAME REVIEW, not another histogram:
+                         nine rounds of numeric targets on a subjective question
+                         bought six refutations and no fix. See
+                         SESSION_2026-10-01.md §1 and PROCESS.md rule 1
 R6 (atmosphere)    ──  the most recognisable missing element of the references
 R5 (destructible)  ──  explicitly requested, spectator-scale is enough
 R7 (water)         ──  cheap once R1 makes streets matter

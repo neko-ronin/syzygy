@@ -27,6 +27,36 @@ the machine did.
   per-entity state tells you where.
 - Prefer a probe you can run in one pass to an argument you have to believe.
 
+### ...but only where there is a right answer
+
+This rule is about **bugs**, and it has a scope limit that costs real time when
+missed. Measure to find out *what the machine did*. Do not manufacture a number
+because numbers are the only thing you know how to trust.
+
+The failure, in full: **the owner's words** —
+
+> Applying hard quantifiable scores toward a goal that is considered subjective,
+> on a product that isn't yet remotely presentable let alone MVP, is not an
+> acceptable practice.
+
+Nine rounds were spent on one unlit night market by inventing byte targets, N·L
+ratios and warm/cool histograms. Six mechanisms were proposed and all six
+refuted. Each refutation was reported as a successful round. It was one finding,
+available in round one: *the measurement was not answering the question.*
+
+The tell was round nine's "discovery" that the sample population was mostly
+non-market floor. That is a defect report against eight rounds of prior work. It
+was written up as insight.
+
+**So:** atmosphere, mood, "does this read as a lit market" — these have no right
+answer to measure toward. The instrument is **the frame review** (rule 9), by a
+non-implementer, against the reference sheets, judged by eye. Numeric targets for
+aesthetic properties are **derived after** a frame is approved, never invented
+before one is requested.
+
+Expect the pull. It returns whenever something looks wrong, and it feels like
+diligence. That is the reason it is written here.
+
 ## 2. Run a control
 
 **Change one variable. Re-shoot the same pose. Compare.**
@@ -135,6 +165,13 @@ already paid for once. See [`DESIGN.md`](DESIGN.md) §6.
 - If a claim in this repository contradicts what you measured, say so plainly
   rather than working around it. Every one of the significant findings in this
   project came from taking a document at its word and being wrong.
+- **A refutation is not a successful round.** Six consecutive mechanisms
+  refuted by measurement is one finding — that the question was wrong — and it
+  should have ended round one. If your round produced a clean negative result,
+  check whether the round was worth having before opening the next one.
+- **Read the stats off the frame you are about to believe.** A `requested: null`
+  next to a `PASS` was visible in the output and unread, because the `PASS` had
+  already been interpreted as "the tool worked".
 
 ## 10. Do not narrow the brief
 
@@ -151,7 +188,8 @@ Any "is this good enough" judgement gets settled against a frame from it, with
 
 ## The short version
 
-Measure before theorising. Run a control. Check the artifact, not the exit code.
-Confirm the diagnostic is looking at its subject. Do not read a name as
-evidence. Fix the document when measurement contradicts it. Write down what you
-learned. Commit the reasoning. Verify before reporting.
+Measure before theorising — **about bugs, not about taste**. Run a control. Check
+the artifact, not the exit code. Confirm the diagnostic is looking at its subject.
+Do not read a name as evidence. A refutation is not a successful round. Fix the
+document when measurement contradicts it. Write down what you learned. Commit the
+reasoning. Verify before reporting — and let a reviewer judge the frame.
