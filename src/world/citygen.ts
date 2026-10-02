@@ -717,7 +717,7 @@ function placeProps(
   const hx = b.halfExtents[0], hz = b.halfExtents[2], hy = b.halfExtents[1];
   const baseY = b.position[1] - hy;
   const roofY = b.position[1] + hy;
-  const dense = style.cableDensity * cfg.detail;
+  const dense = style.clutterDensity * cfg.detail;
   const green = b.greenery;
   let n = 0;
 

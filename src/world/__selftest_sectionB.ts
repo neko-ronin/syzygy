@@ -33,7 +33,7 @@
 import { makeRng } from '../core/math';
 import { DISTRICT_STYLES, districtStyle } from './districts';
 import { hsv } from './groundgrammar';
-import { City, defaultCityConfig, footprintAabb } from './citygen';
+import { City, defaultCityConfig, footprintAabb, PropKind } from './citygen';
 
 /** Section B district ids: glass-foxholes, rust-hangars, canal-district. */
 const B_DISTRICTS = [3, 5, 9];
@@ -173,6 +173,39 @@ function main(): void {
   console.log(`district-level Pearson(meanH, cables/bldg) = ${districtR.toFixed(3)} (was -0.65)`);
   console.log(`building-level Pearson(height, attachedCables) = ${realised.toFixed(3)} (n=${hs.length}; was -0.547; monastery anchor, see above)`);
   if (districtR < 0.15) problems.push(`district-level correlation ${districtR.toFixed(3)} did not flip sign (need ≥ +0.15)`);
+
+  // Facade clutter is a separate knob (`clutterDensity`) from cables since
+  // round 4, because one knob cut lantern-bazaar's street-level signs and
+  // lanterns 3.3x for a cable decision. Street-level S+L per building
+  // (y < 12 m, the band a street reads at) must keep the bazaar top-two;
+  // tall districts always win the unbanded count via floor count, so the
+  // unbanded rank is reported, not pinned.
+  const lowBand = new Map<number, { n: number; s: number }>();
+  for (const [cx, cz] of grid) {
+    const c = city.getChunk(cx, cz)!;
+    for (const b of c.buildings) {
+      const hx = b.halfExtents[0] + 2, hz = b.halfExtents[2] + 2;
+      let sl = 0;
+      for (const p of c.props) {
+        if (p.kind !== PropKind.Sign && p.kind !== PropKind.Lantern) continue;
+        if (p.position[1] >= 12) continue;
+        if (Math.abs(p.position[0] - b.position[0]) > hx) continue;
+        if (Math.abs(p.position[2] - b.position[2]) > hz) continue;
+        sl++;
+      }
+      const e = lowBand.get(b.districtId) ?? { n: 0, s: 0 };
+      e.n++; e.s += sl;
+      lowBand.set(b.districtId, e);
+    }
+  }
+  const lowRank = [...lowBand.entries()]
+    .map(([d, v]) => ({ d, per: v.s / v.n }))
+    .sort((a, b) => b.per - a.per);
+  console.log(`street-level S+L/bldg: ${lowRank.map((r) => `${DISTRICT_STYLES[r.d].key}=${r.per.toFixed(2)}`).join(' / ')}`);
+  const bazaarRank = lowRank.findIndex((r) => r.d === 4) + 1;
+  if (bazaarRank < 1 || bazaarRank > 2) {
+    problems.push(`lantern-bazaar street-level sign/lantern rank ${bazaarRank || 'absent'} (need top-two)`);
+  }
 
   console.log(`\nVIOLATIONS ${problems.length === 0 ? 'none' : problems.length}`);
   for (const p of problems) console.log(`  - ${p}`);

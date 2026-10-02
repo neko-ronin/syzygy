@@ -48,6 +48,13 @@ export interface DistrictStyle {
   greenery: number;
   /** Multiplier on cables, brackets, signs, clutter. */
   cableDensity: number;
+  /**
+   * Multiplier on facade and rooftop props only. Split from `cableDensity` in
+   * round 4: one knob starved lantern-bazaar's signs and lanterns 3.3x for a
+   * cable decision that had nothing to do with its facades. Cables read
+   * `cableDensity`; `placeProps` reads this.
+   */
+  clutterDensity: number;
   windowStyle: WindowStyle;
   accentColor: Vec3;
   roofStyle: RoofStyle;
@@ -76,7 +83,7 @@ export const DISTRICT_STYLES: DistrictStyle[] = [
     id: 0, key: 'verdant-canyon', name: 'Verdant Canyon',
     palette: pal('#e9e4d6', '#d6cdb9', '#b08a66', '#9fc4bd', '#7c9070', '#6f6b5f', '#4f8a3c', '#7e8a86', '#2f6f6c', '#ffd9a0'),
     heightRange: [130, 430], footprintRange: [15, 27],
-    leanAmount: 0.032, gapBias: 1.15, greenery: 0.92, cableDensity: 1.0,
+    leanAmount: 0.032, gapBias: 1.15, greenery: 0.92, cableDensity: 1.0, clutterDensity: 1.0,
     windowStyle: 'pergola', accentColor: hexLinear('#2f8f6a'), roofStyle: 'flat-garden',
     description: 'White concrete and warm timber, curtains of vine, planters on every sill.',
   },
@@ -84,7 +91,7 @@ export const DISTRICT_STYLES: DistrictStyle[] = [
     id: 1, key: 'copper-stacks', name: 'Copper Stacks',
     palette: pal('#4e8f86', '#3c6d68', '#c96a2e', '#2f4f52', '#35706a', '#5c554a', '#6b8f4a', '#7b6b5b', '#205055', '#ff9a4a'),
     heightRange: [190, 520], footprintRange: [17, 31],
-    leanAmount: 0.019, gapBias: 0.92, greenery: 0.36, cableDensity: 1.4,
+    leanAmount: 0.019, gapBias: 0.92, greenery: 0.36, cableDensity: 1.4, clutterDensity: 0.8,
     windowStyle: 'louvre', accentColor: hexLinear('#e07a2f'), roofStyle: 'antenna-forest',
     description: 'Oxidised copper cladding, orange patina streaks, industrial flues above the parapet.',
   },
@@ -92,7 +99,7 @@ export const DISTRICT_STYLES: DistrictStyle[] = [
     id: 2, key: 'terracotta-tiers', name: 'Terracotta Tiers',
     palette: pal('#b5623a', '#9c4c30', '#d9a05b', '#7d8f9a', '#a8542f', '#7b6653', '#7f8f3f', '#8b6b4b', '#405b5d', '#ffb15e'),
     heightRange: [55, 210], footprintRange: [25, 47],
-    leanAmount: 0.008, gapBias: 1.32, greenery: 0.5, cableDensity: 0.7,
+    leanAmount: 0.008, gapBias: 1.32, greenery: 0.5, cableDensity: 0.7, clutterDensity: 0.5,
     windowStyle: 'stacked', accentColor: hexLinear('#e08a3c'), roofStyle: 'terraces',
     description: 'Stepped ziggurat blocks of terracotta and ochre, wide planted terrace shoulders.',
   },
@@ -100,7 +107,7 @@ export const DISTRICT_STYLES: DistrictStyle[] = [
     id: 3, key: 'glass-foxholes', name: 'Glass Foxholes',
     palette: pal('#b4c8d4', '#8fa9b8', '#6e828f', '#9db9cb', '#7c8b98', '#6b7683', '#6d8a6a', '#8da2ab', '#2d6b81', '#ffb35e'),
     heightRange: [210, 570], footprintRange: [19, 35],
-    leanAmount: 0.013, gapBias: 0.86, greenery: 0.3, cableDensity: 1.5,
+    leanAmount: 0.013, gapBias: 0.86, greenery: 0.3, cableDensity: 1.5, clutterDensity: 0.7,
     windowStyle: 'mullion', accentColor: hexLinear('#4f9fc4'), roofStyle: 'mast',
     description: 'Pale steel-blue glass over blue-grey metal, cold and reflective, very few openings.',
   },
@@ -108,7 +115,7 @@ export const DISTRICT_STYLES: DistrictStyle[] = [
     id: 4, key: 'lantern-bazaar', name: 'Lantern Bazaar',
     palette: pal('#8b5b4b', '#704636', '#c9302c', '#ffcf6a', '#5b3b2d', '#50453d', '#5f8f3f', '#7b6b59', '#2b4b4b', '#ff4a2a'),
     heightRange: [18, 78], footprintRange: [10, 23],
-    leanAmount: 0.055, gapBias: 1.48, greenery: 0.26, cableDensity: 0.6,
+    leanAmount: 0.055, gapBias: 1.48, greenery: 0.26, cableDensity: 0.6, clutterDensity: 1.7,
     windowStyle: 'shutter', accentColor: hexLinear('#ff3b2e'), roofStyle: 'flat-garden',
     description: 'Low, leaning, over-signed shophouses. Red and gold signage on every facade.',
   },
@@ -116,7 +123,7 @@ export const DISTRICT_STYLES: DistrictStyle[] = [
     id: 5, key: 'rust-hangars', name: 'Rust Hangars',
     palette: pal('#55606c', '#505c68', '#6a7683', '#4e5e66', '#4e5a66', '#585f68', '#5f7a5f', '#767f8a', '#2f4147', '#ffa060'),
     heightRange: [26, 92], footprintRange: [31, 63],
-    leanAmount: 0.006, gapBias: 1.12, greenery: 0.22, cableDensity: 0.5,
+    leanAmount: 0.006, gapBias: 1.12, greenery: 0.22, cableDensity: 0.5, clutterDensity: 0.4,
     windowStyle: 'ribbon', accentColor: hexLinear('#c0562a'), roofStyle: 'sawtooth',
     description: 'Big-span steel sheds in blue-grey, clerestory ribbons along the ridge.',
   },
@@ -124,7 +131,7 @@ export const DISTRICT_STYLES: DistrictStyle[] = [
     id: 6, key: 'monastery-spire', name: 'Monastery Spire',
     palette: pal('#ddd7c9', '#c9c1b1', '#2f8f6a', '#a8c8c4', '#a9a395', '#8b8579', '#4f8a4a', '#9b9589', '#2b5b59', '#ffd8a8'),
     heightRange: [270, 600], footprintRange: [13, 23],
-    leanAmount: 0.052, gapBias: 1.06, greenery: 0.82, cableDensity: 1.7,
+    leanAmount: 0.052, gapBias: 1.06, greenery: 0.82, cableDensity: 1.7, clutterDensity: 0.6,
     windowStyle: 'arcade', accentColor: hexLinear('#2f9a72'), roofStyle: 'spire',
     description: 'Pale stone needle towers, verdigris domes, terraced herb gardens between them.',
   },
@@ -132,7 +139,7 @@ export const DISTRICT_STYLES: DistrictStyle[] = [
     id: 7, key: 'neon-arcology', name: 'Neon Arcology',
     palette: pal('#2b2b5a', '#1a1a3b', '#b040c0', '#6a4ad0', '#232351', '#2b2b39', '#3a6a5a', '#5b5b7b', '#2b2b7b', '#ff40d0'),
     heightRange: [310, 600], footprintRange: [42, 92],
-    leanAmount: 0.021, gapBias: 0.72, greenery: 0.35, cableDensity: 1.9,
+    leanAmount: 0.021, gapBias: 0.72, greenery: 0.35, cableDensity: 1.9, clutterDensity: 1.1,
     windowStyle: 'curtainwall', accentColor: hexLinear('#e040c0'), roofStyle: 'antenna-forest',
     description: 'Single mega-structures in deep indigo, magenta edge light, skybridges at every level.',
   },
@@ -140,7 +147,7 @@ export const DISTRICT_STYLES: DistrictStyle[] = [
     id: 8, key: 'botanical-dome', name: 'Botanical Dome',
     palette: pal('#c8dcc4', '#a8c8a4', '#4f8f4a', '#c0e8d0', '#8ab888', '#6b7b60', '#3f9a3a', '#7b8b73', '#2b6b5b', '#8affa0'),
     heightRange: [42, 165], footprintRange: [35, 71],
-    leanAmount: 0.011, gapBias: 1.26, greenery: 1.0, cableDensity: 0.4,
+    leanAmount: 0.011, gapBias: 1.26, greenery: 1.0, cableDensity: 0.4, clutterDensity: 0.3,
     windowStyle: 'grid', accentColor: hexLinear('#2fa04a'), roofStyle: 'greenhouse',
     description: 'Vaulted glasshouses glowing green from the inside, condensation on the panes.',
   },
@@ -148,7 +155,7 @@ export const DISTRICT_STYLES: DistrictStyle[] = [
     id: 9, key: 'canal-district', name: 'Canal District',
     palette: pal('#8b98a3', '#7e8b96', '#7f92a3', '#9cbdc9', '#7e8891', '#6e757d', '#68806a', '#7b8b93', '#2b606c', '#ffc880'),
     heightRange: [45, 190], footprintRange: [15, 29],
-    leanAmount: 0.036, gapBias: 1.2, greenery: 0.6, cableDensity: 0.9,
+    leanAmount: 0.036, gapBias: 1.2, greenery: 0.6, cableDensity: 0.9, clutterDensity: 0.9,
     windowStyle: 'grid', accentColor: hexLinear('#3f7f9a'), roofStyle: 'flat-garden',
     description: 'Warehouse conversions in blue-grey stone on the quay walls, mooring bollards, washing on the balconies.',
   },
@@ -156,7 +163,7 @@ export const DISTRICT_STYLES: DistrictStyle[] = [
     id: 10, key: 'market-spine', name: 'Market Spine',
     palette: pal('#9b6b4b', '#805739', '#d8a03c', '#ffd07a', '#705034', '#6b5d4f', '#6f9a45', '#8b7b63', '#305152', '#ffa028'),
     heightRange: [15, 62], footprintRange: [9, 19],
-    leanAmount: 0.058, gapBias: 1.52, greenery: 0.3, cableDensity: 0.6,
+    leanAmount: 0.058, gapBias: 1.52, greenery: 0.3, cableDensity: 0.6, clutterDensity: 1.95,
     windowStyle: 'shutter', accentColor: hexLinear('#ffab2e'), roofStyle: 'flat-garden',
     description: 'The night-market street. Awnings, steam, signage hung off brackets into the road.',
   },
