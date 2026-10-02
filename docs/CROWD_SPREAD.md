@@ -506,3 +506,128 @@ before calling the tree usable. All numbers are counts, distributions or
 percentiles — no wall-clock figure, the box is loaded.
 
 No visual claim is made anywhere in this report.
+
+---
+
+# Round 6 — the instrument was sound; I was not. And the restorer is locomotion.
+
+Developer 2. Branch `dev2/crowd-instrument`. **`src/sim/crowd.ts` byte-identical
+to `e96ba15`; no fix ships.** Import test → **ALL PASS**. No instrumentation left
+in the tree.
+
+## 1. The instrument was not lying — my arithmetic was
+
+Round 5 flagged "holdRuns implies ~69% of active agent-frames, yet `F.lateral ===
+0` for none". I computed that denominator **by assumption**: I added up the
+frames I believed the probe had run. The probe's spread time series —
+`for (const frames of [5, 10, 30, 120, 300, 600])` — constructs **its own
+`new CrowdSim(SEED)` per iteration**, so those 1065 frames never touch `sim`'s
+counters. I divided by frames belonging to other objects.
+
+Re-measured with a counter incremented once per `update()`:
+
+```
+  update() calls (measured)   : 600
+  hold body executions       : 1520490
+  runs per update()          : 2534.2
+  active agents              : 2550
+  reach                      : 99.4%
+  mean |correction| per run  : 0.0232 m
+  max  |correction|          : 0.0233 m
+```
+
+**The counter was right and I was wrong.** Reach is **99.4%**, not 69%. The hold
+fires for essentially every active agent, exactly as round 5's other
+measurements said. No refutation from rounds 4–5 is invalidated; they stand.
+
+The lesson is the one worth keeping: a ratio is only as good as its
+denominator, and a denominator I inferred is a number I have not measured.
+This is the same species of error as the stall-face-into-empty-aisle probe
+(PITFALLS §21) — a confident number from an unexamined assumption — wearing
+arithmetic rather than geometry.
+
+## 2. The restorer: it is the agent's own path-following
+
+Watched agent 6 frame by frame. Target `F.lateral` = **+14.647 m**:
+
+```
+  frame |  z before | hold corr |  d asked |   z after | written f[o+F.z]
+      0 |   0.3763  |   0.0233  |  26.545  |   0.3761  |   0.3761
+      1 |   0.3761  |   0.0233  |  26.548  |   0.3759  |   0.3759
+      2 |   0.3759  |   0.0233  |  26.550  |   0.3757  |   0.3757
+      3 |   0.3757  |   0.0233  |  26.553  |   0.3755  |   0.3755
+      4 |   0.3755  |   0.0233  |  26.555  |   0.3753  |   0.3753
+```
+
+The hold adds **+0.0233 m** in z every frame. The written z **falls 0.0002 m**
+every frame. So roughly **0.0224 m per frame is removed** — almost exactly the
+hold's own contribution.
+
+At `dt = 1/60`, 0.0224 m/frame is **−1.34 m/s** in z. `pace` is seeded in
+`[0.85, 1.75]` and with the jam factor near 1 this agent's speed ceiling is
+about **1.4 m/s**. **The agent is walking in −z at essentially its full speed,
+and the lane hold is cancelling it almost exactly.**
+
+## 3. What that means — the equilibrium is explained
+
+This is no longer an unexplained equilibrium. It is a **stable standoff**:
+
+* path-following pulls the body toward its nav goal, in −z;
+* the lane hold pulls it toward `F.lateral = +14.6 m`, in +z;
+* they balance to within 0.0002 m/frame, so **the body never moves**.
+
+The 25.9 m error is the standing distance between *where the crowd wants to
+walk* and *the lane it is told to hold*. That surface is the line: every agent
+settles wherever its own goal and its own lane happen to cancel.
+
+`max |correction| = 0.0233 m` is exactly `HOLD_SPEED * dt`, so the hold is at
+its ceiling on every agent, every frame — it is not easing off, it is straining.
+
+**This relocates the fix.** It is not in the hold and not in the seeder's
+placement arithmetic. It is in the *coupling*: goals are assigned without regard
+to the lane the hold will pull the agent back to, so the two systems oppose each
+other permanently. Either the goal should be chosen on the agent's own side of
+the street, or the hold should yield to an agent that is making progress toward
+it. Which of those is right is a design call I have not made.
+
+## 4. Acceptance test: still NOT MET, thresholds untouched
+
+```
+  FOOTWAY BALANCE  left 1599  right 91  (left share 94.6%)
+  z IQR about centroid = 0.04 m
+  FAIL  both footways carry a real share of the crowd (30-70%)
+  FAIL  z IQR about the centroid exceeds 1.0 m (not a line)
+```
+
+Nothing relaxed.
+
+## 5. Silhouette variety: still not attempted
+
+The capture has not landed, so I have no frame. Spread alone has not landed
+either. Producing a silhouette change now would be a second unvalidated change
+against an unchanged defect, and the reviewer's prediction stays untested.
+
+## 6. Standing numbers, corrected
+
+| quantity | value | note |
+| --- | --- | --- |
+| hold reach | **99.4%** | **corrects round 5's 69%** — that was my arithmetic |
+| hold runs per update | 2534.2 vs 2550 active | measured denominator |
+| mean / max \|correction\| | 0.0232 / 0.0233 m | max is exactly `HOLD_SPEED * dt` — always at ceiling |
+| net z change, watched agent | **−0.0002 m/frame** | hold +0.0233, removed −0.0224 |
+| implied opposing velocity | **−1.34 m/s** | ≈ the agent's own walking ceiling |
+| z IQR about centroid | 0.04 m | FAIL |
+| footway balance | 94.6% left | FAIL |
+| `F.lateral` targets | p50 +7.64, IQR 29.32, frozen | 0.0000 m drift / 60 frames |
+| agents inside a footprint | 0.0% | |
+| building ejections | ~0.3/frame | refuted |
+| churn | ~5.4/frame | refuted as the restorer |
+
+## 7. Process
+
+Deliberate branch, no experiment left live, import test run before calling the
+tree usable. The first thing this round was to attack my own instrument rather
+than the crowd — and that is what found the error, in my report rather than in
+the code.
+
+No visual claim is made.
