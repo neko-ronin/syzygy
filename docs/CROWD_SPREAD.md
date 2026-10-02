@@ -211,3 +211,167 @@ Measured under load average 128–150 with 89 MB unused RAM. Every number here i
 **count, distribution or percentile**, which stay valid under contention. **No
 millisecond, fps or wall-clock figure is reported**, because it would be measuring
 the box rather than the crowd. No `RangeError` or killed process was hit.
+
+# Round 4 — the seeder is exonerated; the hold is exonerated; the crowd is still a line
+
+Developer 2. Worked on branch `dev2/crowd-spread`; **`src/sim/crowd.ts` is
+byte-identical to `e96ba15` and nothing is shipped.** Import test
+(`npx vite-node src/sim/__selftest.ts`) → **ALL PASS**.
+
+## 1. Headline: still no fix, and the localisation moved
+
+I could not get a fix past measurement. I am not shipping one. But round 4
+eliminated two more candidates and **corrected one of round 3's own numbers**.
+
+## 2. Round 3's "non-unit tangent" lead was wrong — retracted
+
+I suggested `|placed.tangent| == 1` might be the bug. **It is not.** I had
+averaged `placed.tx/tz` over 6301 seeds pointing in many different directions;
+the mean of unit vectors that disagree has magnitude < 1 for entirely mundane
+reasons. Averaging directions and reading the magnitude is not a measurement of
+any one vector. Do not spend a round on it.
+
+## 3. World-z WAS flattering, exactly as suspected
+
+You flagged that the 0.04 m world-z figure might flatter. It does — and the
+reviewer's ribbon is explained by the tangent-relative view, not the world one:
+
+| measure | value | reading |
+| --- | --- | --- |
+| z − cz IQR (world axis) | 0.04 m | looks like a line |
+| street tangent | (0.880, 0.099), bearing 6.4° | runs along X |
+| **perpendicular offset from the nearest carriageway, IQR** | **12.70 m** | the crowd is *not* a world-axis line |
+| realised lateral, median | **−10.20 m** | packed on ONE footway |
+| realised lateral, p95 | +8.41 m | the far footway is nearly empty |
+| **footway balance (asserted)** | **left 1599 / right 91 = 94.6% left** | **this is the ribbon** |
+
+So the ribbon is not "no lateral spread" in world axes. It is **one footway
+packed and the other empty** — a single occupied band running to the vanishing
+point, which is precisely what the reviewer described as a divider.
+
+`src/sim/__selftest_spread.ts` now **asserts** this rather than only printing:
+
+```
+  FOOTWAY BALANCE  left 1599  right 91  (left share 94.6%)
+  z IQR about centroid = 0.04 m
+  FAIL  both footways carry a real share of the crowd (30-70%)
+  FAIL  z IQR about the centroid exceeds 1.0 m (not a line)
+SPREAD VIOLATIONS 2
+```
+
+Both assertions fail on `e96ba15`. That is the defect, now re-runnable in one
+command and impossible to forget.
+
+## 4. The hold is exonerated by instrumentation, not by argument
+
+I re-applied the round-3 convergence change (`HOLD_GAIN = 0.8`, `HOLD_CEIL = 8`,
+proportional with a ceiling) **on the branch**, measured, and then reverted it.
+
+It did not work: z IQR 0.04 → 0.20 m, left share 97.9%, `|F.lateral − current
+lateral|` p50 22.51 m — unchanged. So the round-2 rate limit was not the cause
+either, and the change does not ship.
+
+Instrumenting the hold settles it:
+
+```
+  HOLD: ran 1591417 times, mean |correction| 0.1004 m/frame,
+        mean |error| it was asked to close 16.71 m
+```
+
+**1.59 M executions, 0.10 m applied per frame, against a 16.7 m error.** Over 600
+frames that is ~60 m of correction available against a 22 m error — 3.7× more
+than required. And the error does not shrink.
+
+The hold is running, is not blocked, and is doing everything asked of it. If it
+applied its correction and the error stays constant, **something restores the
+offset at the same rate**. Candidates tested this round, all in the report:
+
+| candidate | verdict | measurement |
+| --- | --- | --- |
+| buildings ejecting bodies onto a straight face | **refuted** | **0.0%** of active agents stand inside a footprint |
+| wind advection balancing the hold | **refuted** | default `windSpeed = 4.2` → **0.015 m/frame**, 6× too small to explain 0.10 |
+| the population never being re-seeded | **refuted — and round 3 was wrong** | see below |
+
+## 5. Correction to round 3: churn is NOT zero
+
+Round 3 reported **0 retired, 0 seeded over 30 frames** and used it to rule out
+churn. That was measured at the **boot** pose. At `street-crowd`:
+
+```
+  POPULATION CHURN over 30 frames: 163 agents retired, 162 newly seeded
+```
+
+That is **~5.4 agents per frame**, so the entire 2550-agent population is
+replaced roughly every **470 frames** — more than once during a 600-frame settle.
+Round 3's "0" was a pose artefact and I generalised from it. The correct
+statement is: **churn is negligible at the boot pose and dominant at the pose the
+reviewer judged.**
+
+This matters for the fix, because an agent needs ~150 frames of hold to cross a
+22 m error at the ceiling, and the expected lifetime is ~470 — so some should
+converge. But any agent seeded far from its target spends much of its life in
+transit, which is consistent with a population whose *realised* distribution is
+dominated by seed placement rather than by settled behaviour.
+
+## 6. What I did not do, and why
+
+**Task 2 — varied silhouettes.** Not attempted. It is the reviewer's predicted
+next defect and it is real, but it is only visible *after* the spread is fixed,
+and I cannot judge it: no frame may be taken this round, and a silhouette change
+with no frame behind it is exactly the move this project has been punished for.
+Doing it blind would also put a second unvalidated change into the same round.
+
+**Task 3 — avoidance.** Not attempted, per your instruction and my own round-3
+note. **Recording the P2 refutation so it is not re-attempted blind:** giving
+separation its own speed budget and adding a positional overlap pass moved
+nearest-neighbour p50 only 0.030 → 0.019 m and overlapping bodies 99.0% → 98.4%.
+**Those figures are confounded** — with the crowd on one footway, nearest-neighbour
+distance measures the footway, not avoidance. Treat them as void, not as a result.
+
+## 7. Updated standing numbers
+
+| quantity | value |
+| --- | --- |
+| population | n = 2550, seed 6191639, pose `street-crowd` |
+| `viewRadius` | 160 m |
+| street tangent | (0.880, 0.099), bearing 6.4° — runs along X |
+| z − cz IQR (world) | **0.04 m** — FAIL (< 1.0 m) |
+| **perpendicular offset IQR** | **12.70 m** |
+| **footway balance** | **94.6% left** — FAIL (needs 30–70%) |
+| realised lateral | p50 −10.20 m, p95 +8.41 m |
+| `F.lateral` targets | p50 +7.64 m, IQR 29.32 m — the targets are *sensible* |
+| \|F.lateral − current lateral\| | p50 22.51 m |
+| hold execution | 1.59 M runs, 0.1004 m/frame, mean error 16.71 m |
+| churn at this pose | 163 retired / 162 seeded per 30 frames (~1 replacement per 470 frames) |
+| agents inside a building | **0.0%** |
+| nearest-neighbour 3D | p50 0.030 m — **confounded, do not read as avoidance** |
+| gap histogram | unchanged; void while degenerate |
+
+## 8. Where this leaves it
+
+The targets are already right (`F.lateral` IQR 29.3 m, sensibly signed both
+ways). The seeder aims at both footways. The hold runs 1.59 M times with ample
+authority and the error does not shrink. Nothing is blocking it that I can find
+by measurement.
+
+**The defect is now bounded to a single unexplained equilibrium:** agents are
+restored to a ~16 m lateral error, on one footway, at the same rate the hold
+corrects it — with buildings, wind and churn all measured and excluded as the
+restoring force. That is a smaller and more precise target than round 3's, and it
+is not yet a fix.
+
+This is **not** a closed row, and no visual claim is made. The reviewer's
+prediction stands and is now more precisely stated: fixing this will break the
+ribbon into a row, and the repeated stance will be exposed behind it.
+
+## 9. Process
+
+Branched before touching anything, so no unvalidated change was ever live in the
+shared tree — the round-3 failure did not recur. **Import test run before
+claiming the tree usable**, and it is what caught my own module-scope
+mis-declaration this round (`ReferenceError: holdRuns is not defined`) which tsc
+had passed. That is the second time in two rounds that a green `tsc` hid a
+runtime break, and both times the import test was what found it.
+
+All numbers are counts, distributions or percentiles. No wall-clock figure is
+reported.
