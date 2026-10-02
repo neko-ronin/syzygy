@@ -637,6 +637,78 @@ function makeBuilding(
   };
 }
 
+/**
+ * Lot audit: why candidate lots never became buildings. Pure measurement —
+ * called only from the self-test, never from the generator, so it cannot
+ * change the city. It re-runs `buildChunk`'s own lattice with `buildChunk`'s
+ * own predicates (same `minClear` thresholds as `makeBuilding`, same worley
+ * and 6% rolls) and the same greedy de-overlap, and the suite reconciles
+ * `kept` against the chunk's actual building count, so drift between this
+ * mirror and the generator fails loudly instead of silently.
+ */
+export interface LotAudit {
+  candidates: number;
+  /** Dropped for fouling a carriageway (`clearance < minClear`). */
+  road: number;
+  /** Dropped into a worley courtyard pocket. */
+  pocket: number;
+  /** Dropped by the 6% thinning roll. */
+  random: number;
+  /** Swallowed by a neighbour in de-overlap. */
+  overlap: number;
+  /** Surviving buildings; must equal the chunk's building count. */
+  kept: number;
+}
+
+const auditSample: StreetSample = { ...planSample };
+
+export function auditChunkLots(plan: CityPlan, cfg: CityConfig, cx: number, cz: number): LotAudit {
+  const size = cfg.chunkSize;
+  const ox = cx * size, oz = cz * size;
+  const pitch = clamp(size * Math.sqrt(LOT_SURVIVAL / Math.max(4, cfg.buildingsPerChunk)), 10, 46);
+  const i0 = Math.ceil(ox / pitch), i1 = Math.floor((ox + size) / pitch);
+  const j0 = Math.ceil(oz / pitch), j1 = Math.floor((oz + size) / pitch);
+  const out: LotAudit = { candidates: 0, road: 0, pocket: 0, random: 0, overlap: 0, kept: 0 };
+
+  const cands: BuildingInstance[] = [];
+  for (let iz = j0; iz <= j1; iz++) {
+    for (let ix = i0; ix <= i1; ix++) {
+      const lr = lotRng(ix, iz, 5);
+      const wx = (ix + 0.5) * pitch + lr.jitter(pitch * 0.19);
+      const wz = (iz + 0.5) * pitch + lr.jitter(pitch * 0.19);
+      if (wx < ox || wx >= ox + size || wz < oz || wz >= oz + size) continue;
+      out.candidates++;
+      sampleStreetPlan(plan, wx, wz, auditSample);
+      const minClear = auditSample.kind === 'alley' ? 5.2 : auditSample.kind === 'canal' ? 8.5 : 5.5;
+      if (auditSample.clearance < minClear) { out.road++; continue; }
+      const pocket = worley2(wx * 0.0091 + plan.districts.ox * 0.01, wz * 0.0091 - plan.districts.oz * 0.01);
+      if (pocket < 0.085) { out.pocket++; continue; }
+      if (lotRng(ix, iz, 17).next() < 0.06) { out.random++; continue; }
+      const b = makeBuilding(plan, cfg, ix, iz, wx, wz, pitch);
+      if (b) cands.push(b);
+    }
+  }
+
+  const order = cands.map((_, i) => i).sort((a, b) => {
+    const ab = cands[a].halfExtents[0] * cands[a].halfExtents[2];
+    const bb = cands[b].halfExtents[0] * cands[b].halfExtents[2];
+    return bb - ab || a - b;
+  });
+  const occ = new Occupancy(ox - 64, oz - 64, 48);
+  const box: [Vec3, Vec3] = [[0, 0, 0], [0, 0, 0]];
+  let kept = 0;
+  for (const i of order) {
+    const fp = footprintAabb(cands[i]);
+    box[0][0] = fp[0][0]; box[0][2] = fp[0][2];
+    box[1][0] = fp[1][0]; box[1][2] = fp[1][2];
+    if (occ.overlaps(box[0], box[1], 1.4)) { out.overlap++; continue; }
+    occ.add(cands[i]);
+    kept++;
+  }
+  out.kept = kept;
+  return out;
+}
+
 function placeProps(
   cfg: CityConfig, b: BuildingInstance, style: DistrictStyle, budget: number, r: Rng, out: PropInstance[],
 ): void {

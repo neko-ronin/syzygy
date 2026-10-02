@@ -7,7 +7,7 @@
 import { makeRng, type Vec3, type Vec4 } from '../core/math';
 import { DISTRICT_STYLES, waterDepthAt } from './districts';
 import {
-  City, GROUND_Y, PropKind, cityPlan, defaultCityConfig, footprintAabb,
+  City, GROUND_Y, PropKind, auditChunkLots, cityPlan, defaultCityConfig, footprintAabb,
   roadClearanceAt, sampleStreetPlan, type BuildingInstance, type CityChunk, type StreetSample,
 } from './citygen';
 import { MeshBuilder, meshTriangleCount, type Mesh } from './geometry';
@@ -134,11 +134,13 @@ const mean = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / Math.max(
 const f2 = (n: number): string => n.toFixed(2);
 
 /** Free horizontal distance from each facade to the next building's footprint. */
-const measureCanyons = (chunk: CityChunk): number[] => {
-  const out: number[] = [];
+const measureCanyonsInto = (
+  chunk: CityChunk, groupOf: (b: BuildingInstance) => string, outs: Record<string, number[]>,
+): void => {
   const bs = chunk.buildings;
   for (const b of bs) {
     const ct = Math.cos(b.rotationY), st = Math.sin(b.rotationY);
+    const g = groupOf(b);
     for (const [sx, sz] of CORNER_SIGNS) {
       const ox = sx * b.halfExtents[0], oz = sz * b.halfExtents[2];
       const wx = b.position[0] + ox * ct + oz * st;
@@ -150,10 +152,9 @@ const measureCanyons = (chunk: CityChunk): number[] => {
         const t = rayBoxT2(wx, wz, dx, dz, o.aabbMin, o.aabbMax, 220);
         if (t > 0.4 && t < best) best = t;
       }
-      if (best < 220) out.push(best);
+      if (best < 220) { outs.all.push(best); outs[g].push(best); }
     }
   }
-  return out;
 };
 
 const rayBoxT2 = (
@@ -210,6 +211,9 @@ export function runCitySelfTest(): string {
   let badRoad = 0, worstRoad = 0, waterLots = 0, overlaps = 0;
   const districtHits = new Map<number, number>();
   const footprintWidths: number[] = [];
+  const centreClear: number[] = [];
+  const headroom: number[] = [];
+  const cornerMin: number[] = [];
   const heights: number[] = [];
   const floorCounts: number[] = [];
   const perChunkB: number[] = [], perChunkP: number[] = [], perChunkC: number[] = [];
@@ -251,10 +255,18 @@ export function runCitySelfTest(): string {
       }
       const nx = -tmpS.tz, nz = tmpS.tx;
       const off = tmpS.px * nx + tmpS.pz * nz;
+      // Mirrors the `minClear` thresholds in `makeBuilding`: headroom is what
+      // the setback decision had left over.
+      const minClear = tmpS.kind === 'alley' ? 5.2 : tmpS.kind === 'canal' ? 8.5 : 5.5;
+      centreClear.push(tmpS.clearance);
+      headroom.push(tmpS.clearance - minClear);
+      let cmin = Infinity;
       for (const corner of footprintCorners(b)) {
         const lat = Math.abs(corner[0] * nx + corner[2] * nz - off) - tmpS.width * 0.5;
+        if (lat < cmin) cmin = lat;
         if (lat < -2.0) { badRoad++; worstRoad = Math.min(worstRoad, lat); }
       }
+      cornerMin.push(cmin);
       if (tmpS.clearance > 0) {
         const canyon = tmpS.width + tmpS.clearance;
         canyonMin = Math.min(canyonMin, canyon);
@@ -300,10 +312,35 @@ export function runCitySelfTest(): string {
   if (waterLots > 0) fail(`${waterLots} buildings stand in the canal`);
   if (overlaps > 0) fail(`${overlaps} overlapping building pairs`);
 
-  // Real canyon width: cast out from every facade to the next building.
-  const canyon = measureCanyons(sampleChunk);
+  // Real canyon width: cast out from every facade to the next building, over
+  // all 64 chunks (a single chunk measures luck — per-chunk p50 ranges with
+  // the junctions it happens to contain). Grouped by the winning road kind so
+  // the street hierarchy reads as numbers: wide kinds, streets, alleys.
+  const canyonOuts: Record<string, number[]> = { all: [], wide: [], street: [], alley: [] };
+  const kindSample: StreetSample = { ...tmpS };
+  for (const c of chunks) {
+    measureCanyonsInto(c, (b) => {
+      sampleStreetPlan(plan, b.position[0], b.position[2], kindSample);
+      return kindSample.kind === 'alley' ? 'alley' : kindSample.kind === 'street' ? 'street' : 'wide';
+    }, canyonOuts);
+  }
+  const canyon = canyonOuts.all;
   if (canyon.length > 20 && (pct(canyon, 0.5) < 12 || pct(canyon, 0.5) > 75)) {
     fail(`median free width between opposing facades ${f2(pct(canyon, 0.5))}m is out of band`);
+  }
+
+  // Lot audit: why candidate lots never became buildings, over the same 64
+  // chunks. `kept` must reconcile with the building count or the mirror has
+  // drifted from the generator and every number in this block is suspect.
+  const lotAudit = { candidates: 0, road: 0, pocket: 0, random: 0, overlap: 0, kept: 0 };
+  for (const [cx, cz] of grid) {
+    const a = auditChunkLots(plan, cfg, cx, cz);
+    lotAudit.candidates += a.candidates; lotAudit.road += a.road;
+    lotAudit.pocket += a.pocket; lotAudit.random += a.random;
+    lotAudit.overlap += a.overlap; lotAudit.kept += a.kept;
+  }
+  if (lotAudit.kept !== buildings) {
+    fail(`lot audit does not reconcile: ${lotAudit.kept} kept vs ${buildings} buildings`);
   }
 
   // Determinism: an independent City must reproduce every chunk byte for byte.
@@ -371,17 +408,63 @@ export function runCitySelfTest(): string {
   if (resampleSpline([[0, 0, 0], [10, 0, 0], [10, 0, 10]], 7).length !== 7) fail('resampleSpline count');
 
   // Field sanity across the sampled extent.
-  let fieldMin = Infinity, fieldMax = 0, waterCells = 0;
+  let waterCells = 0;
   const tmp: StreetSample = { ...tmpS };
   for (let i = 0; i < 4000; i++) {
     const x = ((i * 61) % 1600) - 800;
     const z = ((i * 137) % 1600) - 800;
     sampleStreetPlan(plan, x, z, tmp);
-    fieldMin = Math.min(fieldMin, tmp.width);
-    fieldMax = Math.max(fieldMax, tmp.width);
     if (waterDepthAt(x, z, cfg.seed) > 0) waterCells++;
   }
-  if (fieldMin < 8 || fieldMax > 62) fail(`carriageway width out of band: ${f2(fieldMin)}..${f2(fieldMax)}m`);
+
+  // Apparent carriageway width, MEASURED from the field rather than read off
+  // the plan parameters: walk the road normal both ways from the centreline
+  // until `clearance` crosses zero and sum the two edge distances. The old
+  // line printed the nominal input, which is a phantom in the most literal
+  // sense (PROCESS rule 5): a number that answers to nothing. With a true
+  // distance field the measured width must equal the authored one, which is
+  // what makes this a check on the field instead of a restatement of it.
+  // Seeds where the walk leaves the road (junctions, parallel carriageways)
+  // are discarded, not scored: scoring them would measure the wrong road. The
+  // window is deliberately tight (nominal edge + 12 m): a wider window lets
+  // the ray cross into a neighbouring carriageway, which is how a first
+  // version of this check discarded 897/1000 seeds and hallucinated an 82 m
+  // road. ~1/3 of seeds survive; per kind below, the survivors agree with the
+  // authored widths to centimetres.
+  const apparentWidths: number[] = [];
+  const apparentByKind: Record<string, number[]> = {};
+  let apparentInvalid = 0;
+  const apS: StreetSample = { ...tmpS };
+  const apE: StreetSample = { ...tmpS };
+  for (let i = 0; i < 1000; i++) {
+    const x = ((i * 733) % 1600) - 800;
+    const z = ((i * 1297) % 1600) - 800;
+    sampleStreetPlan(plan, x, z, apS);
+    const nx = -apS.tz, nz = apS.tx;
+    const hi = apS.width * 0.5 + 12;
+    let ok = true, dsum = 0;
+    for (const side of [1, -1]) {
+      sampleStreetPlan(plan, apS.px + nx * side * hi, apS.pz + nz * side * hi, apE);
+      if (apE.clearance < 0) { ok = false; break; }
+      let lo = 0, hd = hi;
+      for (let k = 0; k < 24; k++) {
+        const mid = 0.5 * (lo + hd);
+        sampleStreetPlan(plan, apS.px + nx * side * mid, apS.pz + nz * side * mid, apE);
+        if (apE.clearance < 0) lo = mid; else hd = mid;
+      }
+      const d = 0.5 * (lo + hd);
+      sampleStreetPlan(plan, apS.px + nx * side * d, apS.pz + nz * side * d, apE);
+      if (apE.kind !== apS.kind) { ok = false; break; }
+      dsum += d;
+    }
+    if (ok) {
+      apparentWidths.push(dsum);
+      (apparentByKind[apS.kind] ??= []).push(dsum);
+    } else apparentInvalid++;
+  }
+  if (apparentWidths.length < 200) {
+    fail(`apparent width measured on only ${apparentWidths.length}/1000 seeds`);
+  }
 
   const kinds = [...propKinds.entries()]
     .sort((a, b) => b[1] - a[1])
@@ -556,11 +639,19 @@ export function runCitySelfTest(): string {
   L.push(`              cables ${f2(mean(perChunkC))} (min ${Math.min(...perChunkC)} max ${Math.max(...perChunkC)})  bridges ${f2(bridges / 64)}`);
   L.push(`totals        ${buildings} buildings, ${props} props, ${cables} cables, ${bridges} skybridges`);
   L.push(`              ${(floorArea / 10000).toFixed(1)} ha footprint, ${totalFloors} floors total, ${(totalFloors / Math.max(1, buildings)).toFixed(0)} mean floors/building`);
-  L.push(`canyon (ray)   free width facade-to-facade p10 ${f2(pct(canyon, 0.1))}m  p50 ${f2(pct(canyon, 0.5))}m  p90 ${f2(pct(canyon, 0.9))}m  (${canyon.length} faces probed)`);
+  L.push(`canyon (ray)   free width facade-to-facade p10 ${f2(pct(canyon, 0.1))}m  p50 ${f2(pct(canyon, 0.5))}m  p90 ${f2(pct(canyon, 0.9))}m  (${canyon.length} faces probed, all 64 chunks)`);
+  L.push(`              by kind median wide ${f2(pct(canyonOuts.wide, 0.5))}m (n=${canyonOuts.wide.length}) / street ${f2(pct(canyonOuts.street, 0.5))}m (n=${canyonOuts.street.length}) / alley ${f2(pct(canyonOuts.alley, 0.5))}m (n=${canyonOuts.alley.length})`);
   L.push(`footprints    ${f2(pct(footprintWidths, 0.1))}m p10 / ${f2(pct(footprintWidths, 0.5))}m median / ${f2(pct(footprintWidths, 0.9))}m p90 wide`);
   L.push(`verticality   height min ${f2(minH)}m  mean ${f2(mean(heights))}m  max ${f2(maxH)}m  (cap ${cfg.maxHeight}m)`);
   L.push(`setback       one-sided canyon ${f2(canyonMin)}..${f2(canyonMax)}m; ${waterLots} buildings over the canal, ${overlaps} overlaps`);
-  L.push(`street field  carriageway ${f2(fieldMin)}..${f2(fieldMax)}m wide; ${waterCells}/4000 samples under water`);
+  L.push(`              centre clearance p10 ${f2(pct(centreClear, 0.1))}m / p50 ${f2(pct(centreClear, 0.5))}m / p90 ${f2(pct(centreClear, 0.9))}m, min ${f2(Math.min(...centreClear))}m`);
+  L.push(`              headroom over minClear p50 ${f2(pct(headroom, 0.5))}m; <2m ${(100 * headroom.filter((h) => h < 2).length / headroom.length).toFixed(1)}% / >25m ${(100 * headroom.filter((h) => h > 25).length / headroom.length).toFixed(1)}%; corner-min <0.5m ${(100 * cornerMin.filter((c) => c < 0.5).length / cornerMin.length).toFixed(1)}%`);
+  L.push(`lots          ${lotAudit.candidates} candidates -> road-foul ${lotAudit.road} / pocket ${lotAudit.pocket} / random ${lotAudit.random} / overlap ${lotAudit.overlap} / kept ${lotAudit.kept}`);
+  const apparentKinds = Object.entries(apparentByKind)
+    .map(([k, v]) => `${k} ${f2(pct(v, 0.5))}m (n=${v.length})`)
+    .join(' / ');
+  L.push(`street field  apparent carriageway p10 ${f2(pct(apparentWidths, 0.1))}m / p50 ${f2(pct(apparentWidths, 0.5))}m / p90 ${f2(pct(apparentWidths, 0.9))}m  min ${f2(Math.min(...apparentWidths))}m max ${f2(Math.max(...apparentWidths))}m (${apparentWidths.length} measured, ${apparentInvalid} junction-discarded); ${waterCells}/4000 samples under water`);
+  L.push(`              by kind median ${apparentKinds}`);
   L.push(`triangles     shell ${f2(perBuildingTris)}/building (real mesh, ${meshTriangleCount(shell)} tris in ${shell.vertexCount} verts over ${sampleChunk.buildings.length} buildings)`);
   L.push(`              + facade window bands ~${f2(bandTris)}/bldg, props ${f2(perPropTris)}/prop -> analytic ${(analyticTris64 / 1e6).toFixed(2)}M tris for 64 chunks`);
   L.push(`              measured through bakeChunk LOD0: ${(measuredTris64 / 1e6).toFixed(2)}M for 64 chunks (${bakedChunks.length} baked, ${(bakedTris / bakedChunks.length).toFixed(0)}/chunk, ${f2(bakeMs)}ms) — analytic understates by x${(measuredTris64 / analyticTris64).toFixed(1)}`);
