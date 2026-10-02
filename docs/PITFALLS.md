@@ -641,6 +641,58 @@ agreement next to the frame rather than only on failure.
 
 ---
 
+## 21. Four mechanisms proposed on plausibility, all four killed by measurement
+
+**Symptom:** a single visual defect — stall frontages unreadable at night —
+attracted five successive confident explanations over five rounds. Every one was
+mechanically reasonable. Every one was wrong.
+
+| Proposed | Verdict | What killed it |
+|---|---|---|
+| Lights never reach the buffer | refuted | 933/933 delivered, 0 starved |
+| Lanterns hung too high for a vertical face | refuted | drop confirmed baked; flank problem unchanged |
+| Stalls sit beside the lanterns, not under them | refuted | median 4.92 m, **zero of 27 within 2 m**, at N·L 0.874 |
+| Cloth albedo too dark | exonerated | frontage authored **1.7×–9× brighter** than the deck |
+| `matAo` dimming vertical faces | exonerated | 0.594 vs 0.798, and it multiplies the **ambient term only** |
+
+Then the measurement all of it rested on was voided: the "known roadward stall
+faces" were projected onto empty aisle, 2.36 m from the nearest mesh vertex.
+Byte 4 with R−B −6.9 was **night sky**. The day frame's luma 119 at the same
+pixels was bright facades behind. So the headline finding — "a face receives 12%
+of what its geometry predicts" — was a lit deck compared against sky.
+
+**Two of the five were proposed by the orchestrator**, including one where a
+reviewer's recommendation was relayed without first checking whether it could
+work, and one where a "pale paving deck" was asserted without printing the value.
+
+**What actually generalises.** None of these were reasoning failures; they were
+*substitution* failures. In each case a quantity that would have decided the
+question was available and cheap, and a plausible story was written instead:
+
+- print the albedo; don't assume which surface is darker
+- print the AO term for this surface class; don't assume which term applies
+- ray-cast the sample point; don't pick it by eye from a dark frame
+- print the falloff curve against the emitter spacing; don't assume intensity is
+  the lever
+
+The one round that went right did it in the opposite order: it built the probe,
+then **validated the probe against a number someone else had measured by hand**
+before believing any of its output.
+
+**Corollary — a prediction is worth more before the round than after it.** The
+next proposal in this thread is recorded in `ROADMAP.md` R2 with its predicted
+numbers and its refutation condition *written down first*, precisely so that a
+refutation is as cheap to spot as a confirmation. Three of the five above would
+have died at the prediction step instead of costing five rounds.
+
+**The other half, and it is the half that actually bit.** A measurement is only
+as good as the point it was taken at, and "I chose this pixel because it looked
+like a stall face" is not a measurement method — it is a way of guaranteeing a
+result. Sample from geometry. Project through the renderer's own matrix. Then
+check the instrument against a known quantity before trusting it.
+
+---
+
 ## Working norms that held up
 
 - **Measure before theorising.** Every bug above cost far less time to measure

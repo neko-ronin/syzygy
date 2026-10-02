@@ -69,7 +69,9 @@ cannot be quietly framing empty ground (D21).
 
 ## R2 — Fix the night
 
-**Status: in progress — the authoring pass is done and it is NOT the fix.**
+**Status: in progress. Five mechanisms refuted with arithmetic; the cause is
+now MEASURED. One constant is proposed below, with its prediction written down
+first.**
 Night measured **6.21 mean luma** before, **~11.4** after (noon measures
 **125.75**). Night is still not the brightest frame in the set, and there is
 still no warm pool on the aisle. Full measurements, controls and the dominant
@@ -93,6 +95,102 @@ with emissive masks, the light binner runs, `WeatherDirector` has a `night` phas
 > 3.56 → 3.95; exposure ×3 moves it 3.56 → 5.68; **`aisleWarmPixelPct` stays 0.00
 > in every configuration**, because there is no warm light at the aisle to
 > reveal. Multiplying a floor does not invert a ratio.
+
+#### What the last four rounds actually established
+
+This subsection replaces three separate wrong diagnoses. The full record is in
+[`LIGHT_DELIVERY.md`](LIGHT_DELIVERY.md); the reason it is summarised here is
+that **four plausible mechanisms were proposed and measurement killed all four**,
+including two proposed by the orchestrator. Anyone reading only the commits would
+not know that.
+
+| Hypothesis | Verdict | Decisive measurement |
+|---|---|---|
+| Lights never reach the buffer | **REFUTED** | 933/933 delivered, 0 starved, `lights == delivered` on every frame |
+| Lanterns hung too high for stall faces | **REFUTED** | Drop 6.3 m → 3.85 m confirmed baked (144 lanterns, median hang 3.85 m). It did what it was meant to — and the flank problem persisted unchanged |
+| Stalls sit *beside* the lanterns, not under them | **REFUTED** | Stalls median 4.92 m from their nearest lantern, min 2.14, **zero of 27 within 2 m**, at N·L 0.874 — *better*-faced than the deck case modelled |
+| Cloth albedo too dark | **EXONERATED** | Frontage is authored **1.7×–9× brighter** than the deck it stands on (cloth linear 0.19–1.0 vs deck effective 0.107). The predicted sign was backwards |
+| `matAo` dimming vertical faces | **EXONERATED** | 0.594 on a vertical face vs 0.798 on deck — a 1.34× ratio, and it multiplies the **ambient term only**; the clustered-light term contains no `matAo`. AO cannot dim a lantern pool on a wall |
+
+And then the measurement that had been resting on air was itself voided: the
+"13 known roadward stall faces" were projected onto empty aisle, 2.36 m from the
+nearest mesh vertex. Byte 4 with R-B −6.9 was **night sky**, and the day frame's
+luma 119 at the same pixels was bright facades behind. So there was no
+measurement of a lit stall face anywhere in this thread.
+
+**The histogram that replaced it** (`7a9ae71`). Samples are triangle centroids of
+baked geometry projected through the renderer's own `frameUniforms()[0..15]` —
+never hand-placed. The probe was validated against the hand-measured deck point
+before use: `(580, 627)` byte 64.3 R-B +41.5 against a manual `(581, 621)`
+byte 60.6 R-B +38.3, inside 6 px and 4 byte.
+
+| | n | median R−B | median byte R |
+|---|---|---|---|
+| stall frontage (N·L > 0.3) | 37 | −5.0 | 4.7 |
+| deck under lanterns | 194 | −3.7 | 4.8 |
+| matched, 2–12 m | — | −2.7 vs −3.7 | 7% warm vs 8% warm |
+
+**Frontage is not starved relative to the deck. Both fail identically.** The
+"a face receives 12% of what its geometry predicts" framing was wrong from the
+start: it compared a lit deck against sky.
+
+**The actual shape of the problem — a bright small spot on a very cold field:**
+
+| distance from lantern | deck R−B | warm fraction |
+|---|---|---|
+| straight down, 3.0 m | **+41.5** | — |
+| 4–6 m | −4.8 | 3% |
+| 8–10 m | −3.3 | 5% |
+
+and the coldest thing measured anywhere is frontage 0–1 m from a lantern at
+**R−B −16.1**. Since clustered lights have **no shadow lookup at all**, that is
+orientation rather than occlusion: N·L clamped to zero leaves only blue ambient.
+
+This matches gate 5b's finding `(a) "one broad foreground wash, not three
+successive pools"` more precisely than any earlier account did — and it explains
+why the round-15 counter-height light experiment *regressed the deck* (60.6 →
+22.8): it added more spots, and the spots were never the problem.
+
+**Known limit of the instrument.** The occlusion ray test covers the market mesh
+only, not buildings or ground, so a building-occluded sample would still count as
+visible. No sample returned sky-black and the day control lights the same
+geometry, so the histograms are probably sound — but this is untested and is
+recorded rather than glossed.
+
+#### PROPOSED — widen the lantern pool, not its intensity
+
+**Written down before the round, deliberately.** Four mechanisms in this thread
+were proposed on plausibility and refuted on measurement, two of them by the
+orchestrator. A prediction recorded in advance is what makes the next result
+falsifiable rather than another story that fits.
+
+**Hypothesis.** The lantern's `Light.posRadius.w` (radius) is far smaller than
+the spacing it is meant to bridge. Measured falloff is +41.5 at 3 m and −4.8 by
+4–6 m, with cords **17–31 m apart**. A ~2 m bright pool every 17–31 m cannot
+articulate an aisle at any intensity, because intensity scales a pool and not its
+reach. Widening the radius should merge three successive pools into a continuous
+lit walking plane, which is gate 5b's named requirement `(a)`.
+
+**Prediction, stated so it can be falsified:**
+
+- deck R−B at 4–6 m rises from −4.8 toward positive;
+- the 8–10 m band rises from −3.3 toward positive;
+- frontage median R−B follows the deck, from −5.0 toward roughly equal;
+- **the 3 m core must NOT rise** — it is already +41.5 and clipping. If the core
+  also brightens, the radius did not change the *shape* and this is another
+  intensity change wearing a different hat;
+- total lights delivered must stay 933 and `starved` 0 — if radius grows far
+  enough to exceed the 3072 cap, the fix has moved the problem into the binner;
+- `bakeChunk` cost and `capturePhases.total` must not regress materially.
+
+**Refuted if** the 4–6 m and 8–10 m bands do not move while the 3 m core does.
+That outcome means falloff is not the lever, and the next candidate is the absence
+of any shadowing term for clustered lights — which the −16.1 frontage reading
+already points at.
+
+**Cost:** one constant, one round, no authoring change. Owned by R2.
+
+---
 
 **Done so far:** night `ambientIntensity` 0.22 → 0.66, `exposure` 1.28 → 1.60
 (both measured, both inside the self-test's bounds, `sim` self-test still ALL
@@ -185,19 +283,37 @@ wasted effort if the base image is unstable, so this precedes polish work.
 
 ## R4 — Performance and LOD
 
-**Status: todo** · **Priority: medium** · *Vision: "use performance tricks"*
+**Status: substantially done and measured; this line said "todo" for several
+sessions and that was wrong** · **Priority: medium** · *Vision: "use performance
+tricks"*
 
-A wide aerial is 1.0–4.6 M triangles with 126 visible chunks, and the shadow
-cascades dominate. `bakeChunk` takes an `lod` parameter and LOD 1/2 are written,
-but **every chunk is baked at LOD 0 and nothing is ever swapped in at distance**.
+**Was:** a wide aerial is 1.0-4.6 M triangles with 126 visible chunks, and the
+shadow cascades dominate. `bakeChunk` takes a `lod` parameter and LOD 1/2 are
+written, but **every chunk is baked at LOD 0 and nothing is ever swapped in at
+distance**.
 
-Also worth doing: shrink the far cascades' shadow atlas, instance the city into
-a smaller number of draw calls, and move chunk baking off the critical path (it is
-already budgeted, but 4 ms of a 16 ms frame is a lot when the renderer needs it).
+**Now, measured on the 16-frame high-tier set** (`shots/2026-10-01T16-10-49/`):
+
+- Distance LOD actually swaps: **6.22 M -> 2.02 M -> 0.746 M** triangles across
+  LOD 0/1/2.
+- Shadow draws cut **63.8%**, by pointing the shadow camera along the sun
+  (`2360bf9`) rather than at the origin.
+- The quality governor now runs on **wall-clock** frame time instead of a counter
+  that excluded the GPU.
+- Readback queue bounded; `captureRGBA`'s 8 s was a fence, not a function.
+- Presentation set: **LOD 2 and LOD 3 zero on 16/16 frames.** The renderer is not
+  LOD-starved at street level.
+
+**Honest caveat.** 8 cores / 16 GB; a full 16-frame high run is ~722 s (~35 s per
+frame), and one warm street-level pose is ~35 s. That is what made this thread's
+measurement loop possible at all (see R10) -- and it is also why capture budget
+is rationed per round.
+
+**Still open, in order:** shrink the far cascades' shadow atlas; instance the city
+into fewer draw calls; move chunk baking fully off the critical path.
 
 *Why it matters:* "performance tricks" is an explicit requirement, and the
-performance governor in `main.ts` will silently drop quality tiers on weaker
-hardware unless the budget is genuinely there.
+governor in `main.ts` steps down silently unless the budget is genuinely there.
 
 ## R5 — Destructible structures
 
@@ -331,7 +447,10 @@ F5 (ground detail) ┘  the visible gap; independent of F1-F3
 R3 (aliasing)      ─┐  the base image has to be stable before polish means anything
 R2 (night)         ─┘  cheap, unlocks a whole visual register
 
-R4 (perf)          ──  before the governor starts eating quality on weak hardware
+R4 (perf)          ──  MEASURED DONE: LOD swaps, 63.8% fewer shadow draws. Atlas
+                         sizing and draw-call instancing still open
+R2 lantern radius  ──  the one constant five refutations point at. Prediction is
+                         recorded in R2 BEFORE the round, on purpose
 R6 (atmosphere)    ──  the most recognisable missing element of the references
 R5 (destructible)  ──  explicitly requested, spectator-scale is enough
 R7 (water)         ──  cheap once R1 makes streets matter
