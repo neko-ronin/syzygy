@@ -113,7 +113,7 @@ export const DISTRICT_STYLES: DistrictStyle[] = [
   },
   {
     id: 4, key: 'lantern-bazaar', name: 'Lantern Bazaar',
-    palette: pal('#8b5b4b', '#704636', '#c9302c', '#ffcf6a', '#5b3b2d', '#50453d', '#5f8f3f', '#7b6b59', '#2b4b4b', '#ff4a2a'),
+    palette: pal('#a04a30', '#7c4430', '#c9302c', '#ffcf6a', '#5b3b2d', '#50453d', '#5f8f3f', '#7b6b59', '#2b4b4b', '#ff4a2a'),
     heightRange: [18, 78], footprintRange: [10, 23],
     leanAmount: 0.055, gapBias: 1.48, greenery: 0.26, cableDensity: 0.6, clutterDensity: 1.7,
     windowStyle: 'shutter', accentColor: hexLinear('#ff3b2e'), roofStyle: 'flat-garden',
@@ -137,7 +137,7 @@ export const DISTRICT_STYLES: DistrictStyle[] = [
   },
   {
     id: 7, key: 'neon-arcology', name: 'Neon Arcology',
-    palette: pal('#2b2b5a', '#1a1a3b', '#b040c0', '#6a4ad0', '#232351', '#2b2b39', '#3a6a5a', '#5b5b7b', '#2b2b7b', '#ff40d0'),
+    palette: pal('#4a2a8a', '#0f4a52', '#b040c0', '#6a4ad0', '#232351', '#2b2b39', '#3a6a5a', '#5b5b7b', '#2b2b7b', '#ff40d0'),
     heightRange: [310, 600], footprintRange: [42, 92],
     leanAmount: 0.021, gapBias: 0.72, greenery: 0.35, cableDensity: 1.9, clutterDensity: 1.1,
     windowStyle: 'curtainwall', accentColor: hexLinear('#e040c0'), roofStyle: 'antenna-forest',
@@ -165,7 +165,7 @@ export const DISTRICT_STYLES: DistrictStyle[] = [
     heightRange: [15, 62], footprintRange: [9, 19],
     leanAmount: 0.058, gapBias: 1.52, greenery: 0.3, cableDensity: 0.6, clutterDensity: 1.95,
     windowStyle: 'shutter', accentColor: hexLinear('#ffab2e'), roofStyle: 'flat-garden',
-    description: 'The night-market street. Awnings, steam, signage hung off brackets into the road.',
+    description: 'The night-market street. Awnings, steam, signage hung off brackets into the road. Authored property: no facade lots ever front it (100% foul at both seeds) — the district is road plus stalls, and its facades belong to neighbouring districts.',
   },
 ];
 
