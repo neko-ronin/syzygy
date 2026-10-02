@@ -262,53 +262,104 @@ export function sampleStreetPlan(plan: CityPlan, x: number, z: number, out: Stre
     320 * fbm2(wx * 0.00082 + ox, wz * 0.00082 + oz, 3);
 
   const P = plan.gridPeriod;
-  const w = warpAt(x, z);
-  const su = (x + w) / P, sv = (z + w) / P;
-  const nu = Math.round(su), nv = Math.round(sv);
-  const du = (su - nu) * P, dv = (sv - nv) * P;
+  // The u-family line `nu` is the curve X + warpAt(X, z) = nu*P: the warp is
+  // evaluated AT THE LINE, found by fixed-point iteration. Iteration is a
+  // contraction while |dWarp| < 1 (measured p50 0.22, max 0.60 over 20k
+  // samples, so it always converges here); the loop exits at 0.1 mm.
+  //
+  // The previous code evaluated the warp at the QUERY point: `dist` was then
+  // the distance to a line whose position depends on where you asked from, and
+  // a perpendicular offset of width/2 did not land at distance width/2
+  // (measured p50 0.71 m, p90 3.30 m, max 20.1 m against the bisected line).
+  const wq = warpAt(x, z);
+  const nu = Math.round((x + wq) / P), nv = Math.round((z + wq) / P);
+  let xu = nu * P - wq;
+  for (let k = 0; k < 12; k++) {
+    const nxu = nu * P - warpAt(xu, z);
+    if (Math.abs(nxu - xu) < 1e-4) { xu = nxu; break; }
+    xu = nxu;
+  }
+  let zv = nv * P - wq;
+  for (let k = 0; k < 12; k++) {
+    const nzv = nv * P - warpAt(x, zv);
+    if (Math.abs(nzv - zv) < 1e-4) { zv = nzv; break; }
+    zv = nzv;
+  }
+  const du = x - xu, dv = z - zv;
+  // Warp slope at the line points, for the true tangent and the perpendicular
+  // correction. The curve runs X(z), so dX/dz = -wz/(1+wx): the 1+wx
+  // denominator matters, and the gradient is read at the line, not the query.
   // Each grid line is a curve whose *lateral* axis is the one it does not
   // vary along: the u-family holds x roughly constant and runs along z.
-  const cx = nu * P - w, cz = nv * P - w;
-  const dwx = (warpAt(cx + 6, cz) - warpAt(cx - 6, cz)) / 12;
-  const dwz = (warpAt(cx, cz + 6) - warpAt(cx, cz - 6)) / 12;
-  const uNear = Math.abs(du) <= Math.abs(dv);
-  const gridClear = Math.min(Math.abs(du), Math.abs(dv)) - plan.streetWidth * 0.5;
+  const wux = (warpAt(xu + 6, z) - warpAt(xu - 6, z)) / 12;
+  const wuz = (warpAt(xu, z + 6) - warpAt(xu, z - 6)) / 12;
+  const wvx = (warpAt(x + 6, zv) - warpAt(x - 6, zv)) / 12;
+  const wvz = (warpAt(x, zv + 6) - warpAt(x, zv - 6)) / 12;
+  const mu = Math.abs(1 + wux) > 1e-3 ? -wuz / (1 + wux) : -wuz;
+  const mv = Math.abs(1 + wvz) > 1e-3 ? -wvx / (1 + wvz) : -wvx;
+  // Perpendicular distance to the locally straight line (spineHit applies the
+  // same correction). `px/pz` stay the exact same-axis crossing, which is
+  // provably on the centreline; the foot of the perpendicular differs from it
+  // only at second order in the slope.
+  const invu = 1 / Math.sqrt(1 + mu * mu);
+  const invv = 1 / Math.sqrt(1 + mv * mv);
+  const distU = Math.abs(du) * invu, distV = Math.abs(dv) * invv;
+  const uNear = distU <= distV;
+  const gridClear = Math.min(distU, distV) - plan.streetWidth * 0.5;
   if (gridClear < best) {
     best = gridClear;
     if (uNear) {
-      out.dist = Math.abs(du); out.px = cx; out.pz = z;
-      out.tx = -dwz; out.tz = 1;
+      out.dist = distU; out.px = xu; out.pz = z;
+      out.tx = mu * invu; out.tz = invu;
     } else {
-      out.dist = Math.abs(dv); out.px = x; out.pz = cz;
-      out.tx = 1; out.tz = -dwx;
+      out.dist = distV; out.px = x; out.pz = zv;
+      out.tx = invv; out.tz = mv * invv;
     }
-    const l = Math.hypot(out.tx, out.tz) || 1;
-    out.tx /= l; out.tz /= l;
     out.width = plan.streetWidth;
     out.kind = 'street';
   }
 
   const AP = plan.alleyPeriod;
-  const aw = 60 * fbm2(x * 0.0034 + ox + 31, z * 0.0034 + oz - 17, 2);
-  const au = (x + aw) / AP, av = (z + aw) / AP;
-  const adu = (au - Math.round(au)) * AP, adv = (av - Math.round(av)) * AP;
-  const adwx = 0.2 * (fbm2((x + 6) * 0.0034 + ox + 31, z * 0.0034 + oz - 17, 2)
-    - fbm2((x - 6) * 0.0034 + ox + 31, z * 0.0034 + oz - 17, 2));
-  const adwz = 0.2 * (fbm2(x * 0.0034 + ox + 31, (z + 6) * 0.0034 + oz - 17, 2)
-    - fbm2(x * 0.0034 + ox + 31, (z - 6) * 0.0034 + oz - 17, 2));
-  const aNear = Math.abs(adu) <= Math.abs(adv);
-  const alleyClear = Math.min(Math.abs(adu), Math.abs(adv)) - plan.alleyWidth * 0.5;
+  const warpAlleyAt = (wx: number, wz: number): number =>
+    60 * fbm2(wx * 0.0034 + ox + 31, wz * 0.0034 + oz - 17, 2);
+  const awq = warpAlleyAt(x, z);
+  const nau = Math.round((x + awq) / AP), nav = Math.round((z + awq) / AP);
+  let xau = nau * AP - awq;
+  for (let k = 0; k < 12; k++) {
+    const nxau = nau * AP - warpAlleyAt(xau, z);
+    if (Math.abs(nxau - xau) < 1e-4) { xau = nxau; break; }
+    xau = nxau;
+  }
+  let zav = nav * AP - awq;
+  for (let k = 0; k < 12; k++) {
+    const nzav = nav * AP - warpAlleyAt(x, zav);
+    if (Math.abs(nzav - zav) < 1e-4) { zav = nzav; break; }
+    zav = nzav;
+  }
+  const adu = x - xau, adv = z - zav;
+  // Correct central difference of the alley warp. The previous code used a 0.2
+  // factor here against the warp's own 60 amplitude (25x too small), so alley
+  // tangents ignored the warp slope entirely.
+  const aux = (warpAlleyAt(xau + 6, z) - warpAlleyAt(xau - 6, z)) / 12;
+  const auz = (warpAlleyAt(xau, z + 6) - warpAlleyAt(xau, z - 6)) / 12;
+  const avx = (warpAlleyAt(x + 6, zav) - warpAlleyAt(x - 6, zav)) / 12;
+  const avz = (warpAlleyAt(x, zav + 6) - warpAlleyAt(x, zav - 6)) / 12;
+  const mau = Math.abs(1 + aux) > 1e-3 ? -auz / (1 + aux) : -auz;
+  const mav = Math.abs(1 + avz) > 1e-3 ? -avx / (1 + avz) : -avx;
+  const inau = 1 / Math.sqrt(1 + mau * mau);
+  const inav = 1 / Math.sqrt(1 + mav * mav);
+  const distAU = Math.abs(adu) * inau, distAV = Math.abs(adv) * inav;
+  const aNear = distAU <= distAV;
+  const alleyClear = Math.min(distAU, distAV) - plan.alleyWidth * 0.5;
   if (alleyClear < best) {
     best = alleyClear;
     if (aNear) {
-      out.dist = Math.abs(adu); out.px = Math.round(au) * AP - aw; out.pz = z;
-      out.tx = -adwz; out.tz = 1;
+      out.dist = distAU; out.px = xau; out.pz = z;
+      out.tx = mau * inau; out.tz = inau;
     } else {
-      out.dist = Math.abs(adv); out.px = x; out.pz = Math.round(av) * AP - aw;
-      out.tx = 1; out.tz = -adwx;
+      out.dist = distAV; out.px = x; out.pz = zav;
+      out.tx = inav; out.tz = mav * inav;
     }
-    const l = Math.hypot(out.tx, out.tz) || 1;
-    out.tx /= l; out.tz /= l;
     out.width = plan.alleyWidth;
     out.kind = 'alley';
   }

@@ -12,6 +12,7 @@ import {
 } from './citygen';
 import { MeshBuilder, meshTriangleCount, type Mesh } from './geometry';
 import { bakeGroundDetail } from '../render/groundbake';
+import { bakeChunk } from '../render/citymesh';
 import { NavGraph, buildRailLines, buildZiplines, resampleSpline } from './networks';
 import {
   BAND_ORDER, CLUTTER_KINDS, bandAlbedo, familyFromBand, groundGrammarFor, hsv,
@@ -327,6 +328,19 @@ export function runCitySelfTest(): string {
   const bandTris = floorCounts.reduce((a, f) => a + (f / 2) * 8, 0) / Math.max(1, floorCounts.length);
   const perPropTris = propTris / Math.max(1, sampleChunk.props.length);
   const streamTris = (perBuildingTris + perPropTris) * buildings;
+  const analyticTris64 = streamTris + bandTris * buildings;
+
+  // Measured, not predicted: bake 8 of the 64 chunks through the real baker
+  // at LOD 0 and scale to 64. The analytic above omits whole baked categories
+  // (skybridges, cables, kerbs/footways/paint/furniture) and undercounts the
+  // building shell itself, so it reads ~10x low. Both numbers are printed so
+  // the gap stays visible rather than becoming a new silent estimate.
+  const bakeT0 = now();
+  let bakedTris = 0;
+  const bakedChunks = chunks.slice(0, 8);
+  for (const c of bakedChunks) bakedTris += bakeChunk(c, 0, cfg.seed).triangleCount;
+  const bakeMs = now() - bakeT0;
+  const measuredTris64 = (bakedTris / bakedChunks.length) * 64;
 
   // Networks.
   const railT0 = now();
@@ -548,7 +562,8 @@ export function runCitySelfTest(): string {
   L.push(`setback       one-sided canyon ${f2(canyonMin)}..${f2(canyonMax)}m; ${waterLots} buildings over the canal, ${overlaps} overlaps`);
   L.push(`street field  carriageway ${f2(fieldMin)}..${f2(fieldMax)}m wide; ${waterCells}/4000 samples under water`);
   L.push(`triangles     shell ${f2(perBuildingTris)}/building (real mesh, ${meshTriangleCount(shell)} tris in ${shell.vertexCount} verts over ${sampleChunk.buildings.length} buildings)`);
-  L.push(`              + facade window bands ~${f2(bandTris)}/bldg, props ${f2(perPropTris)}/prop -> ${((streamTris + bandTris * buildings) / 1e6).toFixed(2)}M tris for 64 chunks`);
+  L.push(`              + facade window bands ~${f2(bandTris)}/bldg, props ${f2(perPropTris)}/prop -> analytic ${(analyticTris64 / 1e6).toFixed(2)}M tris for 64 chunks`);
+  L.push(`              measured through bakeChunk LOD0: ${(measuredTris64 / 1e6).toFixed(2)}M for 64 chunks (${bakedChunks.length} baked, ${(bakedTris / bakedChunks.length).toFixed(0)}/chunk, ${f2(bakeMs)}ms) — analytic understates by x${(measuredTris64 / analyticTris64).toFixed(1)}`);
   L.push(`networks      ${rail.length} rail lines (${rail.map((l) => l.kind).join(', ')}) in ${f2(railMs)}ms; ${zips.length} ziplines in ${f2(zipMs)}ms`);
   L.push(`              nav ${nav.nodes.length} nodes in ${f2(navMs)}ms; A* ${n0}->${n1} = ${pathLen} nodes`);
   L.push(`streaming     resident ${city.residentChunks} chunks (cap ${(2 * cfg.radiusChunks + 1) ** 2 + 8}), ${city.totalBuildings} buildings tracked`);
