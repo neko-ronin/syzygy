@@ -36,12 +36,21 @@ import { join } from 'node:path';
 // ---------------------------------------------------------------------------
 
 /**
- * Swap used in GB. The last session hit 8.1 of 9.2 GB and serialised captures.
- * This box already carries other workspaces' agents, so we start refusing
- * earlier and let the caller override with --force.
+ * Swap is judged as a FRACTION of total, not in absolute GB.
+ *
+ * The original threshold was 4.5 GB absolute, copied from the WORKFLOW §6.1
+ * datapoint where the box had 8.1 GB used of 9.2 GB total. macOS then grew total
+ * swap to 8.0 GB under pressure, and the absolute threshold became meaningless:
+ * it blocked at 80% full while the datapoint that justified blocking was 88%
+ * full. Worse, it blocked a capture at 1286 MB of genuinely free memory.
+ *
+ * What actually predicts a failed capture is free RAM. Swap is a lagging
+ * record of pressure that has already passed — the kernel does not fault pages
+ * back in just because RAM freed up — so it is a warning signal, not the gate.
+ * The gate is MEM_BLOCK_MB.
  */
-const SWAP_WARN_GB = 3.0;
-const SWAP_BLOCK_GB = 4.5;
+const SWAP_WARN_RATIO = 0.75;
+const SWAP_BLOCK_RATIO = 0.88;
 
 /** Free disk in GB on the data volume. Was 98% full at the last session's peak. */
 const DISK_WARN_GB = 20;
@@ -129,14 +138,20 @@ export function preflight() {
   const problems = [];
   const warnings = [];
 
-  if (swap >= SWAP_BLOCK_GB) {
+  const swapRatio = swapTotal > 0 ? swap / swapTotal : 0;
+  if (swapRatio >= SWAP_BLOCK_RATIO) {
     problems.push(
-      `swap ${swap.toFixed(2)}GB of ${swapTotal.toFixed(1)}GB >= ${SWAP_BLOCK_GB}GB ` +
-      `(WORKFLOW §6.1: at 8.1GB the session serialised all captures). ` +
+      `swap ${swap.toFixed(2)}GB of ${swapTotal.toFixed(1)}GB = ${(swapRatio * 100).toFixed(0)}% ` +
+      `full (block at ${(SWAP_BLOCK_RATIO * 100).toFixed(0)}%). WORKFLOW §6.1 recorded 8.1 of 9.2GB ` +
+      `— 88% — as the point where the session serialised all captures. ` +
       `An OOM here produces a truncated frame that reads like a rendering bug.`,
     );
-  } else if (swap >= SWAP_WARN_GB) {
-    warnings.push(`swap ${swap.toFixed(2)}GB used — approaching the ${SWAP_BLOCK_GB}GB block.`);
+  } else if (swapRatio >= SWAP_WARN_RATIO) {
+    warnings.push(
+      `swap ${(swapRatio * 100).toFixed(0)}% full (${swap.toFixed(2)}/${swapTotal.toFixed(1)}GB) — ` +
+      `past ${(SWAP_WARN_RATIO * 100).toFixed(0)}%. Swap is a lagging record of pressure, so this is ` +
+      `a warning rather than the gate; free RAM is the gate.`,
+    );
   }
 
   if (disk < DISK_BLOCK_GB) {
