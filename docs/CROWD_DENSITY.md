@@ -94,3 +94,76 @@ staleness · goal-side assignment (round 7) · waypoint-side assignment (round 8
 
 No visual claim. The frame gate is running in parallel; when it lands it judges
 the frame, not this report.
+
+
+---
+
+# Round 9 addendum — why separation cannot work as written
+
+Round 9's work was stranded on `dev2/crowd-separation` and did not reach `main`,
+which is why this round was re-issued. Recovered by fast-forwarding `main` to the
+branch (safe: `main` had no commits the branch lacked). Baseline re-confirmed
+**unchanged** on current main after the R11 reskin:
+
+```
+  nearest-neighbour p50 0.032 m
+  bodies inside another body's 0.45 m shoulder: 99.9%
+  gap mode (>=40 px) 0.0% (both bands)
+```
+
+## The blocker, measured, and it is local
+
+```
+  neighbour count n   p10 178  p50 256  p90 256  max 256
+  at the 256 cap      72.9% of agents
+  jam = 1/(1 + n*0.09*social)     p50 0.087
+  SEPARATION SPEED CEILING = pace * jam   p50 0.113 m/s
+```
+
+Two independent facts, both read out of the running sim without editing it:
+
+1. **The neighbour list is saturated.** `cellRange` caps at 256, and **72.9% of
+   agents are at that cap**. For those agents the separation sum — and any
+   "nearest neighbour" chosen from it — is computed over an arbitrary subset.
+   The true nearest neighbour is frequently not in the list.
+2. **Separation is throttled to 0.113 m/s.** `maxSpeed = pace * jam`, and the
+   jam factor is there to make a dense crowd *look* dense by slowing
+   goal-seeking. It slows separation by the same mechanism.
+
+For scale: the lane standoff runs at **1.34 m/s** and the lane hold at
+**1.4 m/s**. Separation is **~12x too slow** to affect anything, and for
+three agents in four it is not even looking at the right neighbours.
+
+## Why round 9's attempt moved so little
+
+Round 9 separated the speed budget but **left the saturated neighbour list**.
+It then tracked "the nearest overlapping neighbour" *within that arbitrary
+256-subset*. Pushing away from a neighbour that is not actually the nearest
+resolves an overlap that may not be the binding one, and pushes into a third
+body. That is a coherent explanation for a 1 cm move and no distribution change.
+
+## Next step — two local changes, no global arrangement
+
+In order:
+
+1. **Give separation a small, uncapped neighbourhood.** A dedicated query with a
+   radius near `BODY_SEP` (0.45 m), not the 8 m `cellSize` search capped at 256.
+   This is the one that matters: separation should see the bodies it is actually
+   colliding with.
+2. **Give separation its own speed budget** so the jam factor stops applying to
+   it (`seekSpeed` for the goal, `sepSpeed` for avoidance).
+
+Neither is a global placement pass, and neither touches the lane hold,
+`F.lateral` targets, goal selection, or the z-IQR assertion. This is D26's frame:
+local rules, a floor of "bodies do not end up inside one another", and a
+population that can spread because separation pushes it apart rather than
+because something arranged it.
+
+**Floor to judge against, not a target:** nearest-neighbour p50 must exceed
+0.45 m and the overlapping fraction must fall well below 99.9%. Report both
+before and after with `npx vite-node src/sim/__selftest_density.ts`.
+
+## Scene notes (unchanged, still not code)
+
+The Market attractor wants a stall front with a queue and dwell rather than a
+point every agent walks to; crossings want a wait state.
