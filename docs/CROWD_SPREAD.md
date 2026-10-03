@@ -709,3 +709,112 @@ visual claim.
 
 `docs/DECISIONS.md` (D25 + its status), `docs/CROWD_SPREAD.md` (this section).
 `src/sim/crowd.ts` unchanged.
+
+---
+
+# Round 8 — parked. Time-boxed as instructed.
+
+Developer 2. Branch `dev2/crowd-waypoint`. **`src/sim/crowd.ts` reverted to
+`e96ba15`; nothing ships.** Import test → ALL PASS. Defect asserts:
+
+```
+  FOOTWAY BALANCE  left 1599  right 91  (left share 94.6%)
+  z IQR about centroid = 0.04 m
+  FAIL  z IQR about the centroid exceeds 1.0 m (not a line)
+SPREAD VIOLATIONS 2
+```
+
+## 1. What round 8 found — neither of the two candidates, but it explains both
+
+The steering does **not** aim at the goal. `stepAgent` steers toward
+`pathNodeAt(i, k)`, the k-th node on the path. Measured, per agent:
+
+```
+  agent 6  stands -11.24  laneTarget 14.65  waypoint#1  0.00  goal 30.42
+  agent 7  stands -11.23  laneTarget 14.51  waypoint#1  0.00  goal 30.42
+
+  steering waypoint #1 AGREES with the lane : 7.8%
+  waypoint #1 lateral offset is EXACTLY ZERO : 88.0%
+  distance to the waypoint being steered at : p50 93.4 m, p90 176.1 m, max 598.3 m
+```
+
+**88% of steering waypoints have a lateral offset of exactly zero** — the nav path
+nodes sit **on the carriageway centreline**. So path-following pulls every body
+toward the middle of the road, the lane hold pulls it onto its footway, and they
+cancel. The goal is on the correct side (37.6% agree / 43.1% opposite, and the
+sampled goals are at +30.42, the agent's own side) — **the goal was never the
+problem.** That is why round 7's goal-side assignment could not move anything.
+
+## 2. The fix that was implemented, measured, and not shipped
+
+Steering target offset onto the agent's own lane: aim at
+`waypoint + normal * F.lateral` instead of the raw centreline node.
+
+| run | footway balance | z IQR |
+| --- | --- | --- |
+| baseline (`e96ba15`) | 94.6% left | 0.04 m |
+| round 7, lane-aligned goals | 94.7% left | 0.04 m |
+| round 8, lane-aligned waypoint | 94.3% left | 0.04 m |
+| round 8, **3000-frame settle** (50 s, so goals *do* repick) | 97.6% left | 0.04 m |
+
+**Reverted.** Nothing moved, and the long settle made it marginally worse — so
+timing was not the explanation either.
+
+## 3. Why this is parked rather than fixed
+
+A system that ignores **two independent changes to its inputs** — the
+destination it walks toward, and the waypoint it actually steers at — and stays
+within 1.4 percentage points of exactly where it was, is not being held by
+path-following versus the lane hold. It is being held by a write I have not
+found.
+
+**The next agent should not add a third coupling.** Three would be chasing.
+The question to answer is different: *what writes `f[o+F.x/F.z]` after
+`stepAgent` returns?* Everything measured so far has assumed `stepAgent` owns
+the position. It may not.
+
+Concretely, the next step, in order:
+
+1. **Watch one agent's `f[o+F.z]` across a frame boundary, from outside
+   `stepAgent`.** Read it immediately after `update()` returns and again
+   immediately before the next `update()` begins. If it moves while nothing is
+   running, the write is outside the step. This is one counter and it is the
+   cheapest possible test of the only hypothesis still standing.
+2. If it does not move, the restoring force is inside `stepAgent` after all, and
+   the remaining unexplored term is the **separation steering** (`sx/sz` from the
+   hash) and the **curiosity wobble** — neither has been isolated by
+   disable-and-measure, though separation's speed budget was retuned in round 3.
+3. Note the grid is rebuilt only every 7 frames (`rebuildStride`) while agents
+   move every frame, so `cellRange` returns neighbours from stale cells. Untested.
+
+## 4. Cumulative ruled-out list — do not re-attempt
+
+Seeder group placement · churn · building ejection (0.3/frame) · wind
+(0.015 m/frame) · hold throttle/rate shape · `F.lateral` drift (0.0000 m/60
+frames) · goal-side assignment · **waypoint-side assignment** · `snapToStreet`
+(per-seed, not per-frame) · the `side` sign · **the instrument itself** (round 5's
+69% was my arithmetic; reach is 99.4%) · hold-reach exclusions (0.0% excluded) ·
+building overlap (0.0%) · timing/settle length.
+
+## 5. Standing numbers for the next session
+
+| quantity | value |
+| --- | --- |
+| z IQR about centroid | **0.04 m** (needs > 1.0) |
+| footway balance | **94.6% left** (needs 30–70%) |
+| street tangent | (0.880, 0.099), bearing 6.4° |
+| perpendicular offset IQR | 12.70 m |
+| hold reach | 99.4%; max \|correction\| 0.0233 m = `HOLD_SPEED * dt` every frame |
+| standoff | 25.9 m; body moves −0.0002 m/frame under +0.0233 m/frame of correction |
+| implied opposing velocity | −1.34 m/s ≈ the agent's own walking ceiling |
+| nav waypoints on the centreline | **88.0%** |
+| agents standing opposite their own lane | 51.1% |
+| acceptance test | `npx vite-node src/sim/__selftest_spread.ts` |
+
+## 6. Honest summary
+
+Eight rounds, ten candidates refuted, a proven mechanism (hold versus locomotion
+at a 25.9 m standoff), a written decision (D25), a re-runnable acceptance test,
+and one false premise of my own corrected. **No fix.** The defect is open, the
+mechanism is understood, and the next step is a five-minute experiment — not
+another mechanism hunt.
