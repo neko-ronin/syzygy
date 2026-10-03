@@ -75,13 +75,18 @@ footway and which is carriageway. The yellow reads as a surface marking;
 its visibility does not identify the surface beneath it as a kerb.
 
 **I agree that the principal foreground band reads chiefly as a decorated
-surface. I disagree with the absolute claim that there is no raised edge
-anywhere in the image.** Some transverse bands farther across the foreground
+surface. I cannot establish that every edge elsewhere is flat.** Some
+transverse bands farther across the foreground
 have pale tops and narrow dark near-side lips. They suggest shallow relief
 rather than pure paint. A dark border also follows part of the near strip.
 These cues still do not give the eye a continuous, identifiable kerb top,
 vertical face and road joint along the intended run. A dark outline is not
 automatically the face the diagnostic was meant to expose.
+
+**Clarification:** those dark lips are relief cues, not identified emitted
+kerb faces. I have not found a clear kerb face that the owner overlooked.
+[The follow-up clarification](VISION_ROUND10.md) locates the cues and explains
+why they cannot settle face contrast or the cause of the missing kerb read.
 
 In B's snow-ropeway frame, pale tread surfaces, darker fronts and irregular
 edges organise a descending route before their surface detail is inspected.
