@@ -823,3 +823,104 @@ under its own documented chain (`renderer.ts:151-155`), because `produced` is **
 assigned** (declared `:170`, initialised `:440`). That is §2.1 of
 `docs/DIAGNOSTIC_TRUSTWORTHINESS.md` reproducing live on a good frame. Anyone reading this
 sidecar for "are lights being lost at the grammar stage" would draw a false conclusion.
+
+---
+
+## Round 11 — the blocking answer: the kerb face EXISTS. The pose was 20 m too far.
+
+`docs/VISION_ROUND9.md` returned `more work needed` on all three questions and said the
+kerb face contrast "remains **unjudgeable** in this capture". The next step proposed is to
+re-pose. **Before anyone re-poses, here is the arithmetic, because it changes what the pose
+has to do.**
+
+### 11.1 Does the bake emit a vertical kerb face? YES.
+
+One baked chunk, `bakeChunk(chunk, 1, 6191639)` at chunk (4,0), 41042 verts:
+
+```
+vertical faces with their whole extent inside DECK_Y-0.06 .. DECK_Y+0.40 : 1508
+face height   p10 0.070 m    p50 0.126 m    p90 0.140 m    max 0.140 m
+faces under 3 cm tall: 0/1508 (0%)
+```
+
+**1508 real kerb faces, median height 0.126 m** — a physically correct kerb. None are
+degenerate. **This is not a geometry bug.** `groundbake.ts` is doing its job.
+
+### 11.2 Can `groundSurface()` shade one? YES — and that was my Round 5 fix.
+
+The kerb branch of `groundSurface()` is gated on `vertical = abs(n.y) < 0.5`
+(`src/shaders/gbuffer.wgsl:420`) and was **unreachable** because the fragment gate required
+`abs(n.y) > 0.55` (`:632`, pre-`f24ff19`). After the fix, **3480 of 3520** kerb-face vertices
+in that chunk reach `groundSurface()` (`f24ff19`, measured). The branch has faces to shade and
+now receives them.
+
+### 11.3 So why is no face visible? Because at 20 m it is 0.45 pixels.
+
+A vertical face is foreshortened by the view angle. Eye 1.7 m, median face 0.126 m:
+
+```
+standoff   view angle   projected face   pixels @900px
+    2 m      34.0 deg       70.5 mm      37.32 px   readable
+    3 m      24.2 deg       51.7 mm      18.25 px   readable
+    5 m      15.1 deg       32.8 mm       6.96 px   a thin line
+    8 m       9.6 deg       21.0 mm       2.77 px   barely visible
+   12 m       6.4 deg       14.1 mm       1.24 px   barely visible
+   20 m       3.9 deg        8.5 mm       0.45 px   SUB-PIXEL
+   30 m       2.6 deg        5.7 mm       0.20 px   SUB-PIXEL
+   40 m       1.9 deg        4.3 mm       0.11 px   SUB-PIXEL
+```
+
+**`01g-kerb-face` looks obliquely along a 20 m run from 1.2 m past the edge.** The far half
+of that run is at 20–40 m, where the face is **0.11–0.45 px**. The face is not on screen to
+be shaded, at any contrast, at any exposure.
+
+**This is the answer to the blocking question, and it is not "the contrast is unknown":**
+
+> The kerb face is **unjudgeable because it is geometrically sub-pixel at the standoff the
+> pose was built for**, not because its contrast is unmeasured. The bake emits it, the shader
+> receives it, and the camera is too far away. **No amount of re-posing at 20 m will make it
+> judgeable.**
+
+**What developer 3's pose needs:** stand **2–3 m** from the kerb, where the face is
+**18–37 px**. At 5 m it is a thin line (7 px); beyond 8 m it is marginal. The provenance the
+reviewer asked for should therefore name the **standoff**, not only the emitted top, face and
+adjoining road — because at a 20 m standoff the face exists in the mesh and is absent from
+the image, and those are different failures with different fixes.
+
+I have not changed the pose. It is `src/world/diagnosticposes.ts`, developer 3's file.
+
+### 11.4 LOD 0 is reached — the reviewer's provisional condition is satisfied
+
+Re-measured on the current build, driving the app's own warm:
+
+```
+warmStopped      no-progress          rebakePending  0
+cameraChunk      [4, -1]              CAMERA_CHUNK_LOD  0
+lodHistogram     [9, 23, 10, 0]       within 2 chunks  {0: 9, 1: 16}
+```
+
+**The camera's chunk is at LOD 0, and 9 chunks are at LOD 0** — the ~9 within 1.6 chunks that
+`lodForDistance` (`src/render/quality.ts:60-66`) should place there. `rebakePending 0` is the
+condition my gate fix now tests, and it holds. **The judgements in `VISION_ROUND9.md` are not
+provisional on LOD.**
+
+**And the reading that has to stop:** `lodHistogram [9, 23, 10, 0]` means **9 chunks at LOD 0**,
+not "no chunk reached LOD 0". Bucket `i` is the *count* at LOD `i`
+(`src/render/renderer.ts:1371-1373`). This exact misreading has now appeared in three separate
+briefs. It is written up as §2.7 of `docs/DIAGNOSTIC_TRUSTWORTHINESS.md`.
+
+### 11.5 Items already closed, stated so they stop being re-issued
+
+- **R13 §3 diagnostic trustworthiness audit — DELIVERED**, `docs/DIAGNOSTIC_TRUSTWORTHINESS.md`,
+  commit **`2fa43eb`**, confirmed an ancestor of `HEAD`. It covers all six precedents including
+  the three I found (`entityDrawCalls`, the warm gate, the kerb itself), plus `pedestrian:N/180`,
+  `requested: null`, and the two RESEARCH numbers that were true and still wrong to trust.
+- **`entityDrawEnabled` — settled, KEPT.** Decision and reasoning in §6 of that document: 3
+  lines, default `true`, no behaviour change, and the only route to "are entities reaching the
+  frame" given `setCrowdCount(0)` cannot zero the instances. Its stale "remove when F2 closes"
+  comment was rewritten in `f24ff19`.
+- **`renderer.ts:1473-1475` false comment — CORRECTED** in `f24ff19`; the comment now states the
+  deck *does* write depth, and why that is correct under reverse-Z.
+
+None of these three are outstanding. The next capture slot should go to a **kerb pose at 2–3 m
+standoff** (developer 3) and then a **crowd frame after the lateral spread lands**.
