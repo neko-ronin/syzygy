@@ -220,16 +220,36 @@ function deriveKerbFace(seed: number, pop: Population): DerivedPoseResult {
     // 'bollard-line' (market) is posts, not a face; everything else in the
     // enum is raised geometry groundbake emits a face for.
     if (grammar.kerb === 'bollard-line') return null;
-    // Straight run: the kerb the trace walks must still be this road 10 m
-    // either way, or the edge point belongs to a junction, not a kerb line.
-    for (const dt of [-10, 10]) {
-      sampleStreetPlan(plan, s.px + s.tx * dt, s.pz + s.tz * dt, probe);
-      if (probe.kind !== s.kind || Math.abs(probe.width - s.width) > 1.5) {
-        if (rejected.length < 8) rejected.push({ x: gx, z: gz, kind: s.kind, width: s.width });
-        return null;
-      }
+  // Straight run: the kerb the trace walks must still be this road 10 m
+  // either way, or the edge point belongs to a junction, not a kerb line.
+  const KERB_WALK_STEP = 5;
+  const KERB_WALK_STEPS = 8;
+  const KERB_WALK_MIN_EACH_WAY = 20;
+  let walkOk = true;
+  for (const dir of [1, -1]) {
+    let qx = s.px, qz = s.pz, walked = 0;
+    for (let k = 0; k < KERB_WALK_STEPS; k++) {
+      // All three of traceOne's termination guards, mirrored exactly: kind,
+      // width within 1.5 m, and the projection jump. The ±10 m two-point check
+      // this replaced passed on a curving arterial whose trace dies after a
+      // few 5 m steps — the pose then photographed a kerb gap (measured: no
+      // kerb-face verts within 10 m of the edge, trace walk holding 28%).
+      sampleStreetPlan(plan, qx, qz, probe);
+      if (probe.kind !== s.kind || Math.abs(probe.width - s.width) > 1.5) { walkOk = false; break; }
+      const nx = probe.px + probe.tx * KERB_WALK_STEP * dir;
+      const nz = probe.pz + probe.tz * KERB_WALK_STEP * dir;
+      if (Math.hypot(nx - probe.px, nz - probe.pz) > KERB_WALK_STEP * 1.5 + 0.5) { walkOk = false; break; }
+      walked += KERB_WALK_STEP;
+      qx = nx; qz = nz;
     }
-    return { x: gx, z: gz, kind: s.kind, width: s.width, district: districtId };
+    if (walked < KERB_WALK_MIN_EACH_WAY) walkOk = false;
+    if (!walkOk) break;
+  }
+  if (!walkOk) {
+    if (rejected.length < 8) rejected.push({ x: gx, z: gz, kind: s.kind, width: s.width });
+    return null;
+  }
+  return { x: gx, z: gz, kind: s.kind, width: s.width, district: districtId };
   };
   let hit: KerbHit | null = null;
   for (let r = 0; r <= KERB_SCAN_EXTENT && !hit; r += KERB_SCAN_STEP) {
