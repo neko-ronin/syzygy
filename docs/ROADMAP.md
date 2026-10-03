@@ -637,8 +637,34 @@ detail at 3 m and no such pose exists for any section yet.
 ---
 ## R12 — Living systems: crowd dynamics and locomotion
 
-**Status: todo** · **Priority: high** · *Vision: "realistically active living city
-of pedestrians and traffic"*
+**Status: in progress — reordered by [`D26`](DECISIONS.md)** · **Priority: high**
+· *Vision: "realistically active living city of pedestrians and traffic"*
+
+> **REORDERED, owner decision 2026-10-02 (`DECISIONS.md` D26).** Local-first:
+> **Lenia**-style local fields, **boids** separation, and **Hollywood
+> scene-making with Extras** — the city has scenes, certain sections **emit a
+> script**, and an NPC picks one up and acts it out.
+>
+> **The scene/script layer is a LATER STAGE and is explicitly not the next few
+> rounds.** The near-term goal is narrow and achievable: **agents move around
+> without colliding.**
+>
+> This supersedes the ordering below, and it supersedes `D25`. Six rounds were
+> spent trying to make two global systems agree — path-following against a lane
+> hold, balancing to 0.0002 m/frame — and the mechanism was fully explained
+> without a fix shipping. Going local means spread is no longer something to be
+> *placed*: separation produces it.
+>
+> **The 0.04 m z-IQR spread defect has left the critical path.** It was a
+> symptom of the global-lane architecture, not an independent fault. Kept as a
+> bounded open observation in `docs/CROWD_SPREAD.md`, not chased. The 1-D line
+> was never a *placement* bug to be fixed — it was what a permanent standoff
+> between two global rules looks like from outside.
+>
+> **Separation has never actually been measured.** The recorded refutation of
+> avoidance was measured on a degenerate population — nearest-neighbour p50
+> 0.030 m on a line — and `CROWD_SPREAD.md` says so itself. So the near-term
+> task is not a demotion; it is the first honest attempt at sub-problem 2.
 
 **R1 asks whether streets read as inhabited. This asks whether the inhabitants
 are alive.** R1's done-when is a density and a framing; it does not require that
@@ -652,35 +678,56 @@ queues, density varying between a crossing and a quiet block. Read at that
 distance the city reads as inhabited by something with intent. A uniform field
 of agents at a fixed speed never does, however dense it gets.
 
-Sub-problems, roughly in order:
+Sub-problems, **in the order `D26` sets**, not the original order:
 
+0. **Separation — bodies do not end up inside other bodies.** Nearest-neighbour
+   distribution and the fraction of overlapping pairs, measured on a population
+   that is not degenerate. This is the whole near-term scope, and it has a right
+   answer — a floor, not a target. Instrument: `src/sim/__selftest_density.ts`
+   plus the gap histogram in [`LEGIBILITY_TARGETS.md`](LEGIBILITY_TARGETS.md).
+   *(Was sub-problem 2; promoted by `D26`.)*
 1. **Locomotion realism.** Gait is a per-agent phase on a fixed loop; nobody
    reacts to anybody. A crowd where every agent walks a straight line at the
    same speed reads as a conveyor. Minimum: speed distribution rather than one
    value, and a stride whose contact phase correlates with speed.
-2. **Local avoidance.** Agents currently overlap freely, which is what makes
-   packed rows merge into a single band — the failure gate 5 recorded as
-   "counter-like masses". Separation steering or a density field, so a body does
-   not end up inside another body. **This is the same defect as the placement
-   problem R1 names, seen from the simulation side**, and both sides must move:
-   the reviewer was explicit that "rebuilding alone will not resolve
-   overlapping placement".
+2. ~~**Local avoidance.**~~ **Now sub-problem 0 — see `D26`.** The old text said
+   agents overlap freely, which is what makes packed rows merge into a single
+   band, and that this "is the same defect as the placement problem R1 names,
+   seen from the simulation side". **`D26` dissolves that framing**: the overlap
+   and the 1-D line were never two defects. Both were one — a permanent standoff
+   between two global rules, which is what a crowd looks like when nothing local
+   is separating anything. Note what the reviewer's warning *did* get right, and
+   keep it: rebuilding the mesh alone will not resolve overlapping placement. It
+   was wrong only in assuming the placement side and the simulation side were
+   separable problems.
 3. **Grouping and flow.** Agents move as independent points; reference crowds
    have cliques, lanes and counter-flow. Needs a lightweight flow field or
    lane preference so the crowd acquires streams rather than noise.
-4. **Interaction with the city.** Nobody reacts to the city they are in. Stall
-   browsing, waiting at a crossing, queueing — the behaviours that make a market
-   read as a market rather than a corridor.
+4. **Interaction with the city — now the SCENE LAYER, and `D26` says so.**
+   Nobody reacts to the city they are in. Stall browsing, waiting at a crossing,
+   queueing — the behaviours that make a market read as a market rather than a
+   corridor. **This is the `Extras` half of the owner's direction:** the city has
+   *scenes*, certain sections **emit a script**, and an NPC picks one up and
+   **acts it out**. Market stalls, crossings, transit landings and plazas are
+   stages with parts, not merely places with density.
+   **Later stage.** Do not build it as a side effect of separation — that is how
+   an unjudged second idea contaminates a first. Note candidate scenes while
+   working; design them deliberately. Scene *quality* is a frame judgement by the
+   vision reviewer against the reference sheets, never a number.
 5. **Traffic as agents.** R1/F4 puts vehicles on rails. The same question
-   applies: do they queue, yield, stop, and do pedestrians react to them?
+   applies: do they queue, yield, stop, and do pedestrians react to them? Under
+   `D26` this is the same local-first question as sub-problem 0, and vehicles
+   should eventually be agents in the same field rather than a separate system.
 
-**Watch out.** R1 already taught this once, in the expensive direction: the
-crowd's two visibility predicates reported 250 and 0 in the same frame, and two
-sessions misread that as a winding bug and then a culling bug. Piled on top of
-movement, a density change is *unreadable* — you cannot tell a distribution
-problem from a locomotion one, because both move the pixels. So: **measure
-distribution before moving anything**, and keep `viewRadius` and the gap
-histogram (R1, `LEGIBILITY_TARGETS.md`) as the standing numbers.
+**Watch out, and the second warning is the one that bit.** R1 taught the first
+one the expensive way: the crowd's two visibility predicates reported 250 and 0
+in the same frame, two sessions misread it as a winding bug and then a culling
+bug, and **it was neither** — the crowd had no lateral spread and no separating
+force. The second warning is `D26` itself: **a distribution change is unreadable
+on its own.** Piled on top of movement, you cannot tell a distribution problem
+from a locomotion one, because both move the pixels. So separate the change from
+the measurement — change one thing, re-measure, judge the frame — and keep
+`viewRadius` and the gap histogram as the standing numbers.
 
 **Done when:** a street-level pose shows visible stream structure — agents
 parting around obstacles, groups co-moving, a density gradient between two
