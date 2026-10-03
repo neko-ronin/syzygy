@@ -587,3 +587,114 @@ The kerb is flagged for the vision gate, as before. `DESIGN.md` §6: the impleme
 self-certify. I have not looked at a `01g-kerb-face` frame and I will not predict its
 verdict — only the numbers in §8.3, which are inputs to the reviewer's judgement and not a
 substitute for it.
+
+---
+
+## Round 9 — `01g-kerb-face` landed. It does not show a kerb.
+
+### 9.1 Capture health — marginal, labelled
+
+```
+preflight OK   swap 4.45/5.0GB   disk 13.4GB   mem-unused 274MB   load 4.42/8
+  warn: mem 274MB — under the 500MB line
+  warn: swap 4.45GB — approaching the 4.5GB block
+  warn: disk 13.4GB — below the 20GB comfort line
+shot     shots/2026-10-03T05-52-49-01g-kerb-face.png
+pose     01g-kerb-face  (camera 0.09m from derived, within 0.5m)
+framesSkipped 0   tier high   residentChunks 155   visibleChunks 69
+rebakePending 0   lodHistogram [9, 146, 0, 0]   triangles 10,255,443
+```
+
+The window took **~103 preflight attempts** across two polls. No `--force`. `274MB` unused
+against a `250MB` floor is **marginal — evidence of a weaker kind**, and the swap figure
+(4.45 of 5.0 GB) is the worst of the session. Stated before the reading, not after.
+
+The **`01d-street-crowd` re-shoot did not land** — 150 further attempts, memory never
+recovered. So the "legible street + crowd" pairing still does not exist. That frame remains
+the outstanding capture.
+
+### 9.2 The frame is not the scene the brief described
+
+The brief says developer 3 traced orange kerbs and orange dashes in `copper-stacks`.
+**This is a market plaza**: stalls with yellow awnings, bunting, an open paved square, and a
+teal skyline. Not a copper-stacks kerb run. I flag the mismatch rather than reconcile it —
+either the pose resolved somewhere other than intended, or `copper-stacks` is not where the
+pose landed. **Developer 3 owns the pose; not my call to adjust it.**
+
+There is a second, larger discrepancy in the sidecar itself, and it is the §2.8 finding from
+`docs/DIAGNOSTIC_TRUSTWORTHINESS.md` arriving in the wild:
+
+```
+populationAtDerivation  {n:2550, cx:1037, cz:4}
+populationAtCapture     {n:2550, cx:  33, cz:0}
+```
+
+**A 1004 m drift** between the population the pose was derived from and the crowd in the
+frame. For a *crowd* pose that would be fatal. For a kerb pose the crowd is incidental — but
+it means the pose derivation consumed a subject that then moved a kilometre, and the honest
+reading is that **this pose's provenance cannot be used to say what it is looking at.** The
+camera itself is fine: `requested.position` matches held to **0.09 m**, so the harness held
+the pose and this is not a `requested: null` case.
+
+### 9.3 The measurement the reviewer asked for
+
+Lower half of the frame, classified by colour:
+
+```
+gold band (kerb?)   n=10550   mean RGB(200,165,30)   lum 77.4%   spread 33-100%
+blue-grey deck      n=41688   mean RGB(105,133,152)  lum 21.5%   spread 11-29%
+
+gold/deck luminance ratio = 3.61x
+```
+
+**The band is 3.61× the deck.** My pre-registered prediction for a correct kerb was
+**1.8×–3.5×** realised; **>4× means over-strong**. So by my own pre-registered threshold this
+is **over-strong**, and I said in advance that over-strong is the failure mode where a kerb
+"reads as a painted stripe or a step too tall to walk on."
+
+**But the decisive number is the spread, and it does not say what I predicted.** I predicted
+a vertical face would show a brightness gradient between its upper and lower halves. What I
+measure is a luminance spread of **67 points inside the gold band** versus **19 inside the
+deck**. A 67-point spread across one surface is **not** a two-tone lit-face/shadow-face
+signature — it is *texture*. Looking at the 3× crop confirms it: the band carries the same
+block-and-joint patterning as the deck, and **there is no visible vertical face, no step, and
+no cast shadow anywhere in the frame.**
+
+**So: the band reads as a painted stripe.** Its contrast is now high enough to be confident
+about it, and what it is confident about is paint. The kerb fix moved the failure from
+*invisible* to *emphatically flat* — which is a different failure, and not obviously a better
+one.
+
+### 9.4 What I am NOT concluding, and why
+
+This is **not** a verdict, and I am not self-certifying. What I can support from the frame:
+
+1. **There is no raised kerb visible in this frame.** No vertical face, no step, no cast
+   shadow. That is a statement about what is on screen.
+2. **A gold band at 3.61× deck luminance is present.** Also a statement about the screen.
+3. **I cannot say whether that band is the kerb or the road paint.** They are the same colour
+   family here, which is developer 3's authorship ambiguity, and the frame does not
+   disambiguate it because **there is no geometry to disambiguate with.**
+
+Point 3 is the honest limit and it is the reviewer's to resolve. My read is that the pose did
+not produce the comparison it was built for — a 20 m straight kerb run at 1.7 m eye would show
+a face if one existed, and this shows a plane.
+
+### 9.5 Flagged for the vision gate
+
+1. Do the kerbs read as **kerbs** — a vertical face with a lit side and a shadowed side — or
+   as **painted stripes**? My measurement says the band is flat; the frame says the same; the
+   verdict is not mine.
+2. Is the band **too strong**? 3.61× against my pre-registered 1.8–3.5× band says marginally
+   over. Whether that reads as over-strong *to an eye* is the gate's call.
+3. The **deck's linear striping** is strong and directional across the whole lower half. It
+   reads as texture at a scale that competes with the kerb for attention. Flagging it as a
+   legibility observation, not proposing a change unprompted.
+
+### 9.6 The crowd pairing still does not exist
+
+`01d-street-crowd` on the current build was **not captured**. Until it is, the combination
+that answers "does a body separate from a legible deck" is unavailable, and the §6.4 findings
+(no contact shadow, one rigid body for all 2550, gait mask a dead wire) stand unjudged
+against current geometry. **Next capture slot, in order: `01d-street-crowd`, then a re-run of
+`01g-kerb-face` at a pose that actually contains a kerb run.**
