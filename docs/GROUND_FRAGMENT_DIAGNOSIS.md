@@ -698,3 +698,128 @@ that answers "does a body separate from a legible deck" is unavailable, and the 
 (no contact shadow, one rigid body for all 2550, gait mask a dead wire) stand unjudged
 against current geometry. **Next capture slot, in order: `01d-street-crowd`, then a re-run of
 `01g-kerb-face` at a pose that actually contains a kerb run.**
+
+---
+
+## Round 10 — both frames landed, best conditions of the session
+
+### 10.1 Capture health — the best of the session, not marginal
+
+```
+FRAME 1  01g-kerb-face       preflight OK  swap 5.58/7.0GB  disk 10.9GB  mem-unused 567MB  load 3.71/8
+FRAME 2  01d-street-crowd    preflight OK  swap 5.56/7.0GB  disk 10.9GB  mem-unused 1095MB load 3.37/8
+  warn (both): swap 79-80% full — past 75%, warning only; free RAM is the gate
+  warn (both): disk free 10.9GB — below the 20GB comfort line
+  frame 1  pose 01g-kerb-face     (camera 0.09m from derived, within 0.5m)
+  frame 2  pose 01d-street-crowd  (camera 0.15m from derived, within 0.5m)
+```
+
+**Neither frame needs a marginal label.** Proof of what works is 297 MB and 860 MB; frame 2
+is **1095 MB**, the highest of the session, and frame 1 is 567 MB. Disk at **10.9 GB** is
+above the ~8 GB block threshold and did not gate either capture; it is falling and is a real
+risk for the next slot, but `shots/` is only 90 MB so pruning cannot help.
+
+Both sidecars: `framesSkipped 0`, `notes: []`, `tier high`, `rebakePending 0`.
+
+**The guard's new logic is working as intended** and I did not have to work around it: swap
+at 80% produced a *warning* while free RAM gated. Round 8 and 9 were refused for the same
+reason — 63–68 MB free — and that is now visibly the only thing that refuses.
+
+### 10.2 Frame 1 — `01g-kerb-face`: the same plaza again, and still no kerb
+
+`shots/2026-10-03T23-20-15-01g-kerb-face.png`. Camera position is **identical** to Round 9's
+`05-52-49` frame and held to 0.09 m again; file hashes differ
+(`2cae15d6…` vs `19fa26c0…`), so **the pose is positionally deterministic while scene content
+animates**. That is worth knowing: it means a re-shoot is a re-measurement, not a re-sample.
+
+**It is still a market plaza, not a copper-stacks kerb run.** Stalls, awnings, bunting, an
+open square. Developer 3 traced orange kerbs and orange dashes in `copper-stacks`; this pose
+does not go there. **I am flagging the mismatch and not adjusting the pose — it is not mine.**
+
+My Round 9 reading therefore stands, now confirmed at 567 MB instead of 274 MB: a gold band
+at **3.61×** deck luminance, luminance spread **67 points inside the band** (texture, not a
+lit face and a shadowed face), and **no vertical face, no step and no cast shadow anywhere in
+frame**. The band reads as a painted stripe.
+
+### 10.3 Frame 2 — `01d-street-crowd`: the pairing that has never existed
+
+`shots/2026-10-03T23-21-00-01d-street-crowd.png`. **A legible street and a visible crowd in
+one image** — kerbs, road markings, tonal structure in the deck, and 2550 people.
+
+Sidecar: `entityDrawCalls 5`, `entityTriangles 947280`, `pop {n:2550, cx:1099, cz:0}`,
+`crowdSample` all at **`z = 0.35`**. **The lateral spread is still not landed** — the ribbon
+is still one line.
+
+Measured on this frame:
+
+```
+kerb  hue 181 deg   lum 29.8%
+crowd hue   7 deg   lum 16.3%
+deck  hue 214 deg   lum 34.5%
+
+crowd/deck luminance = 0.47x   (the bodies are DARKER than the deck)
+hue distance crowd->deck = 153 deg
+
+CONTACT SHADOW TEST
+  ground immediately beside the crowd   34.5%
+  open deck, same frame                 35.2%
+  ratio 0.98x   -> no darkening -> NO CONTACT SHADOW
+```
+
+Three things fall out of that, and two of them correct my own earlier numbers.
+
+**(a) The contact shadow is now measured, not argued.** The ground immediately beside the
+crowd is **0.98×** the open deck — indistinguishable. That agrees with the code
+(`recordShadow`, `renderer.ts:1397`, takes no entities parameter) and with §6.4 finding (ii).
+**Nothing ties a body to the ground.** It is the single clearest reason these do not read as
+people, and it is a one-call-site fix in my lane.
+
+**(b) My Round 7 hue prediction was WRONG and the reskin fixed it.** I predicted kerb→crowd
+hue distance would still be ~17°. Measured **174°** — the kerb is **cyan at 181°** and the
+crowd is **warm at 7°**. R11's reskin recoloured the kerb away from the crowd's hue family.
+**The hue-merge problem I flagged is gone.** I record the refutation because it was a
+prediction and it failed.
+
+**(c) But separation is now maximal, and maximal separation reads as a fence.** 0.47×
+luminance and 153° hue: the bodies are dark warm slabs on a light cool deck, with hard
+rectangular edges and flat tops at uniform height. That is maximum figure-ground contrast
+applied to a shape that is a rectangle.
+
+**Does a legible deck make an unspread crowd read MORE confidently as a picket fence?
+Yes — and I can say by what.** Before the ground fix the deck was a featureless slab and the
+ribbon had nothing to be measured against. Now the deck has kerbs, markings and tonal
+structure, and against that regularity the ribbon is more conspicuous, not less: a perfectly
+even row of identical flat-topped boxes with no head separation and no ground contact. The
+ground got better; the crowd got judged harder. **My Round 6 prediction is confirmed.**
+
+### 10.4 Flagged for the vision gate — I am not self-certifying either frame
+
+1. **Do the kerbs read as kerbs** — a vertical face with a lit and a shadowed side — or as
+   painted stripes? Frame 1 measures flat with no face. **This is the gate's verdict, not
+   mine.** My contribution is the measurement and the statement that no face is visible.
+2. **Are the kerbs too strong?** Frame 1's band is 3.61× deck, marginally above my
+   pre-registered 1.8–3.5× band for a correct kerb. Whether that reads as over-strong to an
+   eye is the gate's call.
+3. **Does the crowd read as figures or as a fence?** I measure a fence and say why. The gate
+   rules on it.
+4. **A new observation, offered as an observation:** the deck's linear striping runs strongly
+   and directionally across the ground plane in frame 1, at a scale that competes with the
+   kerb band for attention. Flagging; not proposing a change unprompted.
+
+### 10.5 Queue for the next slot, in order
+
+1. **`01g-kerb-face` at a pose that contains an actual kerb run.** The pose as landed is a
+   market plaza and cannot answer the question it was built for. **Developer 3's pose**, not
+   mine to change.
+2. A crowd frame **after** the lateral spread lands, to test whether spread alone fixes (c)
+   or produces the reviewer's predicted row of posts — which it will, because of §6.4
+   finding (i): 8 cloth and 4 skin colours are defined and `void`ed at
+   `citymesh.ts:983,993`, so all 2550 bodies are one 5-box figure with two colours.
+
+### 10.6 Standing note
+
+`lightDelivery` in frame 2 reads `produced: 0, delivered: 1332, binned: 1332` — impossible
+under its own documented chain (`renderer.ts:151-155`), because `produced` is **never
+assigned** (declared `:170`, initialised `:440`). That is §2.1 of
+`docs/DIAGNOSTIC_TRUSTWORTHINESS.md` reproducing live on a good frame. Anyone reading this
+sidecar for "are lights being lost at the grammar stage" would draw a false conclusion.
