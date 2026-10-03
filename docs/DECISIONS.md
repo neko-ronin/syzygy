@@ -608,6 +608,11 @@ Crowd behaviour is **local-first**, in three borrowed layers:
 *not* what the next few rounds are for. The near-term goal is narrow and
 achievable: **agents move around without colliding.**
 
+[Reference scene notes](VISION_ROUND8.md#scene-notes-for-the-later-stage)
+describe the visible relationships in the opened frames and distinguish them
+from inferred behaviour. They are observations for later design, not new
+requirements or authority to add scenes during separation work.
+
 ### Why D25 is superseded, and what it cost to learn
 
 D25 held that the lane is a hard constraint and goals must respect it. That is

@@ -136,25 +136,41 @@ counter-side viewpoint and night treatment are authored design decisions.
 
 This aisle qualifies as the hero only when it is genuinely walkable, populated
 and connected to its counter destinations, and when received warm light makes
-that relationship readable into depth. It is disqualified by an empty central
-slab surrounded by scenery, bodies hidden behind counters, a foreground clump
-followed by vacancy, luminous fixtures over black frontage, or an overhead view
-that conceals ground contact. A tightly cropped attractive stall also fails if
-it conceals the continuing street.
+that relationship readable into depth.
 
-**Explicit crowd disqualifier, added after the captured-band review:** the
-people read as street construction — a continuous ribbon or mechanically
-repeated row or field of upright markers that the eye groups with the kerb,
-railing or counter frontage. The hero fails when that read replaces independent
-human silhouettes occupying ground, even if the bodies are drawn, illuminated
-and distributed into depth. Judge this at the intended whole-frame viewing
-size; magnified identification of head and torso meshes cannot approve it.
-This applies to both members of the daylight/night pair defined in
-[HERO_FRAME_SPEC.md](HERO_FRAME_SPEC.md). A queue or narrow walking line can
-qualify when its people remain readable and belong to a destination; straight
-alignment itself is not the disqualifier. This makes D7's existing silhouette
-condition explicit in D5's rejection list. The reasoning and first inspection
-for the kerb-fixed frame are recorded in [VISION_ROUND5.md](VISION_ROUND5.md).
+**Disqualifiers — each rejects the hero in either phase:**
+
+- **People read as street construction or repeated upright markers:** the
+  bodies merge into a continuous ribbon or repeat the same upright stance in
+  a fence-like row or mechanical field. Their collective silhouette reads as
+  an edge, support rhythm or arranged stock rather than independent people
+  occupying and using the selected walking strip. This fails even when heads,
+  clothing panels and feet can be identified, and the bodies are drawn, lit
+  and continued into depth. Judge at the intended whole-frame viewing size;
+  identifying the meshes in a magnified crop cannot approve the frame.
+- **Empty central slab surrounded by scenery:** the principal route reads as
+  unused floor with market objects at its edges. Open carriageway is acceptable
+  when the occupied counter-front walk remains the subject.
+- **Bodies hidden behind counters:** roofs, stock or continuous counter bands
+  conceal people instead of revealing approach and use.
+- **Foreground clump followed by vacancy:** near occupation gives way to an
+  empty middle distance before the walking route reaches its exit.
+- **Luminous fixtures over black frontage:** light sources are visible, but
+  their pavement, counter faces and passing bodies are not readable.
+- **Overhead view concealing ground contact:** roofs and skyline carry the
+  picture while the viewer cannot locate bodies on the walking surface.
+- **A tightly cropped attractive stall concealing the continuing street:**
+  close material detail replaces the occupied route the hero must expose.
+
+Neither straight alignment nor a shared waiting pose alone is disqualifying.
+A queue can qualify when its people remain readable and visibly belong to a
+destination. Random scatter or cosmetic pose variation cannot substitute for
+occupation belonging to the route. These clauses apply independently to both
+members of the pair in [HERO_FRAME_SPEC.md](HERO_FRAME_SPEC.md), which binds
+the comparison to the same subjects before phase changes. The crowd clause
+was originally added after the captured-band review; it is now inside the
+list and explicitly covers repeated stance. See
+[the specification clarification](VISION_ROUND8.md).
 
 An aerial cable-car vista is the more immediately photogenic choice. It would
 let atmospheric depth and skyline silhouette carry a frame while the missing

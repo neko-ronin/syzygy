@@ -289,12 +289,40 @@ being passed off as a full-night market control.
 
 ## The discriminator, declared before capture
 
+### Compare the same subjects, not convenient patches
+
+Bind the following subjects once, from the selected emitted stall run,
+resolved frontage corridor and saved actor snapshot, before changing phase.
+Record their identities in the pair's existing provenance. Do not independently
+choose a brighter counter, a more legible body or a busier gap in each member.
+If the selected strip has no occupation, that is the finding; another crowd
+elsewhere cannot supply it. These are subjects within the existing derived
+view, not new coordinates or supplementary camera poses.
+
+| Bound subject | Daylight must expose | Night must preserve or reveal | A failure that rejects the pair |
+| --- | --- | --- | --- |
+| The nearest selected counter's roadward front and end, its support and canopy attachment. | A working frontage with a support that meets the ground; timber, cloth and metal have distinct material reads. The approach space belongs to that frontage. | Received warm light describes the counter front and canopy underside as a place people can approach. Dark recesses may simplify stock detail. | A lantern and warm floor patch look persuasive while the corresponding counter becomes a black bar, loses its support or ceases to be an approachable destination. |
+| The adjoining walking ground and its nearest bodies from the saved snapshot. | Ground contact locates independent human silhouettes on the strip. Heads, shoulders and leg shapes read as people, distinct from stall posts and the kerb. The group reads as occupants rather than repeated markers. | Those same occupants remain human and grounded, through light on clothing or silhouette against lit pavement. Their ground remains a walking surface connected to the counter approach. | A ribbon or upright-marker field is exposed in either member; or night hides that repetition, loses the bodies' ground contact, or turns the whole strip into an undifferentiated glow. |
+| The counter-front strip through the middle of the selected run, with its actual frontage and occupants. | Passage continues beside counter-facing occupation. Supports and groups leave a readable route; pavement is not merely vacant floor between unrelated stall objects. | Successive received light reveals the same frontage and occupation, with shadowed intervals that retain the passage's direction. | A convincing near pool replaces unreadable middle frontage; a foreground group is followed by vacancy; or the crowd continues only as an architectural comb. |
+| The selected exit opening and the route arriving there. | It remains an opening reached by the occupied strip, with middle occupation connecting to activity towards the gap. | That destination and connection remain readable before atmospheric depth softens detail. Distant activity may resolve collectively. | The gap becomes a disconnected bright spot or black termination. Skyline lights or another busy street cannot substitute for occupation arriving along this strip. |
+
+A visual approval must identify these relationships in each whole frame.
+Matching object names in provenance does not establish their readability.
+For a concealment finding, name the bound subject, the defect visible in the
+revealing phase, and what obscures it in the other: black frontage, merged
+silhouette, bloom, glare or loss of ground contact. Do not infer a hidden
+defect merely because the palette is darker.
+
+### Decide which phase exposes the unresolved relationship
+
 | What the pair shows | Judgement |
 | --- | --- |
-| Daylight establishes grounded, separate bodies, approachable counters and an occupied route into depth; night preserves those same relationships while local light gathers attention around market activity. | The street is resolved and the light is doing its job. Night may simplify the upper city without hiding the street. |
-| Daylight exposes a vacant principal walking strip, unsupported or interchangeable frontage, bodies merged into a counter-like band, or occupation that stops near the camera; night becomes persuasive by swallowing that defect into blackness or bloom. | Darkness is hiding an unresolved street. A glowing foreground vignette cannot approve the pair. |
-| Daylight resolves those relationships; night loses counter faces, ground contact or continuation and leaves luminous fittings above darkness. | The street is resolved in daylight; the night lighting still needs work. |
-| Neither member establishes those relationships. | The street remains unresolved. There is no successful night member to rescue it. |
+| Daylight establishes grounded, separate bodies, approachable counters and an occupied route into depth at the bound subjects; night preserves those relationships while received light gathers attention around the same market activity. | The street is resolved and the light is doing its job. Night may simplify the upper city and surface detail without hiding street relationships. |
+| Daylight exposes an unused or blocked strip, unsupported frontage, a ribbon or repeated upright markers, or occupation stopping before the exit; night conceals that same defect in blackness or bloom and appears more persuasive. | Darkness is hiding an unresolved street. Name the corresponding subject and what hides the defect. The night member cannot approve the pair. |
+| Night makes a support failure, floating bodies or a repeated-marker crowd legible where daylight's flat illumination or glare made it easy to overlook. | Night reveals an unresolved street that daylight hid. Revisit those same subjects in daylight; do not soften the night evidence to recover an apparent pass. |
+| Daylight resolves the bound relationships; night loses the corresponding counter faces, grounded silhouettes or route connection and leaves luminous fittings over darkness. | Daylight resolves the street; night lighting destroys its readability. This does not, by itself, establish a shared geometry fault. The pair still fails. |
+| Both members expose the same broken relationship. | The street remains unresolved in both phases. A palette change has not repaired it. |
+| The available detail or visibility cannot establish a required relationship in a member, without exposing a specific defect. | More work needed on that evidence. Record which subject is unjudgeable; do not invent either a pass or a concealed structural defect. |
 | The run, camera, actor snapshot, geometry/detail availability, weather or lens state changes between members. | Invalid pair. No conclusion about darkness versus street resolution follows. |
 
 Night need not expose every daylight joint or every distant fitting. It must
@@ -308,12 +336,14 @@ night's local-light hierarchy to pass.
 
 All of D5's disqualifiers remain in force:
 
-- **People read as street construction:** a continuous ribbon or mechanically
-  repeated row or field of upright markers groups visually with the kerb,
-  railing or counter frontage instead of resolving as independent people
-  occupying ground. This fails at the intended whole-frame viewing size even
-  when the bodies are drawn, illuminated and distributed into depth. A
-  magnified crop identifying the meshes cannot approve the frame.
+- **People read as street construction or repeated upright markers:** the
+  bodies merge into a continuous ribbon or repeat the same upright stance in
+  a fence-like row or mechanical field. Their collective silhouette reads as
+  an edge, support rhythm or arranged stock rather than independent people
+  occupying and using the selected walking strip. This fails even when heads,
+  clothing panels and feet can be identified, and the bodies are drawn, lit
+  and continued into depth. Judge at the intended whole-frame viewing size;
+  identifying the meshes in a magnified crop cannot approve the frame.
 - **Empty central slab surrounded by scenery:** the frame's principal route
   reads as unused open floor with market objects at its edges. This does not
   require filling the carriageway; open ground is acceptable when the occupied
@@ -333,10 +363,13 @@ The crowd disqualifier applies independently to daylight and night. Stronger
 ground contrast or warm light may make the ribbon or marker rhythm clearer;
 that does not satisfy the human-silhouette condition. A queue or narrow
 walking line can qualify when the people remain readable and belong to a
-destination. Straight alignment itself is not prohibited, and widening a
-ribbon into a uniform marker field does not escape the disqualifier. This
-spells out D7's existing condition rather than replacing it with a coordinate
-spread test. See [the specification ruling](VISION_ROUND5.md) for its basis.
+destination. Straight alignment or a shared waiting pose alone is not
+prohibited, and widening a ribbon into a uniform marker field does not escape
+the disqualifier. Random scatter or cosmetic pose variation cannot substitute
+for occupation belonging to the route. This spells out D7's existing condition
+rather than replacing it with a coordinate spread test. See
+[the original ruling](VISION_ROUND5.md) and
+[the repeated-stance and pair clarification](VISION_ROUND8.md).
 
 **Historical prediction:** the following prediction is retained as written
 before the captured ribbon was identified. Its rendering-fault premise is
