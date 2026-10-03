@@ -173,6 +173,36 @@ if (!pose.ok) {
 }
 settle(sim, pose.position as [number, number, number], pose.lookAt as [number, number, number]);
 
+
+// --- World-space body separation. R12 sub-problem 2 has a FLOOR, not a target:
+// two bodies must not end up inside one another. Screen-space pixels cannot
+// answer it (a crowd on a line reads as 99.8% "merged" while every body is at a
+// different depth), so this measures centres directly.
+{
+  const xs: number[] = [], zs: number[] = [];
+  const f = (sim as unknown as { f: Float32Array }).f;
+  for (let i = 0; i < 6000; i++) {
+    if (f[i * 29 + 25] < 0.5) continue;
+    xs.push(f[i * 29 + 0]); zs.push(f[i * 29 + 2]);
+  }
+  const nn: number[] = [];
+  for (let a = 0; a < xs.length; a++) {
+    let best = Infinity;
+    for (let b = 0; b < xs.length; b++) {
+      if (a === b) continue;
+      const dx = xs[a] - xs[b], dz = zs[a] - zs[b];
+      const q = dx * dx + dz * dz;
+      if (q < best) best = q;
+    }
+    if (best < Infinity) nn.push(Math.sqrt(best));
+  }
+  nn.sort((p, q) => p - q);
+  const pc = (t: number): string => `${((100 * nn.filter((v) => v < t).length) / (nn.length || 1)).toFixed(1)}%`;
+  const q = (t: number): number => (nn.length ? nn[Math.min(nn.length - 1, Math.floor(nn.length * t))] : 0);
+  console.log(`\nBODY SEPARATION (world, n=${nn.length})`);
+  console.log(`  nearest-neighbour p10 ${q(0.1).toFixed(3)}  p50 ${q(0.5).toFixed(3)}  p90 ${q(0.9).toFixed(3)} m`);
+  console.log(`  bodies inside another body's 0.45 m shoulder: ${pc(0.45)}`);
+}
 const d = sim.debug();
 const pts = project(sim, pose.position, pose.lookAt, pose.fov);
 
