@@ -507,3 +507,83 @@ claimed.** Specifically for the reviewer:
 
 I have answered (2) with a number and deliberately **not** answered (1) or (3) — those are
 the gate's.
+
+---
+
+## Round 8 — BLOCKED. No frame produced, and why that is the correct outcome.
+
+### 8.1 The frames did not land. The guard held.
+
+Task was to shoot `01g-kerb-face` then re-shoot `01d-street-crowd`, and nothing else.
+**Neither was captured.** 115 preflight attempts across ~45 minutes, every one refused:
+
+```
+BLOCK swap 3.81/5.0GB  disk 13.5GB  mem-unused 63-68MB  load 1.21-3.0/8
+  BLOCK: physical memory unused 63MB < 250MB.
+         Expect a swap death, not a slow run (WORKFLOW §6.1: 66MB at peak).
+```
+
+No `--force` was passed. The attempt count and the pinned memory are in §8.4.
+
+**The load number is what distinguishes this from contention, and it is the useful part.**
+Load sat at **1.2–3.0 across 8 cores** — the box was *idle* — while memory stayed at
+63–68 MB. That is not a spike from other agents working; it is a steady state, and the
+earlier session where captures succeeded at 860 MB and 297 MB shows the machine can do it.
+Two `opencode` processes were holding 658 MB and 885 MB RSS. `ps` shows no chromium, no vite
+and no held capture lock of mine, so nothing here is reclaimable by me without killing
+another workspace's agent — which is not mine to do.
+
+**This is the guard working.** A capture at 63 MB unused produces a truncated frame and GPU
+errors that read exactly like the silent rendering faults this project has spent a session
+hunting (WORKFLOW §6.4). Forcing it would have manufactured a wrong conclusion — most
+likely "the kerb still does not read", or "the crowd is gone" — and a whole round would have
+gone into debugging the operating system. The honest result is no frame.
+
+### 8.2 What I did instead, and it is not nothing
+
+- **Re-verified the gate fix is landed.** `3ccd549` is an ancestor of `HEAD`, and `drained`
+  is present in `tools/capture.mjs`. The brief listed it as outstanding; it was committed in
+  Round 7 and is in `main`. Nothing to land.
+- **Re-verified both Round 7 small items are closed**, in `f24ff19`: `renderer.ts:1477`
+  states the deck *does* write depth and why; `entityDrawEnabled` carries a comment that
+  records why it stays (`setCrowdCount(0)` cannot zero instances) rather than the stale
+  "remove when F2 closes". Nothing outstanding.
+- **Pre-registered the Round 8 measurements below**, with predictions, so that the moment a
+  capture slot frees this is arithmetic and not another round.
+
+### 8.3 Pre-registered: what I will measure, and what each result means
+
+Written before the frames exist, so the answer cannot be reverse-fitted to them.
+
+**On `01g-kerb-face`** (1.7 m eye, oblique along a 20 m straight run, 1.2 m past the edge):
+
+| measurement | prediction | if it goes the other way |
+|---|---|---|
+| Row-scan across a kerb at 3× and 4×, sampling **rows identified as kerb** (my Round 7 error was sampling a window that straddled kerb and deck) | the kerb occupies **2–5 rows** and has a **hue distinct from the deck by >25°** | a 1-row, hue-matched band means it is reading as paint, and the geometry has not separated them |
+| Split the kerb band into its **upper and lower half** and measure luminance of each | upper **brighter** than lower by **>1.3×** — a lit side and a shadowed side | upper ≈ lower means there is no vertical face shading and it is a stripe by construction, which is a **grammar** question not a brightness one |
+| Does a **dash** (road paint, `PAINT_Y`, horizontal) differ from the **kerb** in row-count and hue | paint is **1 row**, kerb is **2–5 rows**, and hues differ | if both are one row and one hue, developer 3's authorship-ambiguity is confirmed as still unresolved in the renderer |
+| Kerb luminance against adjacent deck | **1.8×–3.5×** realised. Measured **2.91×** on the street-crowd frame | **>4×** means over-strong and reads as a painted stripe or an unwalkable step — the failure mode named in the brief |
+
+**On `01d-street-crowd`:**
+
+| measurement | prediction | if it goes the other way |
+|---|---|---|
+| Kerb hue vs crowd-body hue | **>40° apart** — the crowd must not sit in the kerb's hue family | I already measured **17° apart** (kerb 2°, crowd 19°) on the pre-R11 frame, so I predict this **still fails** |
+| Body vs deck luminance and hue separation | strong (>1.5× luminance, >120° hue) | unchanged from Round 7 — not the failure |
+| Whether bodies read as figures or as a fence | **fence.** Predicted before looking | if they read as figures, the R11 reskin or coat guards changed something I did not model, and that is worth knowing |
+| Presence of a **contact shadow** under bodies | **absent.** `recordShadow` (`renderer.ts:1397`) takes no entities parameter, so nothing can cast one | if present, developer 2 has changed the shadow path and my §6.4 finding (ii) is stale |
+
+### 8.4 Evidence log
+
+115 attempts, all BLOCK, memory 63–68 MB throughout, load 1.21–3.0. No `--force`. No lock
+held. Round 7's frames remain the most recent crowd frames taken (`22-45-46` at 860 MB and
+`23-17-05` at 297 MB) and both **predate** `21f4efa` (R11 reskin + kerb-face pose) and
+`1f25fa6` (D25 lane + coat guards), so **neither is a current-build frame** and neither is
+offered as one.
+
+### 8.5 Not self-certifying
+
+The kerb is flagged for the vision gate, as before. `DESIGN.md` §6: the implementer does not
+self-certify. I have not looked at a `01g-kerb-face` frame and I will not predict its
+verdict — only the numbers in §8.3, which are inputs to the reviewer's judgement and not a
+substitute for it.
