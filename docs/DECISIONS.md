@@ -583,3 +583,71 @@ lane-aligned destination. The next place to look is the steering term itself —
 `stepAgent` steers toward `pathNodeAt(i, k)`, the *k-th waypoint*, not the goal,
 so the waypoint can still lie across the carriageway even when the destination
 does not. Measure what the steering is actually aiming at before changing it.
+
+---
+
+## D26 — The crowd is a local simulation, and the city stages scenes
+
+**Decided by the owner, 2026-10-02.** This supersedes the framing of D25 and
+redirects `R12`.
+
+### The decision
+
+Crowd behaviour is **local-first**, in three borrowed layers:
+
+- **Lenia / cellular-automata style** — occupancy and interaction emerge from
+  local rules over a field. No global "place N people on the pavement" pass.
+- **Boids-style separation** — the operative near-term requirement: agents move
+  without colliding. Separation, alignment and cohesion are local steering terms.
+- **Hollywood scene-making with Extras** — the city has *scenes*. Certain
+  sections **emit a script**; an NPC picks one up and **acts it out**. Market
+  stalls, crossings, transit landings and plazas are stages with parts, not
+  merely places with density.
+
+**Priority: later stage.** It is an important vertical slice, and it is explicitly
+*not* what the next few rounds are for. The near-term goal is narrow and
+achievable: **agents move around without colliding.**
+
+### Why D25 is superseded, and what it cost to learn
+
+D25 held that the lane is a hard constraint and goals must respect it. That is
+not wrong as a statement about a lane, and it is wrong as an architecture. The
+measured failure was a **standoff between two global rules**: path-following
+pulled each agent at ~1.34 m/s toward a waypoint while the lane hold pulled it
+back at exactly `HOLD_SPEED * dt`, balancing to **0.0002 m/frame** with the hold
+straining at its ceiling on every agent, every frame.
+
+Six rounds were spent on that standoff — eight candidates refuted, the arithmetic
+corrected twice, the mechanism fully explained, and **no fix shipped**. Every one
+of those rounds was an attempt to make two global systems agree. Going local
+means the spread is no longer something to be *placed*: separation itself produces
+lateral spread, and no lane constraint is needed to hold an arrangement that was
+never imposed.
+
+### The measurement that was never taken
+
+Separation steering **was** attempted and recorded as refuted. That refutation is
+void. It was measured on a degenerate population — every agent on a 1-D line,
+nearest-neighbour p50 **0.030 m** — and `docs/CROWD_SPREAD.md` says so itself:
+*"confounded, do not read as avoidance."* **Avoidance has never actually been
+measured in this project.** "Get them moving without collisions" is therefore not
+a demotion. It is the first honest attempt at `R12` sub-problem 2.
+
+### Consequences
+
+- `R12` is reordered. Local avoidance first, flow and lanes second, scenes and
+  scripts third.
+- **The 0.04 m z-IQR spread defect is no longer on the critical path.** It was a
+  symptom of the global-lane architecture, not an independent fault. It is kept as
+  a measured, bounded, open observation — not chased.
+- D25 stays in the record as the measured reason the architecture changed, and
+  specifically so that nobody "fixes" the hold again.
+- Any future work on lanes, waypoints or goal selection is a **scene-layer**
+  concern — an NPC inside a scene — not crowd steering.
+
+### What this does NOT authorise
+
+No invented thresholds for "crowd-like" behaviour. Separation has a right answer
+— bodies do not end up inside other bodies — and it gets measured. Scene quality
+is a **frame judgement** by the vision reviewer against the reference sheets, and
+never a number. `PROCESS.md` rule 1's scope limit applies to the whole slice.
