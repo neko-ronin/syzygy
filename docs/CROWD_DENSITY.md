@@ -167,3 +167,78 @@ before and after with `npx vite-node src/sim/__selftest_density.ts`.
 
 The Market attractor wants a stall front with a queue and dwell rather than a
 point every agent walks to; crossings want a wait state.
+
+---
+
+# Round 10 — the write proof did not produce a trustworthy answer
+
+Developer 2. Branch `dev2/crowd-writeproof`. **`src/sim/crowd.ts` reverted to
+its committed state; nothing ships.** Import test → ALL PASS. No instrumentation
+left in the tree.
+
+The round was one instrument: prove `f[o+F.x]` is written and that the write
+persists across the frame boundary, before any separation is computed again. **I
+could not obtain it, and the reason is my instrument, not the crowd.**
+
+## What the instrument did, and why I am not reporting it
+
+Three materially different definitions of "persistence", each run separately:
+
+1. compare this frame's entry against **this frame's own write** — wrong by
+   construction, that measures movement *inside* `stepAgent`;
+2. compare this frame's entry against the **previous** frame's write;
+3. same as (2), but record the stored **float32** field value instead of the
+   float64 local, to remove float32 rounding as a confound.
+
+**All three produced byte-identical output** — `0 persisted / 312 changed`,
+worst `|dx| 1.05e-2`, worst `|dz| 2.18e-4`, for every version. Identical numbers
+under three different definitions is the tell: the output is not coming from the
+code as written, or the comparison is degenerate in a way I cannot see from
+outside. **A persistence result I cannot reproduce under a changed definition is
+not a result**, and I am not reporting it in either direction.
+
+## What *is* trustworthy, because it held across all three runs
+
+```
+  re-seeds during a 39-frame window            : 0
+  a single frame's write moves one body by     : 0.5 – 10.5 mm
+  largest single-frame movement               : |dx| 1.05e-2 m, |dz| 2.10e-4 m
+```
+
+- **Zero re-seeds**, so `rebuildSlices` → `seedAgent` is **not** writing position
+  during the window. That eliminates the one known writer outside `stepAgent`,
+  and it is a real negative result.
+- **A body moves 0.5–10.5 mm per frame.** That is the size of the effect any
+  separation change has to compete with, and it is consistent with the standoff
+  (1.34 m/s of goal-seeking cancelling 1.4 m/s of lane hold).
+
+## Why the frame gate's verdict and this instrument agree
+
+`docs/VISION_ROUND9.md`: *"The crowd's collective silhouette belongs to street
+construction, not independent grounded people."* Nobody has seen people here,
+because 99.9% of bodies are inside another body's 0.45 m shoulder. That number
+was measured cleanly in round 9 and re-confirmed on current main. The reviewer's
+marker-field disqualifier stands after separation, exactly as predicted.
+
+## Next step — the same instrument, made trustworthy first
+
+Do **not** compute another separation variant on top of an unproven pipeline.
+The next agent should:
+
+1. **Make the persistence probe self-checking.** It must print, for one agent,
+   the exact triple `(entry, written, prevWritten)` per frame for a handful of
+   frames, unaggregated. If those triples do not change when the comparison is
+   changed, the probe is reading the wrong thing and that is visible at a glance.
+   Rule from this session, twice applied: a ratio or a verdict is only as good as
+   the arithmetic producing it, and a probe that returns identical numbers under
+   changed inputs is broken until proven otherwise.
+2. Once `entry[N] == written[N-1]` is demonstrated for at least one agent, run
+   it across many agents. Only then is separation's first fair test available.
+3. The floor to judge it by is unchanged and is not a target: **bodies do not end
+   up inside other bodies** — NN p50 above 0.45 m, overlapping well below 99.9%,
+   read with `npx vite-node src/sim/__selftest_density.ts`.
+
+Separation's own blockers remain as recorded last round and are still the
+likely cause: the neighbour list is saturated for **72.9%** of agents (capped at
+256), and the jam factor caps separation's speed at **0.113 m/s** against a
+1.34 m/s standoff.
