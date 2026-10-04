@@ -984,3 +984,130 @@ separation throttled to 0.113 m/s, 73% of agents cannot see their neighbours) an
 **at the same close standoff discipline used here**, because §11.3 applies to people too: a
 1.7 m body at 40 m is 37 px and at 3 m is 700 px, and the legibility question is a
 standoff question before it is a shading question.
+
+---
+
+## Round 12 — two diagnoses in `groundSurface()`, both mine, both measured
+
+### 12.1 The bare deck is BRANCH SELECTION, not contrast, not sampling, not albedo
+
+The reviewer's read is right that the kerb has real relief and the plane beside it does not.
+Reading `groundSurface()` says why, and it is **none of the four candidates on the table.**
+
+Every feature with readable structure at 2–3 m is computed in **one branch only**:
+
+| feature | where | line |
+|---|---|---|
+| slab joints, cobble worley, plank lines, board-formed bands, chequer plate | `isRaised` **footway** branch | `gbuffer.wgsl:495-536` |
+| worn asphalt, resurfacing, wheel tracks, tar seams | `else` **carriageway** branch | `gbuffer.wgsl:537-575` |
+
+`isRaised = world.y > DECK_Y + 0.045` (`:422`). **Measured over 9876 ground verts in one
+baked chunk:**
+
+```
+raised (takes the footway branch): 1508 / 9876  = 15.3%
+   ...and 1508 is EXACTLY the kerb-face count from Round 11.
+not raised (takes the carriageway branch): the other 84.7%
+```
+
+**A plaza deck sitting at exactly `DECK_Y` is not raised, so it takes the carriageway
+branch — and the carriageway branch's finest feature is a 6 m wear-track lattice, plus a
+28 m resurfacing field, plus the shared `grain` at ±10% (`:464-465`).** It carries **no
+feature finer than ~6 m**, and explicitly no crack network (`:542-554`, deliberate, after two
+failed versions). At a 2–3 m camera that is one flat value, which is exactly what the frame
+shows.
+
+**The four candidates, resolved:**
+
+| candidate | verdict | why |
+|---|---|---|
+| thresholded out at close range | **NO** | `jointFloor` (`:381-394`) explicitly widens joints to ≥1.5 px, and `groundJointsD` uses it. The joints are not being *computed at all* |
+| no coordinate variation at that scale | **NO** | the variation exists — it is in the footway branch. It is not running |
+| present but too low contrast | **NO** | the feature is **absent**, not faint |
+| one albedo resolving every district to the same grey | **PARTLY, and worse than expected** | see below |
+
+**And the family classifier compounds it.** Running the shader's own `pavementFamily`
+(`:290-316`) over the same real vertex colours:
+
+```
+rubber       6032   61.1%  ##############
+paint        2864   29.0%  ########
+terracotta    980    9.9%  #
+mean saturation 0.454   mean value 0.233
+```
+
+**61% of the city's ground resolves to `rubber`** — a family with no authored paving
+character — decided from saturation and value alone. Only three families ever appear. So the
+"one albedo → one grey" candidate is real, but it is downstream of a worse problem: the
+classifier is being asked to distinguish ten materials from two scalars and it is collapsing
+them onto `rubber` and `paint`.
+
+**The honest statement of the fault.** `groundSurface()` decides surface class from **height
+and normal alone** (`:399-403` says so explicitly). Height cannot distinguish a plaza from a
+road — they are at the same `y`. So a large flat paved square is *forced* into the asphalt
+branch. **This is a missing input, not a tuning problem.**
+
+**Whose half is which:**
+- **Mine (`gbuffer.wgsl`):** give the carriageway branch structure finer than 6 m. The
+  comment at `:542-554` records that a crack network was tried twice and read as a decal both
+  times, so this is known-hard and I will not pretend it is a one-liner.
+- **Developer 3's (`groundbake.ts` / grammar):** the shader has no way to know a plaza from a
+  road. Emitting a surface class — a matId, or a per-vertex family id — is the cheap correct
+  fix, and it is the same shape of fix as the kerb gate: **author the discriminator, then let
+  the shader consume it.** I am not editing their files.
+
+### 12.2 The kerb reads as a gutter because its chamfer highlight is DEAD CODE
+
+My judgement on the reviewer's question, and it is neither of the two they proposed. **It is
+not a shading consequence of the face being in shadow, and not a `kerbTone` authoring call.**
+
+`gbuffer.wgsl:481`:
+
+```wgsl
+alb = mix(alb, alb * 1.35 + vec3f(0.02), smoothstep(0.72, 1.00, top) * 0.7);
+```
+
+with `top = clamp((world.y - DECK_Y) / 0.20, 0, 1)` (`:472`). That fires only when
+`world.y >= 0.494 m`. Measured against the Round 11 face heights:
+
+```
+face 0.070 m -> top 0.350 -> smoothstep = 0.0000
+face 0.126 m -> top 0.630 -> smoothstep = 0.0000
+face 0.140 m -> top 0.700 -> smoothstep = 0.0000
+
+MAXIMUM top over ALL 1508 faces = 0.700.   Threshold is 0.72.
+```
+
+**The tallest kerb in the chunk reaches `top = 0.700`, and the chamfer needs 0.72. The
+highlight is multiplied by zero on every kerb in the city.** It is not weak — it is absent.
+
+That is the whole answer to "gutter, not raised kerb". A raised kerb reads as raised because
+of a **light top edge** — the chamfer catching light where the face meets the top. With the
+chamfer dead, all that survives is `:482`'s `alb *= mix(0.55, 1.0, smoothstep(0.0, 0.22, top))`,
+which darkens the **bottom** of the face and leaves the top plain. **A dark bottom fading to a
+plain top is exactly what a recessed channel looks like.** The kerb is not in shadow; it is
+missing its own highlight.
+
+**The threshold is simply wrong for the geometry it is applied to.** `smoothstep(0.72, 1.0, …)`
+is authored as if the face were ~0.20 m tall; the median is 0.126 m and the maximum is
+0.140 m. Moving the knee to about `smoothstep(0.50, 0.95, top)` puts the highlight in the
+top third of a real face — which is where a chamfer is.
+
+**I have not made this change**, deliberately: it is a look change, `DESIGN.md` §6 means the
+implementer does not self-certify a look, and a reviewer is about to rule on this frame. It is
+one line at `gbuffer.wgsl:481` and it is the change I would make first if asked.
+
+### 12.3 Items already closed, restated so they stop being re-issued
+
+- **R13 §3 diagnostic trustworthiness audit — DELIVERED**, `docs/DIAGNOSTIC_TRUSTWORTHINESS.md`,
+  commit **`2fa43eb`**, an ancestor of `HEAD`. All six precedents, three of which I found.
+- **`entityDrawEnabled` — settled, KEPT**, reasoning in §6 of that document and restated in
+  §11.5 above. Stale "remove when F2 closes" comment rewritten in `f24ff19`.
+- **`renderer.ts:1473-1475` false "depth writes off" comment — CORRECTED** in `f24ff19`.
+- **Kerb standoff — CLOSED.** `shots/2026-10-04T00-09-34-01g-kerb-face.png`, 668 MB free,
+  camera held 0.02 m: a kerb with visible thickness, lighter top and darker blue face.
+
+### 12.4 Polling
+
+Continuing to poll for capture windows unasked. Developer 3's hero-run derivation is
+unphotographed and the next window should go to it.
