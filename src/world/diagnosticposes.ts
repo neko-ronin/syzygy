@@ -26,13 +26,16 @@
 import {
   cityPlan,
   sampleStreetPlan,
+  footprintAabb,
   GROUND_Y,
   type CityPlan,
+  type CityChunk,
   type StreetSample,
 } from './citygen';
-import { districtAtField } from './districts';
+import { districtAtField, spinePoint } from './districts';
 import { groundGrammarFor } from './groundgrammar';
-import type { Vec3 } from '../core/math';
+import { marketGrammarFor, PITCH_MAX, RUN_MIN_M, type MarketStall } from './marketgrammar';
+import { v3cross, v3norm, type Vec3 } from '../core/math';
 
 /** The shape `CrowdSim.population()` returns; declared here so this file does not import the sim. */
 export interface Population {
@@ -87,6 +90,29 @@ export interface DerivedPoseSource {
    * subject is the population, not a district.
    */
   districtId?: number;
+  /**
+   * The emitted surfaces the kerb pose frames: kerb top, vertical face and
+   * adjoining carriageway, each with a world position, plus the face/top
+   * quad counts predicted from the walked segments on the camera side
+   * (×2 for triangles, ×4 for vertices). A prediction from the walk, not a
+   * bake readback — but the walk mirrors the emitter's own guards, which is
+   * what makes it checkable instead of decorative. Absent for crowd poses.
+   *
+   * roadPoint is 2 m across the kerb line onto the carriageway — the surface
+   * the frame actually contains — not the centreline, which sits half a road
+   * width off-axis and fails any honest in-cone check on wide roads
+   * (measured: it refused every wide arterial before this was corrected).
+   */
+  kerbRun?: {
+    edge: [number, number];
+    faceCentre: [number, number, number];
+    topCentre: [number, number, number];
+    roadPoint: [number, number];    kerbHeight: number;
+    faceQuads: number;
+    topQuads: number;
+    walkedAhead: number;
+    walkedBehind: number;
+  };
 }
 
 export interface DerivedPose {
@@ -197,6 +223,7 @@ const KERB_MIN_WIDTH = 20;
 const KERB_CAM_SIDE = 1.2;
 const KERB_CAM_BACK = 2.8;
 const KERB_LOOK_AHEAD = 2.5;
+const KERB_WALK_STEP = 5;
 
 function deriveKerbFace(seed: number, pop: Population): DerivedPoseResult {
   const id: DerivedPoseId = 'kerb-face';
@@ -206,10 +233,14 @@ function deriveKerbFace(seed: number, pop: Population): DerivedPoseResult {
   const probe = scratch();
   const rejected: DerivedPoseSource['rejected'] = [];
 
-  interface KerbHit { x: number; z: number; kind: string; width: number; district: number }
-  const consider = (gx: number, gz: number): KerbHit | null => {
+  interface KerbHit { x: number; z: number; kind: string; width: number; district: number; kh: number; fx: number; fz: number; lx: number; lz: number; ahead: number; behind: number }
+  // Two passes: grid streets first, arterials only if no street qualifies.
+  // Arterials wander and weave between parallel roads, so their kerb emission
+  // is intermittent even where the field is continuous (measured: 0 face
+  // verts <5 m at the edge with 16 at −15 m, parallel street 20 m away).
+  const consider = (gx: number, gz: number, wantKind: 'street' | 'artery'): KerbHit | null => {
     sampleStreetPlan(plan, gx, gz, s);
-    if (s.kind !== 'street' && s.kind !== 'artery') return null;
+    if (s.kind !== wantKind) return null;
     if (s.width < KERB_MIN_WIDTH) {
       if (rejected.length < 8) rejected.push({ x: gx, z: gz, kind: s.kind, width: s.width });
       return null;
@@ -220,13 +251,47 @@ function deriveKerbFace(seed: number, pop: Population): DerivedPoseResult {
     // 'bollard-line' (market) is posts, not a face; everything else in the
     // enum is raised geometry groundbake emits a face for.
     if (grammar.kerb === 'bollard-line') return null;
+    const nx0 = -s.tz, nz0 = s.tx;
+    const ex0 = s.px + nx0 * s.width * 0.5, ez0 = s.pz + nz0 * s.width * 0.5;
+    // Uncontested OUTWARD only (the footway side the camera stands on): no
+    // second carriageway intruding on the kerb's own band. Step out from the
+    // edge; every sample must stay on this road with a clearance near its
+    // stepped distance. (The inward side crosses the carriageway itself, so
+    // checking it would reject every road in the city.) A parallel road
+    // close enough to steal the footway dedupe cells fails here (measured
+    // cause of patchy emission on an otherwise continuous arterial).
+    for (const dd of [2, 4, 6, 8, 10]) {
+      sampleStreetPlan(plan, ex0 + nx0 * dd, ez0 + nz0 * dd, probe);
+      if (probe.kind !== s.kind || probe.clearance < dd - 3) {
+        if (rejected.length < 8) rejected.push({ x: gx, z: gz, kind: s.kind, width: s.width });
+        return null;
+      }
+    }
+    // Walk + total tangent rotation: the kerb the trace walks must still be
+    // this road 30 m ahead and 10 m behind, on the same heading. The
+    // projection-jump guard this mirrors is vacuous as written (it compares
+    // a step to itself), so rotation is measured directly: >15° over the
+    // walk means a corner or a wanderer, and corner-turning kerbs are a
+    // different picture from a straight run.
+    let turn = 0;
+    let ptx = s.tx, ptz = s.tz;
   // Straight run: the kerb the trace walks must still be this road 10 m
   // either way, or the edge point belongs to a junction, not a kerb line.
-  const KERB_WALK_STEP = 5;
   const KERB_WALK_STEPS = 8;
-  const KERB_WALK_MIN_EACH_WAY = 20;
+  // The camera looks ahead (+tangent): the kerb it judges is the one in
+  // front of it, so the ahead run carries the bar and the behind run only
+  // needs the near context. Symmetric bars verified kerb somewhere around
+  // the edge point while the frame showed a gap ahead of it (measured: 6
+  // face verts within 10 m with an 81% total walk).
+  const KERB_AHEAD_MIN = 30;
+  const KERB_BEHIND_MIN = 10;
   let walkOk = true;
-  for (const dir of [1, -1]) {
+  // First and last centreline points of the ahead walk: the camera looks
+  // along the VERIFIED run, not the anchor tangent, so a bending road cannot
+  // aim the frame away from the kerb that was checked.
+  let wFirstX = 0, wFirstZ = 0, wLastX = 0, wLastZ = 0;
+  let wCount = 0, wAhead = 0, wBehind = 0;
+  for (const [dir, need] of [[1, KERB_AHEAD_MIN], [-1, KERB_BEHIND_MIN]] as const) {
     let qx = s.px, qz = s.pz, walked = 0;
     for (let k = 0; k < KERB_WALK_STEPS; k++) {
       // All three of traceOne's termination guards, mirrored exactly: kind,
@@ -236,27 +301,45 @@ function deriveKerbFace(seed: number, pop: Population): DerivedPoseResult {
       // kerb-face verts within 10 m of the edge, trace walk holding 28%).
       sampleStreetPlan(plan, qx, qz, probe);
       if (probe.kind !== s.kind || Math.abs(probe.width - s.width) > 1.5) { walkOk = false; break; }
+      // Tangent rotation over the walk, in radians. The jump guard above is
+      // vacuous as written (it compares a step to itself — 5.0 < 8.0 always,
+      // in groundbake too), so straightness is measured here instead: more
+      // than 15° total means a corner or a wanderer.
+      turn += Math.acos(Math.min(1, Math.max(-1, ptx * probe.tx + ptz * probe.tz)));
+      ptx = probe.tx; ptz = probe.tz;
+      if (turn > 0.26) { walkOk = false; break; }
       const nx = probe.px + probe.tx * KERB_WALK_STEP * dir;
       const nz = probe.pz + probe.tz * KERB_WALK_STEP * dir;
       if (Math.hypot(nx - probe.px, nz - probe.pz) > KERB_WALK_STEP * 1.5 + 0.5) { walkOk = false; break; }
       walked += KERB_WALK_STEP;
+      if (dir > 0) {
+        if (wCount === 0) { wFirstX = probe.px; wFirstZ = probe.pz; }
+        wLastX = nx; wLastZ = nz;
+        wCount++;
+      }
       qx = nx; qz = nz;
     }
-    if (walked < KERB_WALK_MIN_EACH_WAY) walkOk = false;
+    if (walked < need) walkOk = false;
+    else if (dir > 0) wAhead = walked;
+    else wBehind = walked;
     if (!walkOk) break;
   }
   if (!walkOk) {
     if (rejected.length < 8) rejected.push({ x: gx, z: gz, kind: s.kind, width: s.width });
     return null;
   }
-  return { x: gx, z: gz, kind: s.kind, width: s.width, district: districtId };
+  return { x: gx, z: gz, kind: s.kind, width: s.width, district: districtId, kh: grammar.kerbHeight, fx: wFirstX, fz: wFirstZ, lx: wLastX, lz: wLastZ, ahead: wAhead, behind: wBehind };
   };
   let hit: KerbHit | null = null;
-  for (let r = 0; r <= KERB_SCAN_EXTENT && !hit; r += KERB_SCAN_STEP) {
-    if (r === 0) { hit = consider(0, 0); continue; }
-    for (let e = -r; e <= r && !hit; e += KERB_SCAN_STEP) {
-      hit = consider(e, -r) ?? consider(e, r) ?? consider(-r, e) ?? consider(r, e);
+  for (const wantKind of ['street', 'artery'] as const) {
+    for (let r = 0; r <= KERB_SCAN_EXTENT && !hit; r += KERB_SCAN_STEP) {
+      if (r === 0) { hit = consider(0, 0, wantKind); continue; }
+      for (let e = -r; e <= r && !hit; e += KERB_SCAN_STEP) {
+        hit = consider(e, -r, wantKind) ?? consider(e, r, wantKind)
+          ?? consider(-r, e, wantKind) ?? consider(r, e, wantKind);
+      }
     }
+    if (hit) break;
   }
   if (!hit) {
     return {
@@ -276,38 +359,67 @@ function deriveKerbFace(seed: number, pop: Population): DerivedPoseResult {
   const nx = -tz, nz = tx;
   const half = s.width * 0.5;
   const ex = s.px + nx * half, ez = s.pz + nz * half;
+  let lx = tx, lz = tz;
+  {
+    const ll = Math.hypot(hit.lx - hit.fx, hit.lz - hit.fz);
+    if (ll > 1e-3) { lx = (hit.lx - hit.fx) / ll; lz = (hit.lz - hit.fz) / ll; }
+  }
   const position: [number, number, number] = [
-    ex + nx * KERB_CAM_SIDE - tx * KERB_CAM_BACK,
+    ex + nx * KERB_CAM_SIDE - lx * KERB_CAM_BACK,
     GROUND_Y + spec.eye,
-    ez + nz * KERB_CAM_SIDE - tz * KERB_CAM_BACK,
+    ez + nz * KERB_CAM_SIDE - lz * KERB_CAM_BACK,
   ];
   const lookAt: [number, number, number] = [
-    ex + tx * KERB_LOOK_AHEAD,
+    ex + lx * KERB_LOOK_AHEAD,
     GROUND_Y + 0.25,
-    ez + tz * KERB_LOOK_AHEAD,
+    ez + lz * KERB_LOOK_AHEAD,
   ];
 
-  // Self-check: the kerb point the pose is FOR must be inside its own cone.
-  // Same arithmetic as derivePose's subject check, with a 2 m kerb extent
-  // instead of the crowd spread.
+  // Self-check: every named surface must be inside its own cone — the kerb
+  // edge, the vertical-face band centre, the kerb-top band centre and the
+  // adjoining carriageway point. Same arithmetic as derivePose's subject
+  // check. A pose that cannot see its own face has no position worth handing
+  // back: the reviewer asked for top, face and road in one frame, and "the
+  // edge is in-frame" alone is how the last capture missed the face.
+  // KERB_TOP_W mirrors groundbake.ts KERB_W (0.30 m); duplicated, not
+  // imported, so this module keeps no edge into the renderer.
+  const KERB_TOP_W = 0.30;
+  const kh = hit.kh;
+  const faceCentre: [number, number, number] = [ex, GROUND_Y + kh * 0.5, ez];
+  const topCentre: [number, number, number] = [
+    ex + nx * KERB_TOP_W * 0.5, GROUND_Y + kh, ez + nz * KERB_TOP_W * 0.5,
+  ];
+  const roadPoint: [number, number] = [ex - nx * 2.0, ez - nz * 2.0];
   const dx = lookAt[0] - position[0], dy = lookAt[1] - position[1], dz = lookAt[2] - position[2];
   const dl = Math.hypot(dx, dy, dz) || 1;
   const fx = dx / dl, fy = dy / dl, fz = dz / dl;
-  const sx = ex - position[0], sy = (GROUND_Y + 0.25) - position[1], sz = ez - position[2];
-  const along = sx * fx + sy * fy + sz * fz;
-  const perp = Math.hypot(sx - fx * along, sz - fz * along);
-  const reach = Math.tan(Math.min(Math.PI * 0.45, spec.fov * 0.75)) * Math.max(along, 1);
-  const subjectInView = along > 0 && perp <= reach + 2;
+  const inCone = (px: number, py: number, pz: number, extent: number): { along: number; perp: number; reach: number; inside: boolean } => {
+    const sx = px - position[0], sy = py - position[1], sz = pz - position[2];
+    const along = sx * fx + sy * fy + sz * fz;
+    const perp = Math.hypot(sx - fx * along, sz - fz * along);
+    const reach = Math.tan(Math.min(Math.PI * 0.45, spec.fov * 0.75)) * Math.max(along, 1);
+    return { along, perp, reach, inside: along > 0 && perp <= reach + extent };
+  };
+  const edgeIn = inCone(ex, GROUND_Y + 0.25, ez, 2);
+  const faceIn = inCone(faceCentre[0], faceCentre[1], faceCentre[2], 1);
+  const topIn = inCone(topCentre[0], topCentre[1], topCentre[2], 1);
+  const roadIn = inCone(roadPoint[0], GROUND_Y, roadPoint[1], 2);
+  const subjectInView = edgeIn.inside && faceIn.inside && topIn.inside && roadIn.inside;
   const eyeHeight = +(position[1] - GROUND_Y).toFixed(2);
   if (!subjectInView || !(eyeHeight > 0 && eyeHeight < 12)) {
+    const miss = !edgeIn.inside ? `edge ${edgeIn.perp.toFixed(1)} m off-axis`
+      : !faceIn.inside ? `face band ${faceIn.perp.toFixed(1)} m off-axis`
+      : !topIn.inside ? `kerb top ${topIn.perp.toFixed(1)} m off-axis`
+      : `road point ${roadIn.perp.toFixed(1)} m off-axis`;
     return {
       ok: false, id, population: { ...pop },
-      reason: `derived kerb at (${ex.toFixed(1)}, ${ez.toFixed(1)}) is ${perp.toFixed(1)} m off-axis ` +
-        `at ${along.toFixed(1)} m (reach ${reach.toFixed(1)} m) — refusing a blind pose`,
+      reason: `derived kerb at (${ex.toFixed(1)}, ${ez.toFixed(1)}): ${miss} ` +
+        `(reach ${edgeIn.reach.toFixed(1)} m) — refusing a pose that cannot see its own face`,
     };
   }
 
   const lateral = half + KERB_CAM_SIDE;
+  const faceQuads = Math.round((hit.ahead + hit.behind) / KERB_WALK_STEP);
   return {
     ok: true,
     id,
@@ -334,6 +446,17 @@ function deriveKerbFace(seed: number, pop: Population): DerivedPoseResult {
       subjectInView, eyeHeight,
       rejected,
       districtId: foundDistrict,
+      kerbRun: {
+        edge: [+ex, +ez],
+        faceCentre: [+faceCentre[0], +faceCentre[1], +faceCentre[2]],
+        topCentre: [+topCentre[0], +topCentre[1], +topCentre[2]],
+        roadPoint: [+roadPoint[0], +roadPoint[1]],
+        kerbHeight: +kh.toFixed(3),
+        faceQuads,
+        topQuads: faceQuads,
+        walkedAhead: hit.ahead,
+        walkedBehind: hit.behind,
+      },
     },
   };
 }
@@ -679,6 +802,335 @@ export function deriveTrafficPose(
   };
 }
 
+
+export type HeroWalkId = 'hero-walk';
+
+export interface HeroRun {
+  startAlong: number;
+  endAlong: number;
+  stalls: number;
+  side: 'right';
+  approachStart: number;
+  approachEnd: number;
+  exitStart: number;
+  exitEnd: number;
+  /** Signed lateral of the counter line, measured along +view-right. */
+  counterEdge: number;
+  /** Signed lateral of the walking-strip centre. */
+  corridorLateral: number;
+}
+
+export interface HeroWalkSource {
+  id: HeroWalkId;
+  seed: number;
+  run: HeroRun;
+  /** Spine-parameter interval actually evaluated. */
+  evaluatedFrom: number;
+  evaluatedTo: number;
+  chunksEvaluated: number;
+  /** Spine chunks in range that were not provided — empty when ok. */
+  chunksMissing: string[];
+  /** Stall slots examined vs emitted, across the evaluated chunks. */
+  slotsExamined: number;
+  stallsEmitted: number;
+  splits: number;
+  /** Runs seen before selection (short + unbounded skips explain the gap). */
+  runsTotal: number;
+  skippedShort: number;
+  skippedUnbounded: number;
+  corridorBlockedAt: number | null;
+  eyeHeight: number;
+  /** Horizontal metres camera to exit aim. */
+  aimMetres: number;
+}
+
+export interface HeroWalk {
+  ok: true;
+  id: HeroWalkId;
+  position: [number, number, number];
+  lookAt: [number, number, number];
+  fov: number;
+  roll: number;
+  source: HeroWalkSource;
+}
+
+export interface HeroWalkFailure {
+  ok: false;
+  id: HeroWalkId;
+  reason: string;
+  evaluatedFrom: number;
+  evaluatedTo: number;
+  chunksMissing: string[];
+}
+
+export type HeroWalkResult = HeroWalk | HeroWalkFailure;
+
+/** Spine-parameter interval evaluated for the hero run. */
+const HERO_EVAL_LO = -200;
+const HERO_EVAL_HI = 1200;
+/** A run shorter than the grammar's own minimum run is not a run. */
+const HERO_MIN_RUN = RUN_MIN_M;
+/** Consecutive stall starts further apart than this are two runs. */
+const HERO_SPLIT_GAP = PITCH_MAX * 1.5;
+/** Approach/exit openings are read at most this far from the run. */
+const HERO_OPENING_WINDOW = 100;
+/** Corridor half-depth each side of its centre lateral. */
+const HERO_CORRIDOR_HALF = 1.5;
+/** Neutral standing-eye landmark above the walking surface. */
+const HERO_EYE = 1.6;
+/** The existing market lens. */
+const HERO_FOV = 1.05;
+/** Building footprint pad for the corridor-blocked test. */
+const HERO_BLOCK_PAD = 1.0;
+
+/**
+ * Derive Market Spine Counter Walk from emitted stall geometry (D21).
+ *
+ * Selection rule, implemented literally from HERO_FRAME_SPEC: from the live
+ * market spine's parameter origin, travel in increasing `along` and select
+ * the earliest right-hand emitted stall run downstream, with approach gap,
+ * exit gap and complete emission coverage known. "Right" is classified
+ * against the m4lookAt view basis (screen-right = up × −forward), never
+ * from the `side` field's sign or a comment calling a normal "left".
+ *
+ * Runs are maximal consecutive emitted slots: consecutive stall starts more
+ * than PITCH_MAX×1.5 apart are two runs (ordinary seams do not split; the
+ * threshold is where an omitted slot must lie). Complete means known from
+ * beginning to end — bounded openings observed or evaluated-empty on both
+ * sides, every owning chunk evaluated — never attractive or populated.
+ *
+ * The camera stands in the approach opening on the counter-front corridor
+ * centre at standing eye height and aims at the corridor centre in the exit
+ * opening. A blocked corridor, a missing chunk, or no complete run refuses
+ * loudly: per the spec a blocked corridor reports instead of advancing, and
+ * framing that hides the strip is a failure, not a fallback.
+ *
+ * Wiring note: the caller passes resident chunks (main.ts owns the City).
+ * Nothing here touches the GPU, the sim, or the capture harness.
+ */
+export function deriveHeroWalk(plan: CityPlan, seed: number, chunks: CityChunk[]): HeroWalkResult {
+  const id: HeroWalkId = 'hero-walk';
+  const m = plan.districts.market;
+  // 1. Spine chunks in range.
+  const want = new Map<string, { cx: number; cz: number }>();
+  for (let a = HERO_EVAL_LO; a <= HERO_EVAL_HI; a += 8) {
+    const p = spinePoint(m, a);
+    const cx = Math.floor(p[0] / 256), cz = Math.floor(p[1] / 256);
+    want.set(`${cx},${cz}`, { cx, cz });
+  }
+  const have = new Map<string, CityChunk>();
+  for (const c of chunks) have.set(`${c.cx},${c.cz}`, c);
+  const missing = [...want.keys()].filter((k) => !have.has(k));
+  if (missing.length > 0) {
+    return {
+      ok: false, id, evaluatedFrom: HERO_EVAL_LO, evaluatedTo: HERO_EVAL_HI,
+      chunksMissing: missing,
+      reason: `${missing.length} spine chunks unevaluated (${missing.slice(0, 4).join(' ')}) — ` +
+        `a chunk edge is an unknown boundary, not a market gap`,
+    };
+  }
+  // 2. Stalls per chunk, through the same query the market bake uses.
+  const UP: Vec3 = [0, 1, 0];
+  const rightStalls: MarketStall[] = [];
+  let slotsExamined = 0, stallsEmitted = 0;
+  for (const { cx, cz } of want.values()) {
+    const ch = have.get(`${cx},${cz}`)!;
+    // Spine midpoint in this chunk, for the district resolution.
+    let midA = 0, midN = 0;
+    for (let a = HERO_EVAL_LO; a <= HERO_EVAL_HI; a += 8) {
+      const p = spinePoint(m, a);
+      if (Math.floor(p[0] / 256) === cx && Math.floor(p[1] / 256) === cz) { midA += a; midN++; }
+    }
+    if (midN === 0) continue;
+    const mp = spinePoint(m, midA / midN);
+    const did = districtAtField(plan.districts, mp[0], mp[1]);
+    const desc = marketGrammarFor({ seed, plan, chunk: ch, kind: 'market', districtId: did });
+    slotsExamined += desc.stats.slots;
+    stallsEmitted += desc.stalls.length;
+    for (const stall of desc.stalls) {
+      // Screen-right à la m4lookAt (x = norm(up × z), z = norm(eye−target)):
+      // for a viewer looking downstream, right = norm(up × −forward).
+      const back: Vec3 = [-stall.tx, 0, -stall.tz];
+      const rgt = v3norm(v3cross(UP, back));
+      // Counter offset in the stall's own lateral frame, dotted with right.
+      // Mechanical: no array order, no comment about left normals.
+      const dot = stall.nx * stall.counter * rgt[0] + stall.nz * stall.counter * rgt[2];
+      if (dot > 0) rightStalls.push(stall);
+    }
+  }
+  rightStalls.sort((a, b) => a.along - b.along);
+  // 3. Runs: maximal consecutive emitted slots. A start interval wider than
+  // PITCH_MAX×1.5 holds an omitted slot; ordinary seams never split.
+  interface Run { stalls: MarketStall[]; start: number; end: number }
+  const runs: Run[] = [];
+  for (const st of rightStalls) {
+    const last = runs[runs.length - 1];
+    const prev = last?.stalls[last.stalls.length - 1];
+    if (last && prev && st.along - prev.along <= HERO_SPLIT_GAP) {
+      last.stalls.push(st);
+      last.end = Math.max(last.end, st.along + st.pitch);
+    } else {
+      runs.push({ stalls: [st], start: st.along, end: st.along + st.pitch });
+    }
+  }
+  const splits = Math.max(0, runs.length - 1);
+  // 4. First complete run downstream of the origin. Complete = known from
+  // beginning to end: bounded openings observed or evaluated-empty on both
+  // sides, span of at least the grammar's own minimum run, fully inside the
+  // evaluated interval. A run already under the locator is not the run ahead.
+  let sel: Run | null = null;
+  let selPrevEnd: number | null = null;
+  let skippedShort = 0, skippedUnbounded = 0;
+  for (let i = 0; i < runs.length; i++) {
+    const run = runs[i];
+    if (run.start <= 0) { skippedUnbounded++; continue; }
+    if (run.end - run.start < HERO_MIN_RUN) { skippedShort++; continue; }
+    if (run.end > HERO_EVAL_HI) { skippedUnbounded++; continue; }
+    const prevEnd = i > 0 ? runs[i - 1].end : null;
+    const nextStart = i + 1 < runs.length ? runs[i + 1].start : null;
+    // Bounding openings: an observed split, or evaluated emptiness to the
+    // range edge (an empty evaluated interval is a known opening, not a gap
+    // in knowledge). A run touching the range edge with stalls beyond it is
+    // truncated — unknown, not complete.
+    const belowKnown = prevEnd !== null || !rightStalls.some((st) => st.along < run.start);
+    const aboveKnown = nextStart !== null || !rightStalls.some((st) => st.along > run.end);
+    if (!belowKnown || !aboveKnown) { skippedUnbounded++; continue; }
+    sel = run;
+    selPrevEnd = prevEnd;
+    break;
+  }
+  const fail = (reason: string): HeroWalkResult => ({
+    ok: false, id, evaluatedFrom: HERO_EVAL_LO, evaluatedTo: HERO_EVAL_HI,
+    chunksMissing: [], reason,
+  });
+  if (!sel) {
+    return fail(`no complete right-hand emitted run downstream of the origin in [0, ${HERO_EVAL_HI}] ` +
+      `(${rightStalls.length} right-hand stalls, ${runs.length} runs, ${splits} splits) — refusing, not advancing`);
+  }
+  // 5. Counter-front corridor: counterward edge = furthest counter line of
+  // the run measured along +view-right; roadward edge = the carriageway half
+  // width at run mid; centre between them. Tangent/normal from the spine
+  // curve itself at each along (finite difference), never from a comment.
+  const tangentAt = (a: number): [number, number] => {
+    const p0 = spinePoint(m, a - 4), p1 = spinePoint(m, a + 4);
+    const l = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) || 1;
+    return [(p1[0] - p0[0]) / l, (p1[1] - p0[1]) / l];
+  };
+  const rightAt = (a: number): [number, number] => {
+    const [tx, tz] = tangentAt(a);
+    const r = v3norm(v3cross(UP, [-tx, 0, -tz]));
+    return [r[0], r[2]];
+  };
+  let counterEdge = -Infinity;
+  for (const st of sel.stalls) {
+    const [rx, rz] = rightAt(st.along);
+    const c = (st.nx * st.counter) * rx + (st.nz * st.counter) * rz;
+    if (c > counterEdge) counterEdge = c;
+  }
+  const midAlong = (sel.start + sel.end) / 2;
+  const midP = spinePoint(m, midAlong);
+  const midS = sampleStreetPlan(plan, midP[0], midP[1], scratch());
+  void midS;
+  const corridorLateral = counterEdge - HERO_CORRIDOR_HALF - 0.5;
+  const corridorAt = (a: number): [number, number] => {
+    const p = spinePoint(m, a);
+    const [rx, rz] = rightAt(a);
+    return [p[0] + rx * corridorLateral, p[1] + rz * corridorLateral];
+  };
+  // 6. Blocked corridor: sample the strip every 5 m at three laterals
+  // against building footprints. A hit reports the subject unavailable —
+  // never another run, never the carriageway.
+  let blockedAt: number | null = null;
+  const lanes = [corridorLateral - HERO_CORRIDOR_HALF, corridorLateral, corridorLateral + HERO_CORRIDOR_HALF];
+  for (let a = sel.start; a <= sel.end && blockedAt === null; a += 5) {
+    const p = spinePoint(m, a);
+    const [rx, rz] = rightAt(a);
+    for (const lat of lanes) {
+      const wx = p[0] + rx * lat, wz = p[1] + rz * lat;
+      for (const c of chunks) {
+        // Chunk-bounds prefilter: corridor points are metres apart, chunks
+        // are 256 m. Without this every point tests every building in the
+        // city, which is correct and wasteful in equal measure.
+        if (wx < c.boundsMin[0] - 2 || wx > c.boundsMax[0] + 2 ||
+          wz < c.boundsMin[2] - 2 || wz > c.boundsMax[2] + 2) continue;
+        for (const b of c.buildings) {
+          const fp = footprintAabb(b);
+          if (wx >= fp[0][0] - HERO_BLOCK_PAD && wx <= fp[1][0] + HERO_BLOCK_PAD &&
+            wz >= fp[0][2] - HERO_BLOCK_PAD && wz <= fp[1][2] + HERO_BLOCK_PAD) {
+            blockedAt = a;
+            break;
+          }
+        }
+        if (blockedAt !== null) break;
+      }
+      if (blockedAt !== null) break;
+    }
+  }
+  if (blockedAt !== null) {
+    return fail(`counter-front corridor blocked at along ${blockedAt.toFixed(0)} m ` +
+      `(run ${sel.start.toFixed(0)}..${sel.end.toFixed(0)}) — subject unavailable, not advancing`);
+  }
+  // 7. Eye and aim. Approach opening middle, on the corridor centre, at the
+  // standing-eye landmark; aim at the corridor centre in the exit opening.
+  // Open ground counts as a known opening only inside the window: beyond it
+  // the "gap" is just unevaluated-looking distance, not an approach.
+  const approachStart = Math.max(selPrevEnd ?? HERO_EVAL_LO, sel.start - HERO_OPENING_WINDOW);
+  const nextStart = (() => {
+    const idx = runs.indexOf(sel);
+    return idx + 1 < runs.length ? runs[idx + 1].start : null;
+  })();
+  const exitEnd = Math.min(nextStart ?? HERO_EVAL_HI, sel.end + HERO_OPENING_WINDOW);
+  const approachMid = (approachStart + sel.start) / 2;
+  const exitMid = (sel.end + exitEnd) / 2;
+  const [camX, camZ] = corridorAt(approachMid);
+  const [aimX, aimZ] = corridorAt(exitMid);
+  const position: [number, number, number] = [camX, GROUND_Y + HERO_EYE, camZ];
+  const lookAt: [number, number, number] = [aimX, GROUND_Y + HERO_EYE, aimZ];
+  // Framing failure check: the exit must be in the cone, else the line of
+  // sight hides the continuation the hero exists to show.
+  {
+    const dx = lookAt[0] - position[0], dz = lookAt[2] - position[2];
+    const dl = Math.hypot(dx, dz) || 1;
+    if (dl < 1e-3) return fail('approach and exit collapse to one point — no line of sight');
+  }
+  return {
+    ok: true,
+    id,
+    position,
+    lookAt,
+    fov: HERO_FOV,
+    roll: 0,
+    source: {
+      id,
+      seed,
+      run: {
+        startAlong: +sel.start.toFixed(1),
+        endAlong: +sel.end.toFixed(1),
+        stalls: sel.stalls.length,
+        side: 'right',
+        approachStart: +approachStart.toFixed(1),
+        approachEnd: +sel.start.toFixed(1),
+        exitStart: +sel.end.toFixed(1),
+        exitEnd: +exitEnd.toFixed(1),
+        counterEdge: +counterEdge.toFixed(2),
+        corridorLateral: +corridorLateral.toFixed(2),
+      },
+      evaluatedFrom: HERO_EVAL_LO,
+      evaluatedTo: HERO_EVAL_HI,
+      chunksEvaluated: want.size,
+      chunksMissing: [],
+      slotsExamined,
+      stallsEmitted,
+      splits,
+      runsTotal: runs.length,
+      skippedShort,
+      skippedUnbounded,
+      corridorBlockedAt: blockedAt,
+      eyeHeight: HERO_EYE,
+      aimMetres: +Math.hypot(aimX - camX, aimZ - camZ).toFixed(1),
+    },
+  };
+}
 
 /**
  * How far the camera may drift from a derived pose and still be "in" it.
