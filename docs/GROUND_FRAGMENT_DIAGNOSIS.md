@@ -924,3 +924,63 @@ briefs. It is written up as §2.7 of `docs/DIAGNOSTIC_TRUSTWORTHINESS.md`.
 
 None of these three are outstanding. The next capture slot should go to a **kerb pose at 2–3 m
 standoff** (developer 3) and then a **crowd frame after the lateral spread lands**.
+
+---
+
+## Round 11 addendum — developer 3's corrected pose, captured. The face is visible.
+
+### The answer, now demonstrated rather than argued
+
+```
+preflight OK  swap 4.21/5.0GB  disk 13.0GB  mem-unused 668MB  load 27.41/8
+  warn: swap 84% full — past 75%, warning only; free RAM is the gate
+  warn: load 27.41 = 3.43/core, box shared
+shot     shots/2026-10-04T00-09-34-01g-kerb-face.png
+pose     01g-kerb-face  (camera 0.02m from derived, within 0.5m)
+```
+
+`668MB` free — above the 297 MB and 860 MB that have proven to work, so **not marginal**.
+Load was 27.41, the highest of any capture, so frame *content* is the weaker kind of evidence
+here; the geometry is not.
+
+**The frame is a different place entirely.** Not the market plaza of the two previous
+`01g-kerb-face` captures: an open paved square, pale slab buildings left, teal towers right,
+and — the point — **a kerb in the foreground with visible thickness.** A lighter top surface,
+a darker vertical face below it, and real screen-space depth. A second kerb run crosses the
+middle distance with the same signature. Slab joints read across the paving.
+
+A vertical cross-section through the foreground kerb shows the structure, e.g. at x=760
+deck `RGB(128,143,160)` lum 14.4%, kerb band `RGB(94,108,122)` → `RGB(59,92,127)`, i.e. a
+**darker, distinctly bluer** band between two deck values.
+
+### So the blocking question is closed, and it was never a shading question
+
+| | finding |
+|---|---|
+| Does the bake emit a vertical kerb face? | **YES** — 1508 per chunk, median **0.126 m**, none degenerate |
+| Can `groundSurface()` shade one? | **YES** — `f24ff19` took kerb verts reaching the branch from **0 to 3480 of 3520** |
+| Was the face visible? | **Not before, yes now.** It was **0.45 px at 20 m** and **18–37 px at 2–3 m** |
+
+**The render was never the problem and the geometry was never the problem.** The only thing
+between the authored 4.319× and the frame was the camera standoff. Developer 3's new pose
+(`42bb836`) closes it.
+
+**What this means for the reviewer's three questions:** the first — *do kerbs read as kerbs, a
+vertical face with a lit and a shadowed side, or as painted stripes* — now has a frame on
+which the answer is legible. **I am not ruling on it**; `DESIGN.md` §6 and the implementer
+rule stand. What I can say is that the face exists, is shaded, and is no longer sub-pixel, so
+the question is now answerable rather than unjudgeable.
+
+**Not asked for and not done:** I have not adjusted `diagnosticposes.ts`. The standoff was
+developer 3's to fix and they have fixed it; my contribution was the arithmetic that said what
+it had to be.
+
+### Second frame still owed
+
+`01d-street-crowd` on the post-spread build. Developer 2 has since landed `e8db2f6` (crowd
+separation throttled to 0.113 m/s, 73% of agents cannot see their neighbours) and `42bb836`.
+**The lateral spread is still not in the tree** — the last crowd sidecar read
+`crowdSample` all at `z = 0.35`, `pop.cz = 0`. When it lands, the crowd frame should be taken
+**at the same close standoff discipline used here**, because §11.3 applies to people too: a
+1.7 m body at 40 m is 37 px and at 3 m is 700 px, and the legibility question is a
+standoff question before it is a shading question.
