@@ -242,3 +242,98 @@ Separation's own blockers remain as recorded last round and are still the
 likely cause: the neighbour list is saturated for **72.9%** of agents (capped at
 256), and the jam factor caps separation's speed at **0.113 m/s** against a
 1.34 m/s standoff.
+
+---
+
+# Round 11 — the throttle was real, and it was the smaller of the two defects
+
+Developer 2. Branch `dev2/crowd-sep-budget`. **`src/sim/crowd.ts` reverted;
+nothing ships.** Import test → ALL PASS. No instrumentation left.
+
+## 1. The thing I buried, written down honestly
+
+I named this obstruction in **round 3** and did not remove it. Measured then:
+separation throttled to 0.10 m/s against the hold's 1.4 m/s authority —
+"13x too slow to win a single argument". Measured in round 9: **0.113 m/s**
+against a **1.34 m/s** goal-seeking pull. Eight rounds later, through a reframe,
+two reverted variants and one withdrawn probe, the operative obstruction was
+the same one I had already identified. Two variants were reverted fighting a
+throttle I knew about. That is worth recording plainly rather than leaving in a
+commit message.
+
+## 2. Item 1 — separation gets its own speed budget. Measured; not shipped.
+
+`seekSpeed = pace * jam` stays negotiable; `sepSpeed = pace * 0.6` does not.
+
+```
+                              before      after
+  NN p50                        0.032      0.021 m
+  bodies inside a 0.45 m shoulder  99.9%     99.8%
+  merged <2 px, all in-frame      19.0%      25.6%
+  merged <2 px, 20-30 px band     18.9%      37.8%
+```
+
+**Reverted.** NN p50 moved the right way and overlap did not — and screen-space
+merging got substantially **worse**, which is the same signature as the two
+variants already reverted. Un-throttling a force that is aimed at the wrong
+bodies just moves bodies faster in the wrong direction.
+
+## 3. Item 2 — the 256 cap is the bigger defect, and it is not a cap
+
+```
+  agents at the 256 cap                              : 100.0%
+  true nearest neighbour        p50                  : 0.000 m
+  nearest neighbour IN THE BUFFER p50                : 3.396 m
+  buffer misses a much closer neighbour (>1.5x)     : 100.0%
+  mean ratio buffer / true                           : 90.7x   (worst 5443.8x)
+```
+
+**For 100% of agents the buffer contains no near neighbour at all.** Its closest
+member is **3.4 m** away; the true nearest is **0.000 m**. Separation has been
+computed, correctly, against a set of bodies that are nowhere near the body it
+is attached to. That is why un-throttling made things worse: more authority,
+same wrong aim.
+
+**And it is not a cap problem.** `cellRange` scans whole cells of `cellSize`
+(8 m) and fills the buffer in cell order until `max`. At the measured density the
+crowd is ~14 agents/m², so a single 8 m cell holds ~900 bodies and any buffer
+smaller than that is saturated by arbitrary order. Raising `max` does not fix a
+quantisation that coarse — it only buys a larger arbitrary subset.
+
+**This also explains round 9.** The nearest-overlapping-neighbour push initialised
+`nearD2` to `BODY_SEP²` (0.45 m). With the buffer's nearest at 3.4 m that test
+was never met, so `nearJ` stayed `-1` and **the push never ran at all**.
+
+## 4. What this means — and it is D26's actual finding
+
+Separation was never the problem, and neither was its authority. **A cell-based
+neighbourhood query cannot see the nearest neighbour at this density.** The
+nearest bodies are inside the same cell as everything else, and the buffer keeps
+the first 256 in storage order rather than the closest.
+
+The fix is therefore not a bigger buffer and not more authority. It is a
+**finer local structure** — which is precisely what D26 named as the first layer
+(Lenia-style occupancy fields) and why that layer is there. A separation term
+sized for a crowd at 0.5 agents/m² is being run on one at 14.
+
+## 5. Next step — two, in order, both local
+
+1. **Make the neighbourhood query distance-ordered within the small radius that
+   matters.** A dedicated query at ~`BODY_SEP` radius that keeps the *closest*
+   few, rather than the first few in cell order, is cheap and is the minimum
+   change that makes separation aim at the right body. Verify by re-running the
+   cap probe: `nearest in buffer` must fall from **3.396 m** to within a small
+   multiple of the **0.000 m** truth. That number is the acceptance test for
+   this step and it is not a target to tune toward.
+2. **Then** re-test the speed budget from §2, which has never had a fair trial.
+
+The write-proof probe stays withdrawn. It is not rebuilt on top of a pipeline
+whose neighbourhood query is known to be looking at the wrong bodies; proving
+persistence is still correct, but it is worth nothing until separation can see.
+
+## 6. Floor status
+
+Unchanged: NN p50 **0.032 m**, **99.9%** of bodies inside another body's 0.45 m
+shoulder, gap mode ≥40 px **0.0%**. Bodies still do not end up inside one
+another, so R12 sub-problem 2 is **not** met. The reviewer's marker-field
+disqualifier stands, and separation alone has not yet been given a fair test.
