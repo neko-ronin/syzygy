@@ -36,15 +36,38 @@ Three things those frames demand that the current build does not yet deliver:
 
 ## R1 — Make street level read as inhabited
 
-**Status: partial** · **Priority: highest** · *Vision: "realistically active
-living city of pedestrians and traffic"*
+**Status: partial — blocker CLEARED, ground work landed, zero frames judged better** ·
+**Priority: highest** · *Vision: "realistically active living city of pedestrians
+and traffic"*
+
+> **2026-10-02 state, and it is a mixture that should not be mistaken for
+> progress.** This row's blocker was a **phantom**: there was never a pedestrian
+> rendering bug. The crowd renders — 2,550 bodies, correct draw, correct
+> counters — and had **no lateral spread**, so it presented as a 1-D line at
+> `z = 0.35` that read as an empty street. F1, F2, F3 and F4 are all closed and
+> measured.
+>
+> **What now blocks this row is the ground and the crowd's neighbour query:**
+>  - **F8, the bare deck** — ~70% of the first honest close-focus frame is a
+>    featureless grey slab. The kerb reads now (4.319x authored contrast,
+>    previously consumed by nothing, 0.45 px → 18-37 px), and having real relief
+>    beside it makes the deck read as unfinished. Owner: `groundSurface()` +
+>    `groundgrammar.ts`.
+>  - **The neighbour buffer holds no near neighbour for 100% of agents** —
+>    nearest-in-buffer 3.396 m vs a true nearest of 0.000 m, 90.7x. Separation
+>    has been computed against the wrong bodies. Fix the query before any tuning.
+>
+> **And the session's honest verdict on this row: fifty commits produced no frame
+> that anyone judged better.** Every vision gate returned `more work needed`.
+> A measured fix nobody has photographed is not yet progress.
 
 The single clearest distance between current output and the reference. At 2.4 m
 looking down an avenue you see a bare grey slab.
 
 Three sub-problems. Full fix proposals — evidence, steps, and the check that
 proves each closed — are in [`HANDOFF.md`](HANDOFF.md) as F5, F1/F2 and F4
-respectively. Do them in that order; the third is nearly free.
+respectively. F1/F2 and F4 are **closed**; F5's kerb leg is **closed and
+verified**, its close-range deck leg is **not** (F8).
 
 1. **Ground detail.** No lane markings, no kerb read, no drain covers, no clutter
    at eye height. The `bakeGround` kerb strips exist but are barely visible.
@@ -566,8 +589,43 @@ a *frame* better.
 
 ## R11 — Build the four sections (D24)
 
-**Status: todo** · **Priority: highest** · *Vision: "large sections of the city
-have differing styles and colors like a real city"*
+**Status: built, ZERO sections visually verified** · **Priority: highest** · *Vision:
+"large sections of the city have differing styles and colors like a real city"*
+
+> **2026-10-02: §B and §A are BUILT and §D's evidence is landed — and not one
+> section has been photographed.** That is the state of this row, and it is worse
+> than "todo" in one specific way: there is code and no evidence it works.
+>
+> - **§B cold-industrial** — built. Mean base hue 208.8° against 42.0° for the
+>   rest of the city, separation **11.8° → 166.8°**. Ropeway relationship
+>   inverted: authored Pearson(height, density) −0.235 → +0.961, district-level
+>   −0.65 → +0.302. Cable-density and facade-clutter density split into two
+>   knobs after the §B re-weighting silently cut lantern-bazaar's signage ~3x.
+>   One prediction was **refuted and explained** (building-level r −0.547 →
+>   +0.020; monastery-spire's 429 sparse needles stand at ~446 m with no
+>   neighbours in ray range). Report: [`R11_B_COLD_INDUSTRIAL.md`](R11_B_COLD_INDUSTRIAL.md).
+> - **§A saturated-graphic** — built. Report: [`R11_A_SATURATED.md`](R11_A_SATURATED.md).
+> - **§D verdant-solarpunk** — **judgeable without godRays and without water**,
+>   except canal-base poses. `godRays` was found to be a **phantom that was
+>   already closed** (`post.wgsl:353` reads `weather2.y`). Report:
+>   [`R11_D_VERDANT.md`](R11_D_VERDANT.md).
+> - **§C fire-lit** — design exists and is **not** the burning-ruin premise this
+>   row used to carry; see below.
+> - `structure-collapse` — the one phantom that made an LLM tool **lie on
+>   request** — is removed, not built. Removing registration alone would have
+>   retargeted collapse requests to `sunbreak` via the enum fallback, which is a
+>   second lie wearing the first one's clothes.
+>
+> **What is missing is a frame.** §A and §B are both in the codebase and neither
+> has been photographed; the reviewer has not judged either. That is the whole
+> remaining work on this row, and it is capture-bound.
+>
+> **The hero frame is the gate.** Market Spine Counter Walk's derivation is
+> delivered and **unphotographed** — the first image this project will call
+> approved, and the one that exercises R11's second clause alongside R1 and R2.
+> Spec: [`HERO_FRAME_SPEC.md`](HERO_FRAME_SPEC.md). Verdict criteria tightened
+> against what 2026-10-02 found: [`VISION_ROUND9.md`](VISION_ROUND9.md),
+> [`VISION_ROUND13.md`](VISION_ROUND13.md).
 
 Full direction in [`DESIGN.md`](DESIGN.md); machine-readable definitions in
 [`references/sections.json`](../references/sections.json). This entry is only

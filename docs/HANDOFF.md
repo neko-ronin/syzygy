@@ -5,23 +5,38 @@
 [`PITFALLS.md`](PITFALLS.md) before you touch the renderer, and
 [`DECISIONS.md`](DECISIONS.md) before you change the architecture.**
 
-> ### If you are starting a new session: read §0 first.
+> ### If you are starting a new session: read this box first.
 >
-> The 2026-10-01 session ended by correcting itself. Nine rounds were spent
-> inventing numeric targets for a **subjective** question — whether the night
-> market reads as a lit place — instead of asking a reviewer to look at a frame.
-> Six mechanisms were proposed, all six refuted, and each refutation was reported
-> as a successful round. `PROCESS.md` rule 1 now scopes measurement to questions
-> that have a right answer, and rule 9 says *a refutation is not a successful
-> round*.
+> **The 2026-10-02 session found that there was never a pedestrian rendering
+> bug.** The crowd has always rendered — 2,550 pedestrians, correct transforms,
+> correct draw, correct counters — and it had **no lateral spread**, so every
+> agent sat at `z = 0.35` on a 1-D line. A one-dimensional smear of bodies reads
+> as an empty street. Two sessions opened those frames, correctly saw no
+> *figures*, and reported the crowd as not rendering; two more hunted a winding
+> bug and then a culling bug. Six sessions of correct reading, all wrong about
+> what they were looking at.
 >
-> Full record, open items with owners, and the three questions for the owner:
-> **[`SESSION_2026-10-01.md`](SESSION_2026-10-01.md)**.
+> **That cleared R1's blocker, which was a phantom.** Full record, including the
+> four hypotheses refuted by measurement before a capture settled it:
+> [`F1F2_GPU_HALF.md`](F1F2_GPU_HALF.md).
+>
+> **The owner redirected the crowd mid-session** — local-first, part Lenia part
+> boids part scene-making, with scenes a *later* stage. That is
+> [`DECISIONS.md`](DECISIONS.md) **D26**, and it supersedes D25.
+>
+> **And the session's honest failure: fifty commits produced no frame that anyone
+> judged better.** Every vision gate returned `more work needed`. A measured fix
+> nobody has photographed is not yet progress.
+>
+> Full arc, everything I got wrong, and the eight open items with owners:
+> **[`SESSION_2026-10-02.md`](SESSION_2026-10-02.md)**.
 >
 > **Working with more than one agent?** Read
 > [`WORKFLOW.md`](WORKFLOW.md) first — agent specialties and hard limits, dispatch
 > by file ownership, capture and GPU budgets on this machine, drift checks,
-> platform thresholds, and the session ceremony.
+> platform thresholds, and the session ceremony. Two conventions from 2026-10-02
+> are load-bearing: **a report is a file, not a message** (§3.5), and **`unknown`
+> is not `working`** in the pane watcher.
 
 ## 0. The one thing that changed this project's process most recently
 
@@ -226,7 +241,40 @@ mechanism — `GROUP_EMPTY_P` — and is R1's remaining work, not this fix's.
 The reviewer's recorded verdict still stands: rebuilding alone will not resolve
 overlapping placement.
 
-### F2 — The crowd diagnostic poses do not point at the crowd — **POSES DONE, SUBJECT STILL INVISIBLE**
+### F2 — The crowd diagnostic poses — **RESOLVED, AND IT WAS NEVER A RENDERING FAULT**
+
+> **SUPERSEDED BY MEASUREMENT — 2026-10-02.** The original claim in this section,
+> that "nothing rasterises" and that the subject was invisible for a rendering
+> reason, **was wrong**, and it was load-bearing for two sessions.
+>
+> A capture settled it. The crowd renders: **2,550 pedestrians**, correct
+> `entityMeshes.pedestrian()` cloth palette, box forms with individual tops at
+> individual heights, packed shoulder to shoulder. Every counter was true at the
+> same time — `pedestrian:N/180`, valid transforms, correct winding, correct
+> depth, a correctly issued draw.
+>
+> **They were invisible because the crowd has no lateral spread.** The sidecar
+> showed every sampled agent at `z = 0.35` with centroid `cz = 0`: 2,550 agents
+> on a single 1-D line along `x`. A one-dimensional smear of bodies reads as an
+> empty street. Reviewers were asked "are there people here?", looked, saw no
+> *figures*, and correctly reported none. The correct report was "there is
+> something on the kerb and I cannot identify it".
+>
+> **Three rounds of "the kerb is missing" and two of "the crowd does not render"
+> were all the artifact, never the surface** — a pose at the world origin, then a
+> derived pose standing 20 m too far, then the crowd standoff making the street
+> read flat. Each time the measurement was right and the thing photographed was
+> wrong. That is `PITFALLS.md` §20 and §4 recurring, and it is now closed by
+> construction: derived poses carry **surface-level** provenance.
+>
+> Current state: the kerb reads (4.319x authored contrast, previously consumed by
+> nothing, now reaching the frame at 18–37 px instead of 0.45 px). **The crowd
+> still reads as a continuous band** — see `SPREAD VIOLATIONS 2` in
+> `__selftest_spread.ts`, and note the open defect beneath it: the neighbour
+> buffer holds no near neighbour for 100% of agents
+> ([`CROWD_DENSITY.md`](CROWD_DENSITY.md)). Vision verdict:
+> [`VISION_ROUND13.md`](VISION_ROUND13.md) — *"the crowd's collective silhouette
+> belongs to street construction, not independent grounded people."*
 
 **Evidence (original).** `01b-crowd-closeup` and `01c-street-crowd` were hardcoded
 at the world origin (`position: [0, 2.4, -40]`, `capture.mjs`). The crowd centroid
@@ -614,8 +662,50 @@ nothing.
 
 ---
 
-**Cheapest first move:** F6, then F1 and F2 together. F6 makes the F1 loop fast,
-and F1 + F2 together answer both crowd questions in a single run.
+## F8 — The bare deck at close range (NEW, 2026-10-02 — the largest remaining visual defect)
+
+**This is what the kerb fix exposed.** With authored detail finally arriving at
+the frame for the first time, the first honest close-focus frame shows that
+**roughly seventy percent of it is a featureless grey slab** — one flat value
+across foreground and mid-ground, no joints, no grain, no slab pattern, no wear.
+The kerb beside it has real relief and shadow, which makes the surrounding plane
+read as *unfinished* rather than *paved*.
+
+This is R1's original complaint surviving every ground change except the kerb:
+*"at 2.4m looking down an avenue you see a bare grey slab."* The kerb fix raised
+the standard the deck has to meet, and the deck does not meet it.
+
+**Evidence.** `shots/2026-10-04T00-09-34-01g-kerb-face.png` — captured at 668 MB
+free, camera held 0.02 m, open paved square. Diagnosis and measurements:
+[`R11_GROUND_CLOSE.md`](R11_GROUND_CLOSE.md), [`R11_DETAIL_SURVIVAL.md`](R11_DETAIL_SURVIVAL.md),
+[`GROUND_FRAGMENT_DIAGNOSIS.md`](GROUND_FRAGMENT_DIAGNOSIS.md).
+
+**Why it is diagnosable rather than a matter of taste.** `groundSurface()` in
+`gbuffer.wgsl` synthesises per-pixel detail — grain, slab joints, cobble worley,
+plank lines, board-formed bands, chequer plate, kerb faces, worn paint — so the
+question is *which* of those fails to arrive at 2–3 m, and that has four
+distinguishable answers: thresholded out at close range; no coordinate variation
+at that scale; one albedo resolving every district to the same grey; or present
+and too low-contrast against a now-legible kerb.
+
+**Ownership is split and must be respected.** The per-pixel synthesis is
+`src/shaders/gbuffer.wgsl` and the LOD/shading path is `src/render/` — one
+lane. The pavement families, marking styles and per-district albedo are
+`src/world/groundgrammar.ts` — another. **A kerb chamfer is dead code**
+(`981aaf8`), and the kerb currently reads more as a gutter or recessed channel
+than a raised kerb, which is an open verdict.
+
+**Closed when:** a 2–3 m frame shows the deck with a material read — visible
+joints or grain at that distance — and the reviewer judges the street gate on it.
+Not when a histogram moves.
+
+---
+
+**Cheapest first move:** **photograph the hero frame.** Market Spine Counter
+Walk's derivation is delivered and has never been shot, and it gates R11's second
+clause and R2. The 2026-10-02 session produced fifty commits and no frame anyone
+judged better, which is the whole of what was missing. After that, F8 — it is the
+largest remaining visual defect and it is now measurable.
 
 ## The short version
 
@@ -747,28 +837,45 @@ and discarded. None of these are on the roadmap, which is how they survived
 three sessions. Cheapest to reason about, and the only one that makes a tool
 lie.
 
-**1. Street level is not inhabited.** The crowd is placed on real streets, but
-whether it renders at all is currently contradicted by our own counters (F1),
-and the two poses meant to show it are pointed at empty ground (F2). ~1900
-people spread across the streets within 160 m would be thin on any single avenue
-regardless, and the street deck is a featureless grey slab (F5). This is the gap
-most visible against the reference frames. Fixes: F1, F2, F4, F5.
+**1. Street level does not read as inhabited — and the reason is finally known.**
+The crowd *renders*: 2,550 pedestrians, valid transforms, a correct draw, correct
+counters. What it does not have is **lateral spread** (F2, corrected above), so it
+presents as a continuous band rather than as people. Beneath that sits a
+diagnosed simulation defect that was only found this session: **the neighbour
+buffer holds no near neighbour for 100% of agents** — nearest-in-buffer
+**3.396 m** against a true nearest of **0.000 m**, a 90.7x ratio — because
+`cellRange` scans whole 8 m cells in cell order and one cell holds ~900 bodies at
+the current density. Separation had been computed correctly against bodies
+nowhere near the one it is attached to. **Fix the query before tuning anything
+else**; every previous verdict on separation was measured against it. Floor
+unchanged: NN p50 0.030 m, 99.9% overlapping, gap mode 0.0%. Vision verdict:
+[`VISION_ROUND13.md`](VISION_ROUND13.md).
 
-**1b. The pedestrians that do render are inert.** Density and legibility are
-R1. Whether the crowd *behaves* is R12 (living systems: locomotion, avoidance,
-grouping, interaction) — a separate row on purpose, so closing "the street reads
-occupied" cannot be mistaken for "the occupants read alive". Current evidence:
-gate 5 measured isolated silhouettes clearing the 20-24 px separation target
-while packed rows merge into counter-like bands, and dev2 measured the empty
-≥40 px gap bin. Two causes, both open — the mesh proportions in `citymesh.ts`
-and the placement/locomotion in `crowd.ts`. The reviewer was explicit that
-"rebuilding alone will not resolve overlapping placement".
+**1a. The ground is a featureless grey slab at close range (F8, new).** Roughly
+seventy percent of the first honest close-focus frame. The kerb now reads — 4.319x
+authored contrast, previously consumed by nothing, now at 18–37 px instead of
+0.45 px — and having real relief beside it makes the deck read as *unfinished*
+rather than *paved*. Split between `groundSurface()` in `gbuffer.wgsl` and
+`groundgrammar.ts`. **This is the largest remaining visual defect in the project
+and it is measurable rather than a matter of taste.**
 
-**2. Traffic is invisible.** `TrafficSim` produces vehicles and 64 lights, but
-only pedestrians are submitted through the instanced draw path. `Renderer
-.drawEntitySet` already exists and works; traffic needs its instances built and
-the `pendingEntities` hook extended. Trams and cable cars on the visible rail
-lines would transform the canyon shots immediately. Fix: F4.
+**1b. What the crowd does is R12, reordered by `D26`.** Owner direction: local-
+first — part Lenia, part boids, part scene-making, with scenes emitting scripts
+at a **later** stage. The near-term goal is narrow and has a right answer: agents
+move around without colliding. Note the recorded refutation of avoidance is
+**void** — it was measured on a degenerate population (NN p50 0.030 m on a line),
+so avoidance has never actually been measured in this project. The reviewer has
+stated twice that **visible gaps are not the bar**: separation must not be
+treated as approval, and the marker-field disqualifier survives it.
+
+**2. Traffic is DONE — this row was stale for a session.** `buildVehicleInstances`
+packs vehicles after the pedestrians into one contiguous instance buffer and
+issues a per-mesh draw at the correct instance offset (`main.ts:440-455`).
+Measured per kind from a live tram: tram 240/240, trolley 180/180, cablecar
+180/170, with rail alignment exact — the written Y column equals
+`forward[1]/|forward|`, so vehicles ride the rail tangent rather than a yaw.
+Kinds drawing zero at a single pose are culled by distance, which made this
+row's original close condition unsatisfiable at any one pose.
 
 **3. Night is nearly black.** The night pose is a purple murk. A night city
 should be the *brightest* thing in the frame — the window emissive is written,
