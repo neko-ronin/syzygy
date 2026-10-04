@@ -337,3 +337,116 @@ Unchanged: NN p50 **0.032 m**, **99.9%** of bodies inside another body's 0.45 m
 shoulder, gap mode ≥40 px **0.0%**. Bodies still do not end up inside one
 another, so R12 sub-problem 2 is **not** met. The reviewer's marker-field
 disqualifier stands, and separation alone has not yet been given a fair test.
+
+---
+
+# Round 12 — the query fix lands. The floor does not.
+
+Developer 2. Branch `dev2/crowd-nearestquery`. **`src/sim/crowd.ts` carries one
+change: the neighbour query.** Import test → ALL PASS.
+
+## 1. Shipped: separation can now see the bodies it is separating from
+
+Two lines. The hash grid's cell size 8 m → **2 m**, and separation's query radius
+`cellSize` → **1.0 m** (`SEP_RADIUS`).
+
+The acceptance test I wrote for myself last round points at the defect rather
+than at a target, because the truth is already measured:
+
+```
+  grid cellSize = 2 m
+                                     was        now
+  agents at the 256 cap            100.0%       0.0%
+  true nearest neighbour p50        0.000 m     0.027 m
+  nearest IN THE BUFFER p50          3.396 m     0.049 m
+  mean ratio buffer / true           90.73x     12.10x
+  mean neighbours returned            (256)      110.0
+```
+
+**`nearest in buffer` fell from 3.396 m to 0.049 m against a measured truth of
+0.027 m.** No judgement in that: the query either finds the near neighbours or it
+does not, and it now does. This is a query-resolution bug, not a tuning change,
+and it is the first thing in this lane that clears a stated test.
+
+## 2. Reverted: the speed budget, on its fair trial
+
+Step 2 was to re-test the throttle now that the query is correct. It was:
+
+| | query fix only | query fix + speed budget | baseline |
+| --- | --- | --- | --- |
+| NN p50 | 0.032 m | 0.032 m | 0.032 m |
+| inside a 0.45 m shoulder | 99.9% | 99.9% | 99.9% |
+| merged <2 px, all in-frame | 18.1% | 18.1% | 19.0% |
+| merged <2 px, 20–30 px band | 19.2% | 19.2% | 18.9% |
+
+**The throttle buys nothing now, so it is reverted.** Its earlier verdicts were
+all measured against a query that could not see the crowd; with a correct query
+it is not the binding constraint either. The `SEP_SHARE` tuning constant is
+gone.
+
+## 3. The floor is not met, and I am not going to dress it up
+
+```
+  nearest-neighbour p10 0.008  p50 0.032  p90 0.087 m
+  bodies inside another body's 0.45 m shoulder: 99.9%
+  gap mode (>=40 px) 0.0%  (both bands)
+  -> NO GAP MODE: a continuous band
+```
+
+Separation now sees the correct neighbour, every agent, and has not moved the
+distribution. **R12 sub-problem 2 is not met: bodies still end up inside other
+bodies.**
+
+The honest reading is arithmetic, not defeat. The measured density is **~14
+agents/m²**. At shoulder width a square metre holds ~2 bodies. The crowd is
+roughly **seven times denser than bodies that do not overlap require**, so
+separation is now correctly aimed and has nowhere to send anybody. A local rule
+cannot create space; only fewer bodies, or more of it, can.
+
+That is the next decision, and it is not a crowd-mechanics question:
+**`world.crowds.density` currently asks for 2550 bodies on this walking surface.
+Either the target is set above what the surface can hold, or the surface is
+smaller than the crowding assumes.** Neither is a steering problem and neither is
+mine to re-author — but it is where the evidence points, and it has taken twelve
+rounds to get to a question that can be answered in one sentence.
+
+## 4. The standing practice, in my own words
+
+I named the separation throttle in **round 3** and did not remove it. Then 0.10 m/s
+against 1.4 m/s; by round 9 it was 0.113 m/s against 1.34 m/s. Eight rounds
+later, through a reframe, two reverted variants and one withdrawn probe, the
+operative obstruction was still the one I had already identified. **Two variants
+were reverted fighting a throttle I knew about.**
+
+This project has already burned nine rounds on a measurement pointed at the wrong
+population (`PITFALLS` §16, §21). These twelve were spent on a query pointed at
+the wrong bodies. Same shape, same cost.
+
+**The lesson is not "measure more".** Every expensive round in this lane was
+expensive because the instrument was never validated against a known answer
+first. The instruction that would have saved most of them is small and I did not
+follow it early:
+
+> **Before trusting a number, show that your instrument reads a quantity whose
+> answer you already know.**
+
+Concretely, for this lane that means: compare the query against a brute-force
+truth, compare a counter against a quantity measured another way, and if a probe
+returns **identical numbers when you change its definition**, withdraw it rather
+than report it. Round 10's probe did exactly that and was withdrawn, which is the
+only reason it cost one round instead of several. The round-12 acceptance test is
+the fix in practice: it compares the instrument to a measured truth
+(0.027 m), not to an expectation, so there is no judgement in it and no room to
+talk myself past a bad result.
+
+## 5. Still withdrawn, still correct
+
+The **write-proof probe stays withdrawn**. Proving that `f[o+F.x]` persists across
+the frame boundary is correct work and worth nothing until separation can see the
+bodies it is separating from. **Do not rebuild it on top of an unproven
+pipeline** — that is the note for whoever picks this up.
+
+## 6. Scene notes (unchanged, still not code)
+
+Market attractor wants a stall front with a queue and dwell rather than a point
+every agent walks to; crossings want a wait state.

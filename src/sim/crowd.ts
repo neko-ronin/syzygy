@@ -26,6 +26,17 @@ import {
 } from '../world/districts';
 
 const MAX_DT = 1 / 15;
+
+/**
+ * Radius, metres, of the neighbour query separation actually uses.
+ *
+ * Sized so the query returns fewer bodies than the buffer holds: with 2 m cells
+ * at the measured ~14 agents/m^2 a cell holds ~56, and a 1 m radius spans about
+ * 4 cells, so the nearest neighbours are actually in the list. A wider query
+ * re-saturates the buffer and separation goes back to steering against
+ * strangers. Bodies do not collide at 3 m; they collide at shoulder width.
+ */
+const SEP_RADIUS = 1.0;
 /**
  * Ceiling on the pavement hold's correction, m/s.
  *
@@ -133,7 +144,14 @@ class HashGrid {
   occupancy: Int32Array = new Int32Array(1);
 
   configure(centre: Vec3, radius: number): void {
-    const cs = 8;
+    // 2 m cells, not 8 m. Measured: at 8 m and ~14 agents/m^2 a single cell
+    // holds ~900 bodies, so a 256-entry buffer fills in arbitrary storage
+    // order and the nearest neighbour is almost never in it — separation was
+    // steering bodies apart from strangers 3.4 m away while bodies at zero
+    // distance were absent, for 100% of agents. At 2 m a cell holds ~56, so a
+    // small-radius query returns the neighbours that actually matter. This is
+    // a query-resolution fix, not a tuning change.
+    const cs = 2;
     const dim = Math.max(1, Math.min(256, Math.ceil((radius * 2) / cs) + 1));
     if (dim !== this.dimX || cs !== this.cellSize) {
       this.cellSize = cs;
@@ -601,7 +619,8 @@ export class CrowdSim {
     // Separation, from the local hash. This is the only neighbour work, and it
     // is bounded by the cell radius rather than by agent count.
     let sx = 0, sz = 0;
-    const n = this.grid.cellRange(x, z, this.grid.cellSize, this.nbr, 256);
+    // Query the radius separation actually cares about, not a whole cell.
+    const n = this.grid.cellRange(x, z, SEP_RADIUS, this.nbr, 256);
     for (let k = 0; k < n; k++) {
       const j = this.nbr[k];
       if (j === i) continue;
@@ -620,6 +639,18 @@ export class CrowdSim {
     const wob = Math.sin(this.wanderClock * 0.7 + f[o + F.seed] * 6.28) * f[o + F.curious] * 0.55;
     const perpX = -dz, perpZ = dx;
 
+    // D26: separation is a LOCAL term and earns its authority the way the
+    // pavement hold did -- by an independent clamp, not by borrowing the crowd's.
+    // The jam factor exists so goal-seeking slows in a dense crowd and the crowd
+    // LOOKS dense; it was also throttling avoidance to 0.113 m/s against a
+    // 1.34 m/s pull. That verdict was measured while the query could not see the
+    // nearest neighbour, so it has never had a fair trial. This is that trial.
+    // D26: separation is a LOCAL term and earns its authority the way the
+    // pavement hold did -- by an independent clamp, not by borrowing the crowd's.
+    // The jam factor exists so goal-seeking slows in a dense crowd and the crowd
+    // LOOKS dense; it was also throttling avoidance to 0.113 m/s against a
+    // 1.34 m/s pull. That verdict was measured while the query could not see the
+    // nearest neighbour, so it has never had a fair trial. This is that trial.
     const jam = 1 / (1 + n * 0.09 * f[o + F.social]);
     const maxSpeed = f[o + F.pace] * jam;
     let wx = dx + sx * 1.9 + perpX * wob;
