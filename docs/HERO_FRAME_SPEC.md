@@ -209,6 +209,44 @@ valid nearby transforms with no rasterised bodies leave the rendering blocker
 open. The hero review becomes available when bodies actually appear; their
 appearance alone does not pass it.
 
+### Required subjects must be exposed, not merely emitted
+
+For the selected run, bind the actual emitted near counter front and end,
+its ground support, the adjoining walking surface and roadward transition,
+then the near bodies from the saved actor snapshot. A semantic centre, a
+street-plan sample or an object inside the viewing cone is not proof that
+the surface needed to explain that relationship is exposed. Associate each
+required foreground surface with its actual emission and owning chunk;
+preserve those associations in the capture provenance.
+
+The intended whole-frame view must let the eye locate the counter's support
+on ground, the near bodies' ground contact and the walking strip's physical
+boundary. Required subjects fail exposure when distance compresses their
+needed form, the camera shows only a top where a front or return is required,
+or intervening geometry hides the necessary contact. A magnified crop can
+identify a mesh, but cannot
+make its relationship readable in the hero. Report the specific framing
+failure rather than choose a prettier run, raise the camera or stage actors.
+
+**The hero is not a replacement for the dedicated kerb-face gate.** Its
+roadward transition must explain where the walking strip ends and the
+adjoining street begins. An authored flush transition may qualify through
+its clear material boundary and relation to the route; do not invent a step
+to meet this criterion. If a raised kerb is invoked as visible evidence of
+that transition, its top, return face and road joint must be identifiable;
+a hatched band or bright marking cannot establish the step. A viewpoint
+that cannot expose the road-facing return cannot certify its contrast.
+Keep that surface inspection in the kerb diagnostic rather than moving the
+hero off its counter-front walk. This does not waive the hero's requirement
+for a readable physical route boundary, or close the separate street gate.
+
+An emitted but unexposed subject is an evidence failure. It is not proof that
+the geometry is absent or the shader is wrong. Conversely, a clearly visible
+surface pattern that substitutes for the required ground relationship is a
+readability failure. The reviewer distinguishes these from the artifact,
+without turning emission records, detail residency or authored contrast
+into visual approval. See [the exposure and phase amendment](VISION_ROUND11.md).
+
 ## The pair is a single controlled scene
 
 Derive the subject and pose once. Produce a daylight member using the existing
@@ -240,6 +278,13 @@ state. Record the actual quantities; this document supplies no aesthetic
 target values. If the selector cannot resolve its subject, return an explicit
 reason instead of a fallback pose. If the captured camera leaves the derived
 pose, the pair is invalid before visual review.
+
+Retain detail availability for the chunks owning the bound foreground
+subjects, not just an aggregate detail histogram. Name the actual surfaces
+and contacts the camera is intended to expose, including their relation to
+the held view and any occlusion. This is evidence about the photographed
+subject, not an aesthetic target or an automated readability pass. Matching
+provenance can establish a controlled scene while its framing still fails.
 
 ## What daylight and night must each show
 
@@ -302,6 +347,7 @@ view, not new coordinates or supplementary camera poses.
 | Bound subject | Daylight must expose | Night must preserve or reveal | A failure that rejects the pair |
 | --- | --- | --- | --- |
 | The nearest selected counter's roadward front and end, its support and canopy attachment. | A working frontage with a support that meets the ground; timber, cloth and metal have distinct material reads. The approach space belongs to that frontage. | Received warm light describes the counter front and canopy underside as a place people can approach. Dark recesses may simplify stock detail. | A lantern and warm floor patch look persuasive while the corresponding counter becomes a black bar, loses its support or ceases to be an approachable destination. |
+| The emitted walking surface beside that counter, its ground support and roadward transition. | A walking surface with material scale and contact that distinguish it from the adjoining street. Any claimed raised edge exposes its top, return and joint; markings remain markings rather than substitutes for a step. | Received light retains that same walking surface, support and physical boundary beneath the occupants. Surface pattern may recede; the place people stand and the passage beside them remain clear. | Hatch, yellow colour or glow supplies the apparent boundary while its physical relationship remains unreadable; or a required surface exists in metadata but its contact or return is never exposed by this camera. |
 | The adjoining walking ground and its nearest bodies from the saved snapshot. | Ground contact locates independent human silhouettes on the strip. Heads, shoulders and leg shapes read as people, distinct from stall posts and the kerb. The group reads as occupants rather than repeated markers. | Those same occupants remain human and grounded, through light on clothing or silhouette against lit pavement. Their ground remains a walking surface connected to the counter approach. | A ribbon or upright-marker field is exposed in either member; or night hides that repetition, loses the bodies' ground contact, or turns the whole strip into an undifferentiated glow. |
 | The counter-front strip through the middle of the selected run, with its actual frontage and occupants. | Passage continues beside counter-facing occupation. Supports and groups leave a readable route; pavement is not merely vacant floor between unrelated stall objects. | Successive received light reveals the same frontage and occupation, with shadowed intervals that retain the passage's direction. | A convincing near pool replaces unreadable middle frontage; a foreground group is followed by vacancy; or the crowd continues only as an architectural comb. |
 | The selected exit opening and the route arriving there. | It remains an opening reached by the occupied strip, with middle occupation connecting to activity towards the gap. | That destination and connection remain readable before atmospheric depth softens detail. Distant activity may resolve collectively. | The gap becomes a disconnected bright spot or black termination. Skyline lights or another busy street cannot substitute for occupation arriving along this strip. |
@@ -312,6 +358,24 @@ For a concealment finding, name the bound subject, the defect visible in the
 revealing phase, and what obscures it in the other: black frontage, merged
 silhouette, bloom, glare or loss of ground contact. Do not infer a hidden
 defect merely because the palette is darker.
+
+**Read each member independently before comparing it.** In daylight, follow
+the selected near counter's front and support to the walking ground, the
+near bodies, the occupied middle frontage and the exit. In night, follow
+those same subjects through received light and shadow. A required foreground
+relationship must be recognisable in that member at the intended viewing
+size. Material pattern, a plausible object name or a brighter patch cannot
+take its place. Individual distant body parts may resolve collectively;
+the near subjects cannot borrow their readability from distant activity.
+
+Then compare the findings at the corresponding subjects. A concealment
+finding requires a **demonstrated defect in the revealing member**, not an
+unseen face presumed defective because the other member is dark. For example,
+a daylight marker crowd disappearing into a night glow is concealment;
+a kerb return unreadable from the camera in both members is insufficient
+surface evidence. In the latter case, request exposure of the actual subject
+before selecting a geometry or shading repair. A defect made more obvious
+by either phase still rejects the pair.
 
 ### Decide which phase exposes the unresolved relationship
 
@@ -336,6 +400,20 @@ night's local-light hierarchy to pass.
 
 All of D5's disqualifiers remain in force:
 
+- **Required subject exists but the frame never exposes it:** the selected
+  counter's working front, ground support, near bodies' ground contact or
+  walking strip's physical boundary is too distant, viewed from an
+  uninformative side, occluded or reduced to an upper surface when a front,
+  contact or return is needed to judge it.
+  Emission, residency and cone membership do not excuse the missing visual
+  relationship. Return `more work needed` on that evidence; do not diagnose
+  absent geometry from this frame.
+- **Surface graphics replace physical street grammar:** hatching, a painted
+  strip or a luminous patch makes the ground conspicuous without explaining
+  the supported walking surface, its boundary and how people stand beside
+  the counter. Authored contrast arriving in pixels does not satisfy material
+  read or a kerb section. More assertive graphics cannot compensate for
+  unresolved form, and night cannot hide it into an apparent pass.
 - **People read as street construction or repeated upright markers:** the
   bodies merge into a continuous ribbon or repeat the same upright stance in
   a fence-like row or mechanical field. Their collective silhouette reads as
