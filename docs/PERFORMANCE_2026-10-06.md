@@ -220,3 +220,53 @@ visual batch is active. It removes false measurements and makes the next
 performance result reviewable. The next useful output is an actual baseline
 report under a healthy, exclusive GPU slot; architecture changes remain queued
 behind the initial batch and source-backed research.
+
+## 2026-10-07 — first baseline, GPU attribution, lighting fixes
+
+**Baseline** (`benchmarks/2026-10-07T16-18-21-886Z`, fixed high, headless, 1600 × 900,
+valid controls): submitted frames/s hero 42.4, skyline 36.9, flight 31.7; p95
+submission interval 34.2 / 34.9 / 65.7 ms. Callbacks ran at 60/s while submissions
+lagged: the renderer allows two frames in flight, so hero and skyline were GPU-bound.
+Simulation CPU (mostly crowd) is 9.7–12 ms per callback; flight adds synchronous
+streaming spikes (stream p95 22.7 ms, simulation p95 34 ms).
+
+**Quality A/B** (`--set`, `--crowd`, new; 12 s windows): removing the crowd freed
+9 ms of CPU and changed nothing; halving triangles (2 cascades) gained only ~5 fps.
+Triangles were not the binding cost.
+
+**Per-pass GPU timing** (`GpuPassTimer` in `perf.ts`, `--gpu-passes`): every pass
+gets labelled timestamps; readback never stalls. On this Apple tiled GPU begin
+timestamps are sampled long before a pass's own work, so begin-to-end spans overlap
+(ten post passes each "took" 12.9 ms of a 21.6 ms frame). The timer reports
+incremental completion (this end minus the previous end), which sums exactly to the
+frame span. Instrumented runs are marked `instrumented` in the report.
+
+The deferred **lighting pass was 11.6 of 21.1 ms** (hero) and 13.5 of 25.1 (skyline):
+
+1. *Light binning had no depth test.* Lights were binned into every tile their
+   screen rect covered: 38.7 per tile, busiest tiles at the 96 cap. The binner now
+   reads each tile's G-buffer depth range and rejects spheres that miss it (mean
+   19.8). Exactly conservative; hero pair identical at 4% fuzz. Lighting −0.5/−2 ms.
+2. *Sky reflections discarded their own work.* `skyRadianceSpec` computed five cloud
+   evaluations then weighted them zero at roughness ≥ 0.65, where most surfaces sit.
+   Early return; exact. Lighting 11.1 → 9.0 ms (hero).
+3. *Cloud fbm per pixel.* Removing clouds (diagnostic only) took lighting 9.0 →
+   3.6 ms and hero to 60 fps. Fog colour and reflections now sample a 512 × 256
+   equirect sky LUT rendered once per frame (`fsSkyLut`); directly visible sky stays
+   exact. Hero pair identical to the previous frames at 4% fuzz (day 1%: 170 px,
+   run-to-run grain level).
+
+Result (`benchmarks/passes4-*`, instrumented, 12 s windows): **hero 58.7 fps, GPU
+14.5 ms** (lighting 3.8, G-buffer 3.6, shadow cascade 2 3.3); **skyline 49.7 fps,
+GPU 15.9 ms** (G-buffer 5.0, lighting 3.7, cascade 3 3.1). Not yet 60 sustained;
+flight not re-measured.
+
+Harness fixes found by running it: callback samples were stamped with the rAF
+frame timestamp, which can predate a window reset ("sample outside window") — now
+callback entry time; `/favicon.ico` 404 invalidated runs (empty icon declared);
+console errors now carry the failing URL; the page loaded Google Fonts at runtime
+(network dependency and IP leak) — removed, system fallbacks were already declared.
+
+**Next:** CPU — crowd simulation at 9.7–12 ms per callback is the next binding cost
+once GPU is under budget; then synchronous streaming for flight; then G-buffer and
+far shadow cascade cost on skyline.

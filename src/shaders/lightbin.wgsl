@@ -24,6 +24,7 @@ struct Bin {
 
 @group(1) @binding(0) var<storage, read> lights : array<Light>;
 @group(1) @binding(1) var<storage, read_write> bins : array<Bin>;
+@group(1) @binding(2) var gDepth : texture_depth_2d;
 
 @compute @workgroup_size(64)
 fn clear(@builtin(global_invocation_id) gid: vec3u) {
@@ -62,6 +63,23 @@ fn bin(@builtin(global_invocation_id) gid: vec3u) {
   //
   // The count rides in `F.grade.w`, which was documented as unused. Checked:
   // `F.grade` is read only as `.rgb` in post.wgsl.
+  // Tile depth bounds from the G-buffer. Reverse-Z with an infinite far plane,
+  // so view depth = near / d and d = 0 is sky. Without this every light whose
+  // rect covers the tile was binned, however far in front of or behind the
+  // tile's surfaces it sat: 38.7 lights per tile at the hero pose and a lighting
+  // pass of 11.6 ms out of 21 ms.
+  var dMin = 1.0;
+  var dMax = 0.0;
+  for (var y = u32(pmin.y); y < u32(pmax.y); y++) {
+    for (var x = u32(pmin.x); x < u32(pmax.x); x++) {
+      let d = textureLoad(gDepth, vec2u(x, y), 0);
+      dMin = min(dMin, d);
+      dMax = max(dMax, d);
+    }
+  }
+  let zNear = F.camPos.w / max(dMax, 1e-7);
+  let zFar = select(1e30, F.camPos.w / dMin, dMin > 1e-7);
+
   let n = min(u32(F.grade.w), arrayLength(&lights));
   for (var i = 0u; i < n; i++) {
     let l = lights[i];
@@ -74,6 +92,7 @@ fn bin(@builtin(global_invocation_id) gid: vec3u) {
     let r = l.posRadius.w;
     let depth = -(F.view * vec4f(pos, 1.0)).z;
     if (depth < -r) { continue; }                       // wholly behind the eye
+    if (depth + r < zNear || depth - r > zFar) { continue; }  // misses the tile's surfaces
     var lo = vec2f(-1e9);
     var hi = vec2f(1e9);
     if (depth - r > F.camPos.w) {

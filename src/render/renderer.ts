@@ -35,7 +35,7 @@ import {
 import { City, defaultCityConfig, type CityChunk } from '../world/citygen';
 import type { FlightCamera } from '../camera/camera';
 import type { Mesh } from '../world/geometry';
-import { FramePerf } from './perf';
+import { FramePerf, GpuPassTimer } from './perf';
 import { writeCaptureProjection } from './captureprojection';
 
 // ---------------------------------------------------------------- quality
@@ -304,6 +304,9 @@ export class Renderer {
   private frameBgl!: GPUBindGroupLayout;
   private frameBg!: GPUBindGroup;
   private clampSamp!: GPUSampler;
+  private skyLutView!: GPUTextureView;
+  private skyLutSamp!: GPUSampler;
+  private skyLutPass!: ReturnType<typeof makeRenderPass>;
   private shadowCmp!: GPUSampler;
 
   private gbufferPass!: ReturnType<typeof makeRenderPass>;
@@ -551,6 +554,15 @@ export class Renderer {
       label: 'clamp', magFilter: 'linear', minFilter: 'linear',
       addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge',
     });
+    this.skyLutView = dev.createTexture({
+      label: 'sky-lut', size: [512, 256], format: HDR,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+    }).createView();
+    // Repeat around the horizon so the equirect seam samples across it.
+    this.skyLutSamp = dev.createSampler({
+      label: 'sky-lut', magFilter: 'linear', minFilter: 'linear',
+      addressModeU: 'repeat', addressModeV: 'clamp-to-edge',
+    });
     this.shadowCmp = dev.createSampler({
       label: 'shadow-cmp', compare: 'less', magFilter: 'linear', minFilter: 'linear',
       addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge',
@@ -652,8 +664,13 @@ export class Renderer {
       { binding: 4, kind: 'tex' }, { binding: 5, kind: 'depthTex' },
       { binding: 6, kind: 'sampler' },
       { binding: 7, kind: 'ssbo' }, { binding: 8, kind: 'ssbo' },
+      { binding: 9, kind: 'tex' }, { binding: 10, kind: 'sampler' },
     ];
     this.lightBgl = makeLayout(dev, 'lighting:bgl', lightSlots);
+    this.skyLutPass = makeRenderPass(dev, {
+      label: 'sky-lut', code: modules.lighting, vs: 'vsFullscreen', fs: 'fsSkyLut',
+      groups: [this.frameBgl], color: [{ format: HDR }], cull: 'none',
+    });
     this.lightingPass = makeRenderPass(dev, {
       label: 'lighting',
       code: modules.lighting,
@@ -667,6 +684,7 @@ export class Renderer {
     const binBgl = makeLayout(dev, 'lightbin:bgl', [
       { binding: 0, kind: 'ssbo', visibility: GPUShaderStage.COMPUTE },
       { binding: 1, kind: 'ssbo-rw', visibility: GPUShaderStage.COMPUTE },
+      { binding: 2, kind: 'depthTex', visibility: GPUShaderStage.COMPUTE },
     ]);
     this.binClear = makeComputePass(dev, 'bin:clear', modules.lightbin, 'clear', [this.frameBgl, binBgl]);
     this.binRun = makeComputePass(dev, 'bin:run', modules.lightbin, 'bin', [this.frameBgl, binBgl]);
@@ -740,7 +758,26 @@ export class Renderer {
   setQuality(tier: QualityTier): void {
     if (this.quality === tier) return;
     this.quality = tier;
-    this.q = TIERS[tier];
+    this.applyQuality();
+  }
+
+  /** Per-pass GPU timing for attribution; off by default. Re-enabling starts a fresh window. */
+  passTimer: GpuPassTimer | null = null;
+  setPassTiming(on: boolean): boolean {
+    this.passTimer?.destroy();
+    this.passTimer = on && this.gpu.device.features.has('timestamp-query') ? new GpuPassTimer(this.gpu.device) : null;
+    return this.passTimer !== null;
+  }
+
+  /** Field overrides on top of the tier, for A/B attribution; recorded in `settings`. */
+  setQualityOverrides(patch: Partial<Omit<QualitySettings, 'tier'>>): void {
+    this.qualityOverrides = { ...patch };
+    this.applyQuality();
+  }
+  private qualityOverrides: Partial<Omit<QualitySettings, 'tier'>> = {};
+
+  private applyQuality(): void {
+    this.q = { ...TIERS[this.quality], ...this.qualityOverrides };
     this.allocShadow();
     // Cascades may have shrunk; drop the now-unused atlas entries.
     for (let i = this.q.cascades; i < CASCADE_COUNT; i++) {
@@ -1273,12 +1310,15 @@ export class Renderer {
     this.perf.cpu('stream', streamMs);
 
     const enc = this.gpu.device.createCommandEncoder({ label: 'frame' });
+    this.passTimer?.instrument(enc);
     this.recordShadow(enc, cam);
     const visible = this.recordGBuffer(enc, cam, this.pendingEntities);
     this.recordBinning(enc, lightCount);
     this.recordLighting(enc);
     this.recordPost(enc);
+    const passTiming = this.passTimer?.resolve(enc) ?? null;
     this.gpu.device.queue.submit([enc.finish()]);
+    this.passTimer?.collect(passTiming);
     this.trackGpuCompletion();
 
     this.frameIndex++;
@@ -1616,6 +1656,7 @@ export class Renderer {
       entries: [
         { binding: 0, resource: { buffer: this.lightBuf } },
         { binding: 1, resource: { buffer: this.tileBuf } },
+        { binding: 2, resource: this.targets!.gDepth.createView() },
       ],
     });
     const cp = enc.beginComputePass({ label: 'lightbin' });
@@ -1694,8 +1735,18 @@ export class Renderer {
         { binding: 6, resource: this.clampSamp },
         { binding: 7, resource: { buffer: this.tileBuf } },
         { binding: 8, resource: { buffer: this.lightBuf } },
+        { binding: 9, resource: this.skyLutView },
+        { binding: 10, resource: this.skyLutSamp },
       ],
     });
+    const sky = enc.beginRenderPass({
+      label: 'sky-lut',
+      colorAttachments: [{ view: this.skyLutView, clearValue: { r: 0, g: 0, b: 0, a: 1 }, loadOp: 'clear', storeOp: 'store' }],
+    });
+    sky.setPipeline(this.skyLutPass.pipeline);
+    sky.setBindGroup(0, this.frameBg, [0]);
+    sky.draw(3);
+    sky.end();
     const pass = enc.beginRenderPass({
       label: 'lighting',
       colorAttachments: [{ view: t.hdrView, clearValue: { r: 0, g: 0, b: 0, a: 1 }, loadOp: 'clear', storeOp: 'store' }],

@@ -249,3 +249,97 @@ export class GpuTimestampRing {
     for (const entry of this.slots) entry.buffer.destroy();
   }
 }
+
+/**
+ * Opt-in per-pass GPU timing, for attributing frame cost before an
+ * optimisation is chosen. While enabled, every pass on the frame encoder gets
+ * begin/end timestamps under its own label; one resolve per frame, readback
+ * through a small pool that skips frames instead of stalling. Chrome quantizes
+ * timestamps (~100 µs), so only means over many frames are meaningful.
+ */
+export class GpuPassTimer {
+  private readonly query: GPUQuerySet;
+  private readonly resolveBuf: GPUBuffer;
+  private readonly reads: { buf: GPUBuffer; busy: boolean; labels: string[] }[];
+  private labels: string[] = [];
+  private readonly sums = new Map<string, number>();
+  frames = 0;
+  skipped = 0;
+  failed = 0;
+
+  constructor(device: GPUDevice, private readonly max = 32) {
+    this.query = device.createQuerySet({ type: 'timestamp', count: max * 2, label: 'pass-timestamps' });
+    this.resolveBuf = device.createBuffer({ size: max * 16, usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC });
+    this.reads = Array.from({ length: 3 }, () => ({
+      buf: device.createBuffer({ size: max * 16, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ }),
+      busy: false, labels: [],
+    }));
+  }
+
+  /** Give every pass this encoder begins a labelled timestamp pair. */
+  instrument(enc: GPUCommandEncoder): void {
+    this.labels = [];
+    const writes = (label?: string) => {
+      const i = this.labels.length;
+      if (i >= this.max) return undefined;
+      this.labels.push(label ?? `pass${i}`);
+      return { querySet: this.query, beginningOfPassWriteIndex: i * 2, endOfPassWriteIndex: i * 2 + 1 };
+    };
+    const render = enc.beginRenderPass.bind(enc);
+    const compute = enc.beginComputePass.bind(enc);
+    enc.beginRenderPass = (d) => render({ ...d, timestampWrites: writes(d.label) });
+    enc.beginComputePass = (d = {}) => compute({ ...d, timestampWrites: writes(d.label) });
+  }
+
+  /** Before finish. Returns the readback to hand to `collect` after submit. */
+  resolve(enc: GPUCommandEncoder): { buf: GPUBuffer; busy: boolean; labels: string[] } | null {
+    const n = this.labels.length;
+    if (n === 0) return null;
+    const r = this.reads.find((x) => !x.busy);
+    if (!r) { this.skipped++; return null; }
+    enc.resolveQuerySet(this.query, 0, n * 2, this.resolveBuf, 0);
+    enc.copyBufferToBuffer(this.resolveBuf, 0, r.buf, 0, n * 16);
+    r.busy = true;
+    r.labels = this.labels;
+    return r;
+  }
+
+  collect(r: { buf: GPUBuffer; busy: boolean; labels: string[] } | null): void {
+    if (!r) return;
+    void r.buf.mapAsync(GPUMapMode.READ).then(() => {
+      const v = new BigUint64Array(r.buf.getMappedRange(), 0, r.labels.length * 2);
+      // Incremental completion (this end minus the previous end), not end minus
+      // begin: Apple's tiled GPU pipelines passes, so begin is sampled long before
+      // a pass's own work and begin-to-end spans overlap (measured: ten post
+      // passes each "took" 12.9 ms of a 21.6 ms frame).
+      const frame = new Map<string, number>();
+      let prevEnd = v[0];
+      for (let i = 0; i < r.labels.length; i++) {
+        const end = v[i * 2 + 1];
+        if (end < v[i * 2]) { this.failed++; return; }
+        const inc = end > prevEnd ? Number(end - prevEnd) / 1e6 : 0;
+        if (end > prevEnd) prevEnd = end;
+        frame.set(r.labels[i], (frame.get(r.labels[i]) ?? 0) + inc);
+      }
+      frame.set('_span', Number(v[r.labels.length * 2 - 1] - v[0]) / 1e6);
+      for (const [k, ms] of frame) this.sums.set(k, (this.sums.get(k) ?? 0) + ms);
+      this.frames++;
+    }).catch(() => { this.failed++; }).finally(() => {
+      try { r.buf.unmap(); } catch { /* device lost */ }
+      r.busy = false;
+    });
+  }
+
+  /** Mean ms per frame for each pass label; `_span` is first begin to last end. */
+  results(): { frames: number; skipped: number; failed: number; meanMs: Record<string, number> } {
+    const meanMs: Record<string, number> = {};
+    for (const [k, ms] of this.sums) meanMs[k] = +(ms / Math.max(1, this.frames)).toFixed(3);
+    return { frames: this.frames, skipped: this.skipped, failed: this.failed, meanMs };
+  }
+
+  destroy(): void {
+    this.query.destroy();
+    this.resolveBuf.destroy();
+    for (const r of this.reads) if (!r.busy) r.buf.destroy();
+  }
+}

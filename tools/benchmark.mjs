@@ -15,20 +15,26 @@ const FRAME_BUDGET_MS = 1000 / 60;
 
 export function parseArgs(argv) {
   const opts = { route: 'all', quality: 'high', adaptive: false, headless: true,
-    seconds: 30, warmSeconds: 20, port: 4174, seed: 6191639, chrome: '', output: '', plan: false, help: false };
+    seconds: 30, warmSeconds: 20, port: 4174, seed: 6191639, chrome: '', output: '', plan: false, help: false,
+    set: null, crowd: null, gpuPasses: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--adaptive') { opts.adaptive = true; continue; }
     if (arg === '--headed') { opts.headless = false; continue; }
     if (arg === '--plan') { opts.plan = true; continue; }
+    if (arg === '--gpu-passes') { opts.gpuPasses = true; continue; }
     if (arg === '--help' || arg === '-h') { opts.help = true; continue; }
-    const match = arg.match(/^--(route|quality|seconds|warm-seconds|port|seed|chrome|output)(?:=(.*))?$/);
+    const match = arg.match(/^--(route|quality|seconds|warm-seconds|port|seed|chrome|output|set|crowd)(?:=(.*))?$/);
     if (!match) throw new Error(`unknown benchmark option: ${arg}`);
     const value = match[2] ?? argv[++i];
     if (value === undefined || value.startsWith('--')) throw new Error(`missing value for --${match[1]}`);
     const key = { 'warm-seconds': 'warmSeconds' }[match[1]] ?? match[1];
-    opts[key] = ['seconds', 'warmSeconds', 'port', 'seed'].includes(key) ? Number(value) : value;
+    // `set`: quality-field overrides (A/B attribution), e.g. --set='{"cascades":2}'.
+    opts[key] = ['seconds', 'warmSeconds', 'port', 'seed', 'crowd'].includes(key) ? Number(value)
+      : key === 'set' ? JSON.parse(value) : value;
   }
+  if (opts.crowd !== null && !(Number.isSafeInteger(opts.crowd) && opts.crowd >= 0)) throw new Error('crowd must be a nonnegative integer');
+  if (opts.set !== null && (typeof opts.set !== 'object' || Array.isArray(opts.set))) throw new Error('set must be a JSON object of quality fields');
   if (!['all', ...ROUTES].includes(opts.route)) throw new Error('route must be hero, skyline, flight or all');
   if (!TIERS.includes(opts.quality)) throw new Error(`quality must be ${TIERS.join('|')}`);
   if (!Number.isFinite(opts.seconds) || opts.seconds < 5 || opts.seconds > 60) throw new Error('seconds must be 5..60 per leg');
@@ -235,19 +241,21 @@ async function runRoute(browser, route, opts, lifecycle) {
   watchdog.unref();
   const page = await context.newPage(); const errors = [];
   page.on('pageerror', (e) => { if (errors.length < 64) errors.push(String(e)); });
-  page.on('console', (message) => { if (message.type() === 'error' && errors.length < 64) errors.push(message.text()); });
+  page.on('console', (message) => { if (message.type() === 'error' && errors.length < 64) errors.push(`${message.text()} ${message.location()?.url ?? ''}`.trim()); });
   const bootStart = Date.now();
   try {
     lifecycle.throwIfCancelled();
     await page.goto(`http://127.0.0.1:${opts.port}/?seed=${opts.seed}&chunks=0&warm=0`, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForFunction(() => window.__syzygy?.ready === true, null, { timeout: 90000 });
     const readyMs = Date.now() - bootStart;
-    await page.evaluate(({ quality, adaptive }) => {
+    await page.evaluate(({ quality, adaptive, set, crowd }) => {
       const app = window.__syzygy;
       for (const key of ['performanceSnapshot', 'performanceReset', 'performanceMetadata', 'setPaused', 'setPose', 'heroWalk']) {
         if (typeof app[key] !== 'function') throw new Error(`benchmark API missing: ${key}`);
       }
       app.setQuality(quality); if (adaptive) app.clearQualityOverride();
+      if (set) app.setQualityParams(set);
+      if (crowd !== null) app.setCrowdCount(crowd);
       app.setTime('noon');
       app.setWeather({ sky: 'clear', haze: 0.16, cloudCover: 0, wetness: 0 });
     }, opts);
@@ -269,7 +277,10 @@ async function runRoute(browser, route, opts, lifecycle) {
     const warmActualMs = Date.now() - warmStart;
     const start = await state(page);
     const observations = [];
-    await page.evaluate(() => window.__syzygy.performanceReset());
+    await page.evaluate((gpuPasses) => {
+      window.__syzygy.performanceReset();
+      if (gpuPasses && !window.__syzygy.gpuPassTiming(true)) throw new Error('gpu pass timing unavailable');
+    }, opts.gpuPasses);
     const totalMs = opts.seconds * 1000 * (route === 'flight' ? 2 : 1);
     let flightPromise = null;
     if (route === 'flight') {
@@ -301,12 +312,14 @@ async function runRoute(browser, route, opts, lifecycle) {
     }
     const trajectory = flightPromise ? await flightPromise : null;
     const raw = await page.evaluate(() => window.__syzygy.performanceSnapshot());
+    // Instrumented runs carry their pass means and are marked as instrumented.
+    const gpuPasses = opts.gpuPasses ? await page.evaluate(() => window.__syzygy.gpuPassTimes()) : null;
     const end = await state(page);
     const run = { route, setup: setup.pose, startup: { navigationToReadyMs: readyMs, setupDurationMs: setup.durationMs, bootPrewarmChunks: 0, warmMs, warmActualMs },
       routeDefinition: route === 'flight' ? { from, to, legSeconds: opts.seconds, reversal: true, metresPerSecond: Math.hypot(...from.map((v, i) => to[i] - v)) / opts.seconds,
         driver: 'wall-clock rAF pose trajectory; actor simulation active, no input or collision navigation', trajectory } : {
         stationaryCamera: true, normalHandheldMotion: true, simulationPaused: false, streamingActive: true },
-      start, observations, end, raw, summary: summarize(raw), errors };
+      start, observations, end, raw, summary: summarize(raw), errors, gpuPasses, instrumented: opts.gpuPasses };
     run.controls = runControls(run, opts);
     return run;
   } finally { clearTimeout(watchdog); await context.close(); lifecycle.setContext(null); }

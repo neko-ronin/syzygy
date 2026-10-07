@@ -395,7 +395,9 @@ class App {
 
   private tick = (now: number, isAnimationFrame = true): void => {
     if (!this.running) return;
-    if (isAnimationFrame) this.renderer.perf.raf(now);
+    // Callback entry time, not the rAF frame timestamp: that can predate a
+    // window reset made between frame start and this callback ("sample outside window").
+    if (isAnimationFrame) this.renderer.perf.raf(performance.now());
     requestAnimationFrame(this.tick);
 
     let dt = (now - this.last) / 1000;
@@ -858,6 +860,14 @@ class App {
         app.weather.snap();
       },
       setTime: (phase: string) => app.weather.setPhase(phase),
+      /** Per-pass GPU timing: `gpuPassTiming(true)` starts a window, `gpuPassTimes()` reads it. */
+      gpuPassTiming: (on: boolean) => app.renderer.setPassTiming(on),
+      gpuPassTimes: () => app.renderer.passTimer?.results() ?? null,
+      /** Override individual quality fields (cascades, lodRange, viewDistance, ...) for A/B runs. */
+      setQualityParams: (patch: Record<string, unknown>) => {
+        app.renderer.setQualityOverrides(patch as never);
+        return app.renderer.settings;
+      },
       setQuality: (tier: string) => {
         app.qualityOverride = tier as QualityTier;
         app.renderer.setQuality(tier as QualityTier);

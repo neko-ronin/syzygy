@@ -236,6 +236,17 @@ fn sunDisc(dir: vec3f) -> vec3f {
   return F.sunColor.rgb * F.sunDir.w * (core * 55.0 + glow * 5.0) * through;
 }
 
+/** Equirect sky-LUT mapping, shared by the LUT pass and its readers. */
+const SKY_LUT_SIZE : vec2f = vec2f(512.0, 256.0);
+fn skyLutUv(dir: vec3f) -> vec2f {
+  return vec2f(atan2(dir.z, dir.x) * (0.5 / PI) + 0.5, acos(clamp(dir.y, -1.0, 1.0)) / PI);
+}
+fn skyLutDir(uv: vec2f) -> vec3f {
+  let phi = (uv.x - 0.5) * 2.0 * PI;
+  let th = uv.y * PI;
+  return vec3f(sin(th) * cos(phi), cos(th), sin(th) * sin(phi));
+}
+
 fn skyRadiance(dir: vec3f) -> vec3f {
   return skyWithClouds(dir, F.time.w) + sunDisc(dir);
 }
@@ -260,7 +271,8 @@ fn skyRadiance(dir: vec3f) -> vec3f {
  */
 const FOG_SCALE : f32 = 900.0;
 
-fn applyFog(color: vec3f, worldPos: vec3f, viewDir: vec3f, dist: f32) -> vec3f {
+/** `sky` is the sky radiance along `viewDir`; the caller chooses exact or LUT. */
+fn applyFog(color: vec3f, worldPos: vec3f, viewDir: vec3f, dist: f32, sky: vec3f) -> vec3f {
   let density = F.weather.x;
   if (density < 0.0005) { return color; }
   let k = F.weather.y;
@@ -279,7 +291,7 @@ fn applyFog(color: vec3f, worldPos: vec3f, viewDir: vec3f, dist: f32) -> vec3f {
 
   // Fog colour is the sky in the view direction, so fog and sky always agree.
   // Without this the horizon develops a hard seam.
-  let fogCol = skyRadiance(viewDir) * 0.88 + F.fogColor.rgb * 0.18;
+  let fogCol = sky * 0.88 + F.fogColor.rgb * 0.18;
   var c = mix(color, fogCol, 1.0 - trans);
 
   // Aerial perspective: a second, flatter, longer-range term that desaturates

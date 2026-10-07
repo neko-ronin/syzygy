@@ -85,7 +85,8 @@ for (const entityTriangles of [0, 12, 153600, 260400]) {
 const mainSource = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
 assert.match(mainSource, /accountEntityTriangles\(this\.renderer\.stats, this\.pendingEntityTris, beforeSubmission, this\.renderer\.submittedFrames\)/,
   'the application must use the property-tested accounting boundary');
-assert.match(mainSource, /if \(isAnimationFrame\) this\.renderer\.perf\.raf\(now\)/);
+// Callback entry time: the rAF frame timestamp can predate a window reset.
+assert.match(mainSource, /if \(isAnimationFrame\) this\.renderer\.perf\.raf\(performance\.now\(\)\)/);
 assert.match(mainSource, /app\.tick\(performance\.now\(\), false\)/,
   'manual automation ticks must not be recorded as raw browser callbacks');
 
