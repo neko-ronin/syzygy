@@ -824,6 +824,9 @@ export interface HeroWalkSource {
   id: HeroWalkId;
   seed: number;
   run: HeroRun;
+  /** Descriptor-derived contacts, not emitted-mesh readback. */
+  subjects: { name: string; position: Vec3; chunk: [number, number] }[];
+  emissionAuthority: 'descriptor-query' | 'bake-output';
   /** Spine-parameter interval actually evaluated. */
   evaluatedFrom: number;
   evaluatedTo: number;
@@ -908,7 +911,7 @@ const HERO_BLOCK_PAD = 1.0;
  * Wiring note: the caller passes resident chunks (main.ts owns the City).
  * Nothing here touches the GPU, the sim, or the capture harness.
  */
-export function deriveHeroWalk(plan: CityPlan, seed: number, chunks: CityChunk[]): HeroWalkResult {
+export function deriveHeroWalk(plan: CityPlan, seed: number, chunks: CityChunk[], emissions?: ReadonlyMap<string, readonly MarketStall[]>): HeroWalkResult {
   const id: HeroWalkId = 'hero-walk';
   const m = plan.districts.market;
   // 1. Spine chunks in range.
@@ -921,6 +924,9 @@ export function deriveHeroWalk(plan: CityPlan, seed: number, chunks: CityChunk[]
   const have = new Map<string, CityChunk>();
   for (const c of chunks) have.set(`${c.cx},${c.cz}`, c);
   const missing = [...want.keys()].filter((k) => !have.has(k));
+  if (emissions) {
+    for (const key of want.keys()) if (!emissions.has(key) && !missing.includes(key)) missing.push(key);
+  }
   if (missing.length > 0) {
     return {
       ok: false, id, evaluatedFrom: HERO_EVAL_LO, evaluatedTo: HERO_EVAL_HI,
@@ -946,8 +952,9 @@ export function deriveHeroWalk(plan: CityPlan, seed: number, chunks: CityChunk[]
     const did = districtAtField(plan.districts, mp[0], mp[1]);
     const desc = marketGrammarFor({ seed, plan, chunk: ch, kind: 'market', districtId: did });
     slotsExamined += desc.stats.slots;
-    stallsEmitted += desc.stalls.length;
-    for (const stall of desc.stalls) {
+    const stalls = emissions?.get(`${cx},${cz}`) ?? desc.stalls;
+    stallsEmitted += stalls.length;
+    for (const stall of stalls) {
       // Screen-right à la m4lookAt (x = norm(up × z), z = norm(eye−target)):
       // for a viewer looking downstream, right = norm(up × −forward).
       const back: Vec3 = [-stall.tx, 0, -stall.tz];
@@ -1080,7 +1087,11 @@ export function deriveHeroWalk(plan: CityPlan, seed: number, chunks: CityChunk[]
     return idx + 1 < runs.length ? runs[idx + 1].start : null;
   })();
   const exitEnd = Math.min(nextStart ?? HERO_EVAL_HI, sel.end + HERO_OPENING_WINDOW);
-  const approachMid = (approachStart + sel.start) / 2;
+  // The old midpoint stood 22 m before the first counter in a 45 m opening.
+  // Keep the selected run and opening, but expose its actual front and return
+  // from 2 m before the emitted counter's near end. This is an explicit
+  // correction of the failed baseline composition, not a new selected stall.
+  const approachMid = Math.max(approachStart, sel.stalls[0].along - sel.stalls[0].pitch * 0.42 - 2);
   const exitMid = (sel.end + exitEnd) / 2;
   const [camX, camZ] = corridorAt(approachMid);
   const [aimX, aimZ] = corridorAt(exitMid);
@@ -1103,6 +1114,7 @@ export function deriveHeroWalk(plan: CityPlan, seed: number, chunks: CityChunk[]
     source: {
       id,
       seed,
+      emissionAuthority: emissions ? 'bake-output' : 'descriptor-query',
       run: {
         startAlong: +sel.start.toFixed(1),
         endAlong: +sel.end.toFixed(1),
@@ -1115,6 +1127,18 @@ export function deriveHeroWalk(plan: CityPlan, seed: number, chunks: CityChunk[]
         counterEdge: +counterEdge.toFixed(2),
         corridorLateral: +corridorLateral.toFixed(2),
       },
+      subjects: sel.stalls.flatMap((st, i) => {
+        const counter: Vec3 = [st.cx + st.nx * st.counter, GROUND_Y, st.cz + st.nz * st.counter];
+        const [wx, wz] = corridorAt(st.along);
+        const walking: Vec3 = [wx, GROUND_Y, wz];
+        const front: Vec3 = [st.cx + st.nx * (st.counter - 0.28), GROUND_Y + 0.4, st.cz + st.nz * (st.counter - 0.28)];
+        const end: Vec3 = [front[0] - st.tx * st.pitch * 0.42, front[1], front[2] - st.tz * st.pitch * 0.42];
+        return [{ name: `stall-${i}-counter-support`, position: counter },
+          { name: `stall-${i}-counter-front`, position: front },
+          { name: `stall-${i}-counter-end`, position: end },
+          { name: `stall-${i}-walking-ground`, position: walking }]
+          .map((s) => ({ ...s, chunk: [Math.floor(s.position[0] / 256), Math.floor(s.position[2] / 256)] as [number, number] }));
+      }),
       evaluatedFrom: HERO_EVAL_LO,
       evaluatedTo: HERO_EVAL_HI,
       chunksEvaluated: want.size,

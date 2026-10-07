@@ -28,15 +28,17 @@ import {
   type CityChunk, type CityPlan, type RoadKind, type StreetSample,
 } from '../world/citygen';
 import {
-  groundGrammarFor, type GroundBakeCtx, type GroundGrammar, type StreetFrame,
+  groundGrammarFor, groundSurfaceTag, walkingFamily, walkingAlbedo, type GroundBakeCtx, type GroundGrammar, type StreetFrame,
 } from '../world/groundgrammar';
 import { FACE_ALL, FACE_NY, FACE_PY, MeshBuilder } from '../world/geometry';
-import { bakeMarketDetail } from './marketbake';
+import { bakeMarketDetail, marketBakeState, type MarketBakeState } from './marketbake';
 import {
   marketGrammarFor, MAX_MARKET_LIGHTS_PER_CHUNK,
 } from '../world/marketgrammar';
 import { CLUTTER_EDGE, CLUTTER_KINDS } from '../world/groundgrammar';
 import { districtStyle } from '../world/districts';
+import type { CrowdObstacle } from '../world/crowdobstacles';
+import type { MarketStall } from '../world/marketgrammar';
 
 // ---------------------------------------------------------------- constants
 
@@ -237,6 +239,8 @@ export interface GroundLight {
 }
 
 export interface GroundBakeResult {
+  obstacles: CrowdObstacle[];
+  marketStalls: MarketStall[];
   /** Carriageway centrelines that contributed geometry. */
   roads: number;
   /** Furniture the grammar asked for, and how many the triangle budget allowed. */
@@ -296,8 +300,9 @@ export function bakeGroundDetail(
   // by position, or the budget is spent on copies and `dropped` counts each
   // lantern five times.
   const marketSeenKeys = new Set<string>();
-  const marketState = { seen: false };
+  const marketState = { seen: false, emitted: marketBakeState() };
   const res: GroundBakeResult = {
+    obstacles: [], marketStalls: [],
     roads: 0, edgeMetres: 0, triangles: 0, fieldMs: 0,
     clutter: {
       placed: 0, wanted: 0, tris: 0, lamps: 0,
@@ -749,6 +754,9 @@ function pushClutterItem(
       // the architecture."
       bld.pushQuad(P(-0.9, 3.4, -0.1), P(0.9, 3.4, -0.1), P(0.9, 3.4, 0.95), P(-0.9, 3.4, 0.95),
         pal.trim, 1, { normals: UP4 });
+      // Underside: the street sees this platform from below.
+      bld.pushQuad(P(-0.9, 3.4, -0.1), P(0.9, 3.4, -0.1), P(0.9, 3.4, 0.95), P(-0.9, 3.4, 0.95),
+        pal.trim, 1, { normals: [[0, -1, 0], [0, -1, 0], [0, -1, 0], [0, -1, 0]] });
       bld.pushQuad(P(-0.9, 3.1, 0.95), P(0.9, 3.1, 0.95), P(0.9, 3.4, 0.95), P(-0.9, 3.4, 0.95),
         pal.trim, 1, { normals: UP4 });
       for (const s of [-0.78, 0.78]) {
@@ -806,7 +814,7 @@ export interface ClutterPalette {
 function emitTrace(
   bld: MeshBuilder, chunk: CityChunk, plan: CityPlan, t: Trace, lod: number, rng: Rng,
   lights: GroundLight[], footwayCells: Set<number>, pendingMarket: GroundLight[],
-  marketSeenKeys: Set<string>, marketState: { seen: boolean },
+  marketSeenKeys: Set<string>, marketState: { seen: boolean; emitted: MarketBakeState },
   minX: number, minZ: number, size: number, res: GroundBakeResult, maxLights: number,
 ): void {
   const maxX = minX + size, maxZ = minZ + size;
@@ -859,7 +867,6 @@ function emitTrace(
       off[si] = rB;
       const axE2 = ax + anx * side * rA, azE2 = az + anz * side * rA;
       const bxE2 = bx + bnx * side * rB, bzE2 = bz + bnz * side * rB;
-
       // Ownership. `segInside` only clips along the street, so a carriageway
       // running along a chunk boundary would have BOTH chunks lay the same
       // kerb, kerb top and footway over the same square metres — coplanar
@@ -889,14 +896,25 @@ function emitTrace(
       footwayCells.add(fk);
       res.edgeMetres += along;
 
+      // The field-resolved road is explicit geometry above the shared paving
+      // deck, with the same ownership and trace dedupe as its edge. Backward
+      // traces store reversed frames; use actual polygon winding. Degenerate
+      // join points and folded corner quads leave the shared deck visible.
+      const roadA: Vec3 = [ax, GROUND_Y + 0.002, az], roadB: Vec3 = [bx, GROUND_Y + 0.002, bz];
+      const roadAE: Vec3 = [axE2, GROUND_Y + 0.002, azE2], roadBE: Vec3 = [bxE2, GROUND_Y + 0.002, bzE2];
+      const roadUp1 = (bz - az) * (bxE2 - ax) - (bx - ax) * (bzE2 - az);
+      const roadUp2 = (bzE2 - az) * (axE2 - ax) - (bxE2 - ax) * (azE2 - az);
+      if (roadUp1 * roadUp2 > 0.00001) bld.pushQuad(roadA, roadUp1 > 0 ? roadB : roadAE, roadBE, roadUp1 > 0 ? roadAE : roadB,
+        grammar.albedo, 1, { normals: UP4, surfaceTag: groundSurfaceTag('carriageway', grammar.pavement) });
+
       // Kerb face. Vertical, normal pointing at the carriageway. This is the
-      // surface that has to read as a kerb, and it does so from its normal alone
-      // (n.y near 0 against the deck's n.y near 1), with no extra data channel.
+      // surface that has to read as a kerb; its authored tag admits it to the
+      // ground shader independently of its normal, colour, or world height.
       const yLo = GROUND_Y, yHi = GROUND_Y + kh;
       const face: Vec3 = [-anx * side, 0, -anz * side];
       bld.pushQuad(
         [axE2, yLo, azE2], [bxE2, yLo, bzE2], [bxE2, yHi, bzE2], [axE2, yHi, azE2],
-        grammar.kerbAlbedo, 1, { normals: [face, face, face, face] },
+        grammar.kerbAlbedo, 1, { normals: [face, face, face, face], surfaceTag: groundSurfaceTag('kerb-face', walkingFamily(grammar), kh) },
       );
 
       // Gutter. The spec's three-metre bar requires a kerb to read as "a THICK EDGE
@@ -937,36 +955,34 @@ function emitTrace(
         [bxE2 - bnx * side * gDeep, lift(0), bzE2 - bnz * side * gDeep],
         [bxE2 - bnx * side * gOut, lift(1), bzE2 - bnz * side * gOut],
         [axE2 - anx * side * gOut, lift(1), azE2 - anz * side * gOut],
-        DEEP_JOINT, 1, { normals: UP4 },
+        DEEP_JOINT, 1, { normals: UP4, surfaceTag: groundSurfaceTag('gutter', grammar.pavement) },
       );
       bld.pushQuad(
         [axE2 - anx * side * gOut, lift(1), azE2 - anz * side * gOut],
         [bxE2 - bnx * side * gOut, lift(1), bzE2 - bnz * side * gOut],
         [bxE2, lift(2), bzE2],
         [axE2, lift(2), azE2],
-        GUTTER, 1, { normals: UP4 },
+        GUTTER, 1, { normals: UP4, surfaceTag: groundSurfaceTag('gutter', grammar.pavement) },
       );
 
       if (lod > 0) continue;
 
       // Kerb top: 0.30m of stone, then the footway out to the building line.
-      // Both raised by the kerb height, which makes world height an unambiguous
-      // surface tag in the fragment stage — deck, kerb top and footway are three
-      // distinguishable heights and nothing else in a chunk lives there.
+      // Both raised by the kerb height, with distinct authored surface tags.
       const a1x = axE2 + anx * side * KERB_W, a1z = azE2 + anz * side * KERB_W;
       const b1x = bxE2 + bnx * side * KERB_W, b1z = bzE2 + bnz * side * KERB_W;
+      // Kerb line to KERB_W. This quad once repeated the footway's corners, so
+      // the real top was missing and the strip beside the face was an open slot.
       bld.pushQuad(
-        [a1x, yHi, a1z], [b1x, yHi, b1z],
-        [b1x + bnx * side * fw, yHi, b1z + bnz * side * fw],
-        [a1x + anx * side * fw, yHi, a1z + anz * side * fw],
-        grammar.kerbAlbedo, 1, { normals: UP4 },
+        [axE2, yHi, azE2], [bxE2, yHi, bzE2], [b1x, yHi, b1z], [a1x, yHi, a1z],
+        grammar.kerbAlbedo, 1, { normals: UP4, surfaceTag: groundSurfaceTag('kerb-top', walkingFamily(grammar), kh) },
       );
       if (fw > 0.01) {
         bld.pushQuad(
           [a1x, yHi, a1z], [b1x, yHi, b1z],
           [b1x + bnx * side * fw, yHi, b1z + bnz * side * fw],
           [a1x + anx * side * fw, yHi, a1z + anz * side * fw],
-          grammar.albedo, 1, { normals: UP4 },
+          walkingAlbedo(grammar), 1, { normals: UP4, surfaceTag: groundSurfaceTag('paving', walkingFamily(grammar)) },
         );
 
         // --- street furniture, placed on the footway out of the grammar.
@@ -1029,9 +1045,17 @@ function emitTrace(
               const P = placer(px, yHi, pz, -anx * side, -anz * side);
               const style = districtStyle(t.districtId);
               const pal = style.palette;
+              const componentStart = bld.vertexCount;
               pushClutterItem(bld, name, P, {
                 kerb: grammar.kerbAlbedo, trim: pal.trim, metal: pal.metal, accent: style.accentColor,
               }, rng, res.clutter);
+              const bounds = bld.boundsSince(componentStart);
+              if (bounds && bounds[1][1] > GROUND_Y + 0.08 && bounds[0][1] < GROUND_Y + 1.7) {
+                const [lo, hi] = bounds;
+                res.obstacles.push({ x: (lo[0] + hi[0]) * 0.5, z: (lo[2] + hi[2]) * 0.5, tx: 1, tz: 0,
+                  halfAlong: (hi[0] - lo[0]) * 0.5, halfAcross: (hi[2] - lo[2]) * 0.5,
+                  minY: lo[1], maxY: hi[1], kind: name });
+              }
               res.clutter.placed++;
               // A lamp that emits no light is a PHANTOM: the light is the point.
               //
@@ -1061,9 +1085,11 @@ function emitTrace(
       width: t.p[4], kind: t.kind, districtId: t.districtId, clearance: -1, px: t.p[0], pz: t.p[1],
     };
     const ctx: GroundBakeCtx = {
-      builder: bld, rng, plan, chunk, lod, seed: 0, frame, grammar,
+      builder: bld, rng, plan, chunk, lod, seed: plan.seed, frame, grammar,
     };
-    bakeMarketDetail(bld, ctx);
+    const emitted = bakeMarketDetail(bld, ctx, marketState.emitted);
+    res.marketStalls.push(...emitted.stalls);
+    res.obstacles.push(...emitted.obstacles);
 
     // ---------------------------------------------------------------------
     // The half of the market that used to not exist.
@@ -1163,7 +1189,8 @@ function emitPaint(
   const quad = (
     x0: number, z0: number, x1: number, z1: number, x2: number, z2: number, x3: number, z3: number,
   ): void => {
-    bld.pushQuad([x0, y, z0], [x1, y, z1], [x2, y, z2], [x3, y, z3], g.paintAlbedo, 1, { normals: UP4 });
+    bld.pushQuad([x0, y, z0], [x1, y, z1], [x2, y, z2], [x3, y, z3], g.paintAlbedo, 1,
+      { normals: UP4, surfaceTag: groundSurfaceTag('paint', 'paint') });
   };
   switch (g.marking) {
     case 'centre-line':

@@ -13,7 +13,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -43,7 +43,7 @@ const GLOBAL_TIMEOUT_MS = Number(process.env.SYZYGY_TIMEOUT || 120_000);
 function parseArgs(argv) {
   const opts = {
     sequence: false, poses: [], debug: 0, debugseq: false, grab: null, query: '', quality: '', eval: null,
-    dev: false, timeout: GLOBAL_TIMEOUT_MS, keepOpen: false,
+    dev: false, timeout: GLOBAL_TIMEOUT_MS, keepOpen: false, heroPair: false, scene: null,
     // `chunks` is the boot warm (`?chunks=N`): how many chunks to force resident
     // before the first presented frame. `poseChunks` is the post-pose warm, which
     // is the one that bakes at the LOD the capture camera will actually see.
@@ -53,6 +53,8 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a === '--sequence' || a === '-s') opts.sequence = true;
     else if (a === '--dev') opts.dev = true;
+    else if (a === '--hero-pair') opts.heroPair = true;
+    else if (a.startsWith('--scene=')) opts.scene = a.slice(8);
     else if (a.startsWith('--pose=')) opts.poses.push(a.slice(7));
     else if (a.startsWith('--debug=')) opts.debug = Number(a.slice(8));
     else if (a === '--debugseq') opts.debugseq = true;
@@ -82,6 +84,8 @@ const HELP = `
   node tools/capture.mjs --quality high        set quality tier (low|med|high)
   node tools/capture.mjs --eval "expr"         run a JS expression, print JSON
   node tools/capture.mjs --pose=canyon          only shoot poses whose name contains 'canyon'
+  node tools/capture.mjs --hero-pair            derived hero, frozen daylight/night control
+  node tools/capture.mjs --hero-pair --scene=shots/<run>/_scene.json  replay saved actors/camera
   node tools/capture.mjs --dev                 use ` + '`vite dev`' + ` instead of preview
   node tools/capture.mjs --timeout 180         global budget in seconds (default 120)
 
@@ -196,6 +200,9 @@ const POSES = [
     name: '01g-kerb-face',
     label: 'oblique kerb close-up on a derived B-district kerb line — raised face or painted stripe?',
     derive: 'kerb-face',
+    // The local-first crowd (D26) spawns around the camera and stood in front
+    // of the kerb on 2026-10-07. This frame judges ground, not people.
+    crowd: 0,
     weather: { sky: 'clear', haze: 0.16 },
     lens: { tiltShift: 0, focusWidth: 1, bokeh: 0, chroma: 0, grain: 0, saturation: 1.1, vignette: 0.15 },
     settle: 40,
@@ -494,6 +501,13 @@ async function waitForApp(page, timeoutMs) {
 }
 
 /** Feature-detected call into the app surface; never throws. */
+/** A pose's `crowd` count, applied after setPose in both the sequence and single-shot paths. */
+async function applyPoseCrowd(page, pose) {
+  if (pose.crowd === undefined) return;
+  const r = await callApp(page, 'setCrowdCount', pose.crowd);
+  if (!r.ok) throw new Error(`setCrowdCount: ${r.error || r.reason}`);
+}
+
 async function callApp(page, method, ...args) {
   return page.evaluate(async ({ method, args }) => {
     const g = window.__syzygy;
@@ -602,6 +616,7 @@ async function warmPose(page, chunks, maxTicks) {
   // market cord, lantern, crate, sign and vent, and every clustered light.
   const deadline = Date.now() + 120_000;
   let report = null;
+  let settled = null;
   for (let i = 0; i < 12 && Date.now() < deadline; i++) {
     const r = await callApp(page, 'warm', chunks, maxTicks);
     if (!r.ok) {
@@ -609,7 +624,7 @@ async function warmPose(page, chunks, maxTicks) {
       throw new Error(`warm: ${r.error}`);
     }
     report = r.value;
-    const settled = await page.evaluate(() => {
+    settled = await page.evaluate(() => {
       const g = window.__syzygy;
       const [cx, cz] = g.cameraChunk();
       const st = g.stats();
@@ -791,7 +806,70 @@ async function main() {
       return;
     }
 
-    if (opts.eval !== null) {
+    if (opts.heroPair) {
+      const dir = join(SHOTS, runStamp);
+      mkdirSync(dir, { recursive: true });
+      const replay = opts.scene ? JSON.parse(readFileSync(resolve(ROOT, opts.scene), 'utf8')) : null;
+      const hr = replay ? { ok: true, value: replay.hero } : await callApp(page, 'heroWalk');
+      if (!hr.ok || !hr.value?.ok) throw new CaptureError(`hero derivation refused: ${hr.value?.reason ?? hr.error}`);
+      const hero = hr.value;
+      const pr = await callApp(page, 'setPose', hero);
+      if (!pr.ok) throw new CaptureError(`hero setPose: ${pr.error}`);
+      const warm = await warmPose(page, opts.poseChunks, opts.warmTicks);
+      await settle(page, 40);
+      await callApp(page, 'freezeCapture');
+      if (replay) {
+        const restored = await callApp(page, 'replayCaptureScene', replay.scene);
+        if (!restored.ok) throw new CaptureError(`saved scene replay failed: ${restored.error}`);
+      }
+      // A pose record must describe a submitted frame, not stale writer matrices
+      // from the frame before replay. Renderer matrices are the capture authority.
+      const beforeSettled = (await callApp(page, 'submittedFrames')).value;
+      await page.waitForFunction((start) => window.__syzygy.submittedFrames() >= start + 8, beforeSettled, { timeout: 15000 });
+      const scene = (await callApp(page, 'captureScene')).value;
+      if (!scene) throw new CaptureError('captureScene unavailable');
+      if (replay) {
+        for (const key of ['time', 'camera', 'lens', 'weather', 'crowd', 'crowdCount', 'vehicles', 'trafficLights']) {
+          if (JSON.stringify(scene[key]) !== JSON.stringify(replay.scene[key])) throw new CaptureError(`saved scene replay changed ${key}`);
+        }
+        const signature = (entries) => JSON.stringify(entries.map(({ cx, cz, lod }) => ({ cx, cz, lod })).sort((a, b) => a.cx - b.cx || a.cz - b.cz));
+        if (signature(scene.residency) !== signature(replay.scene.residency)) throw new CaptureError('saved scene replay changed residency keys or LODs');
+        const expected = replay.scene.cameraMatrices ?? (await callApp(page, 'expectedCaptureMatrices', replay.scene)).value;
+        if (JSON.stringify(scene.cameraMatrices) !== JSON.stringify(expected)) throw new CaptureError('saved scene replay changed the renderer view or projection matrices');
+      }
+      const localDetail = await page.evaluate((subjects) => subjects.map((s) => ({
+        ...s, bakedLod: window.__syzygy.chunkLod(...s.chunk),
+      })), hero.source.subjects);
+      if (localDetail.some((s) => s.bakedLod !== 0)) throw new CaptureError(`hero foreground lacks full detail: ${JSON.stringify(localDetail)}`);
+      const shared = (s) => JSON.stringify({ ...s, weather: { ...s.weather, sky: null } });
+      const frozen = shared(scene);
+      writeFileSync(join(dir, '_scene.json'), JSON.stringify({ hero, scene, localDetail,
+        replayedFrom: opts.scene,
+        matrixAuthority: replay?.scene.cameraMatrices ? 'saved submitted renderer matrices' : replay ? 'expectation derived from the saved physical-pose interpretation and held lens; historical matrix readback unavailable' : 'submitted renderer matrices',
+        provenanceLimit: 'Subjects use actual bake emission records; their named centres are not raw surface readback. Gap segmentation is inferred from emitted slots. Exposure is a frame judgement.' }, null, 2));
+      for (const phase of ['noon', 'night']) {
+        const startSubmitted = (await callApp(page, 'submittedFrames')).value;
+        const cr = await callApp(page, 'capturePhase', phase, scene);
+        if (!cr.ok) throw new CaptureError(`capturePhase: ${cr.error}`);
+        await page.waitForFunction((start) => window.__syzygy.submittedFrames() >= start + 8, startSubmitted, { timeout: 15000 });
+        const heldScene = (await callApp(page, 'captureScene')).value;
+        if (shared(heldScene) !== frozen) throw new CaptureError('Controlled hero scene changed between phases');
+        const stats = (await callApp(page, 'stats')).value;
+        const held = stats.camera;
+        const dp = Math.hypot(...sub(held.position, hero.position));
+        const hf = norm(sub(held.lookAt, held.position));
+        const rf = norm(sub(hero.lookAt, hero.position));
+        const angle = Math.acos(Math.max(-1, Math.min(1, hf.reduce((n, v, i) => n + v * rf[i], 0)))) * 180 / Math.PI;
+        if (dp > POSITION_TOLERANCE_M || angle > DIRECTION_TOLERANCE_DEG) throw new CaptureError(`hero camera drift: ${dp}m/${angle}deg`);
+        const name = `10-hero-walk-${phase === 'noon' ? 'day' : 'night'}`;
+        const file = `shots/${runStamp}/${name}.png`;
+        if (!await shoot(page, join(ROOT, file))) throw new CaptureError(`hero ${phase} screenshot missing`);
+        results.push({ name, file, stats, requested: hero, label: 'Market Spine Counter Walk, frozen pair' });
+        say(`    ✓ ${name} camera ${dp.toFixed(3)}m/${angle.toFixed(3)}deg; ${localDetail.length} subjects LOD 0`);
+      }
+      opts.sequence = true;
+      writeIndex(runStamp, results, notes, opts);
+    } else if (opts.eval !== null) {
       const out = await page.evaluate(async (expr) => {
         try {
           // eslint-disable-next-line no-new-func
@@ -872,6 +950,7 @@ async function main() {
             derive: pose.derive, name: pose.name,
           });
           if (!pr.ok) throw new Error(pr.skipped ? pr.reason : `setPose: ${pr.error}`);
+          await applyPoseCrowd(page, pose);
 
           // Warm AFTER the pose is set. A chunk's LOD comes from the live camera
           // position, so warming before would bake the wrong detail levels and
@@ -1046,6 +1125,7 @@ async function main() {
           .catch((e) => ({ ok: false, error: e.message }));
         if (pr?.skipped) throw new CaptureError(`setPose skipped: ${pr.reason}`);
         if (pr && pr.ok === false) throw new CaptureError(`setPose: ${pr.error}`);
+        await applyPoseCrowd(page, pose);
       }
       const file = join(SHOTS, `${runStamp}${pose ? `-${pose.name}` : ''}.png`);
       await warmPose(page, opts.poseChunks, opts.warmTicks);
@@ -1245,7 +1325,9 @@ function writeIndex(runStamp, results, notes, opts) {
     stats,
     notes,
   };
-  writeFileSync(join(SHOTS, 'latest.json'), JSON.stringify(payload, null, 2), 'utf8');
+  const json = JSON.stringify(payload, null, 2);
+  writeFileSync(join(SHOTS, 'latest.json'), json, 'utf8');
+  if (opts.sequence) writeFileSync(join(SHOTS, runStamp, '_capture.json'), json, 'utf8');
 }
 
 process.exit(await main().catch((err) => {

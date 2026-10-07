@@ -23,8 +23,10 @@ import {
   districtAtField, districtPaletteLinear, districtStyle,
   type ResolvedPalette, type DistrictStyle,
 } from '../world/districts';
-import { groundGrammarFor } from '../world/groundgrammar';
+import { groundGrammarFor, groundSurfaceTag, walkingFamily, walkingAlbedo } from '../world/groundgrammar';
 import { bakeGroundDetail, type GroundLight } from './groundbake';
+import type { CrowdObstacle } from '../world/crowdobstacles';
+import type { MarketStall } from '../world/marketgrammar';
 
 // ---------------------------------------------------------------- materials
 
@@ -686,6 +688,8 @@ function pushCable(bld: MeshBuilder, c: Cable, col: Vec3, sides: number): void {
 // ---------------------------------------------------------------- chunk bake
 
 export interface BakedChunk {
+  obstacles: CrowdObstacle[];
+  marketStalls: MarketStall[];
   /** World-space geometry for everything opaque and static. */
   opaque: Mesh;
   /** Thin geometry that wants double-sided, alpha-tested treatment. */
@@ -745,11 +749,17 @@ export function bakeChunk(chunk: CityChunk, lod: number, seed: number): BakedChu
   const rng = bakeRng(seed ^ Math.imul(chunk.cx + 7919, 0x9e3779b1) ^ Math.imul(chunk.cz + 104729, 0x85ebca6b));
 
   const lights: BakedChunk['lights'] = [];
+  const obstacles: CrowdObstacle[] = [];
+  let marketStalls: MarketStall[] = [];
 
   // --- buildings
   for (const b of chunk.buildings) {
     const dp = profileFor(b.districtId);
     pushBuilding(solid, b, dp, rng, lod);
+    // Ground footprint comes from the generator's actual occupied bounds.
+    obstacles.push({ x: (b.aabbMin[0] + b.aabbMax[0]) * 0.5, z: (b.aabbMin[2] + b.aabbMax[2]) * 0.5,
+      tx: 1, tz: 0, halfAlong: (b.aabbMax[0] - b.aabbMin[0]) * 0.5, halfAcross: (b.aabbMax[2] - b.aabbMin[2]) * 0.5,
+      minY: GROUND_Y, maxY: b.aabbMax[1], kind: 'building' });
     // Rooftop marker lights — a scatter of them turns the night skyline into
     // a constellation rather than a black cutout.
     //
@@ -779,7 +789,16 @@ export function bakeChunk(chunk: CityChunk, lod: number, seed: number): BakedChu
     if (lod >= 2 && rng.next() < 0.7) continue;
     const isFoliage = p.kind === PropKind.VineCurtain || p.kind === PropKind.PottedTree ||
       p.kind === PropKind.Planter;
-    pushProp(isFoliage ? leaf : solid, p, dp, rng, lod);
+    const propBuilder = isFoliage ? leaf : solid;
+    const propStart = propBuilder.vertexCount;
+    pushProp(propBuilder, p, dp, rng, lod);
+    const bounds = propBuilder.boundsSince(propStart);
+    if (bounds && bounds[1][1] > GROUND_Y + 0.08 && bounds[0][1] < GROUND_Y + 1.7) {
+      const [lo, hi] = bounds;
+      obstacles.push({ x: (lo[0] + hi[0]) * 0.5, z: (lo[2] + hi[2]) * 0.5, tx: 1, tz: 0,
+        halfAlong: (hi[0] - lo[0]) * 0.5, halfAcross: (hi[2] - lo[2]) * 0.5,
+        minY: lo[1], maxY: hi[1], kind: `prop-${PropKind[p.kind]}` });
+    }
 
     if (p.kind === PropKind.Lantern && lod < 1) {
       lights.push({ pos: p.position, radius: 14, color: [1.0, 0.6, 0.3], intensity: 3.2 * p.scale });
@@ -801,7 +820,9 @@ export function bakeChunk(chunk: CityChunk, lod: number, seed: number): BakedChu
     side[0] /= sl; side[2] /= sl;
     const hw = br.width * 0.5;
     const th = 0.55;
-    const nrm: Vec3 = [-side[2], 0, side[0]];
+    // Deck faces up, soffit down. These were horizontal (along the span),
+    // which shaded both as walls and left their visible side to the slope.
+    const up: Vec3 = [0, 1, 0], down: Vec3 = [0, -1, 0];
     // Deck
     const corners: Vec3[] = [
       [br.a[0] - side[0] * hw, br.a[1] - th, br.a[2] - side[2] * hw],
@@ -809,10 +830,9 @@ export function bakeChunk(chunk: CityChunk, lod: number, seed: number): BakedChu
       [br.b[0] + side[0] * hw, br.b[1] - th, br.b[2] + side[2] * hw],
       [br.b[0] - side[0] * hw, br.b[1] - th, br.b[2] - side[2] * hw],
     ];
-    solid.pushQuad(corners[0], corners[1], corners[2], corners[3], pal.trim, 0.4, { normals: [nrm, nrm, nrm, nrm] });
+    solid.pushQuad(corners[0], corners[1], corners[2], corners[3], pal.trim, 0.4, { normals: [up, up, up, up] });
     // Soffit
-    solid.pushQuad(corners[3], corners[2], corners[1], corners[0], pal.base, 0.4,
-      { normals: [[-nrm[0], 0, -nrm[2]], [-nrm[0], 0, -nrm[2]], [-nrm[0], 0, -nrm[2]], [-nrm[0], 0, -nrm[2]]] });
+    solid.pushQuad(corners[3], corners[2], corners[1], corners[0], pal.base, 0.4, { normals: [down, down, down, down] });
     // Railings, both sides, if close enough to matter.
     if (lod < 1 && len < 90) {
       for (const s of [1, -1]) {
@@ -855,6 +875,8 @@ export function bakeChunk(chunk: CityChunk, lod: number, seed: number): BakedChu
   let marketLights: BakedChunk['marketLights'];
   if (lod < 2) {
     const gres = bakeGroundDetail(solid, chunk, cityPlan(seed), lod, rng, lights as GroundLight[]);
+    obstacles.push(...gres.obstacles);
+    marketStalls = gres.marketStalls;
     if (gres.clutter.marketLights > 0 || gres.clutter.marketLightsDropped > 0) {
       marketLights = {
         // `produced` counts every grammar query this chunk made, so a chunk with
@@ -872,6 +894,7 @@ export function bakeChunk(chunk: CityChunk, lod: number, seed: number): BakedChu
   const opaque = solid.build();
   const foliage = leaf.build();
   return {
+    obstacles, marketStalls,
     opaque,
     foliage,
     boundsMin: opaque.boundsMin,
@@ -933,7 +956,8 @@ export function pushGroundDeck(bld: MeshBuilder, size: number, seed: number): vo
       // checkerboard where two districts of similar value meet.
       const jitter = 0.94 + 0.12 * hash01(i * 73856093 ^ j * 19349663 ^ seed);
       const k = jitter;
-      cols[j * (n + 1) + i] = [g.albedo[0] * k, g.albedo[1] * k, g.albedo[2] * k];
+      const paving = walkingAlbedo(g);
+      cols[j * (n + 1) + i] = [paving[0] * k, paving[1] * k, paving[2] * k];
     }
   }
   for (let j = 0; j < n; j++) {
@@ -952,7 +976,8 @@ export function pushGroundDeck(bld: MeshBuilder, size: number, seed: number): vo
       ];
       bld.pushQuad(
         [x0, GROUND_Y, z1], [x1, GROUND_Y, z1], [x1, GROUND_Y, z0], [x0, GROUND_Y, z0],
-        c, 0.12, { normals: [[0, 1, 0], [0, 1, 0], [0, 1, 0], [0, 1, 0]] },
+        c, 0.12, { normals: [[0, 1, 0], [0, 1, 0], [0, 1, 0], [0, 1, 0]],
+          surfaceTag: groundSurfaceTag('paving', walkingFamily(groundGrammarFor(districtAtField(plan.districts, (x0 + x1) * 0.5, (z0 + z1) * 0.5), 'street'))) },
       );
     }
   }
@@ -1061,4 +1086,3 @@ export const entityMeshes = {
     return b.build();
   },
 };
-

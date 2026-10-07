@@ -856,7 +856,7 @@ function newWorld(seed: number): WorldState {
     },
     events: [],
     perf: {
-      frameMs: 16.7, cpuMs: 0, gpuMs: 0, fps: 60, load: 0, tier: 'high',
+      frameMs: 16.7, cpuMs: 0, gpuMs: null, gpuMsSource: 'unavailable', fps: 60, load: 0, tier: 'high',
       drawCalls: 0, triangles: 0, instances: 0, residentDraws: 0,
       visibleDraws: 0, residentChunks: 0, vram: 0,
     },

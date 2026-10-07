@@ -200,7 +200,9 @@ export interface Perf {
   /** Rolling frame time, ms. */
   frameMs: number;
   cpuMs: number;
-  gpuMs: number;
+  /** Real timestamp-query duration only. null means no measured GPU duration is available. */
+  gpuMs: number | null;
+  gpuMsSource: 'unavailable' | 'timestamp-query';
   fps: number;
   /** 0..1, drives the automatic quality governor. */
   load: number;
@@ -248,7 +250,7 @@ export const defaultWorld = (seed = 0x5e7a17): WorldState => ({
   lens: defaultLens(),
   events: [],
   perf: {
-    frameMs: 16.7, cpuMs: 0, gpuMs: 0, fps: 60, load: 0,
+    frameMs: 16.7, cpuMs: 0, gpuMs: null, gpuMsSource: 'unavailable', fps: 60, load: 0,
     tier: 'high', drawCalls: 0, triangles: 0, instances: 0,
     residentDraws: 0, visibleDraws: 0, residentChunks: 0, vram: 0,
   },

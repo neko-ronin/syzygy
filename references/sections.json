@@ -68,7 +68,9 @@
     "tram-level": "B",
     "canal-level": "D",
     "sunset-gorge": "A",
-    "night-lanterns": "A"
+    "night-lanterns": "A",
+    "hero-walk": "A",
+    "kerb-face": "B"
   },
 
   "checks": {

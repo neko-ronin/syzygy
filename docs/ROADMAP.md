@@ -1,5 +1,11 @@
 # Roadmap
 
+> **Owner extension, 2026-10-06:** finish the hero/street/crowd/night batch and
+> related issues, then improve city richness and continuous large-world
+> performance. Target: **60 FPS on this Mac in Chrome at 1600 × 900**. See
+> [the execution plan](WORK_PLAN_2026-10-06.md) and **R14** below. Older ordering
+> lists retain completed F items; the current plan does not reopen them.
+
 The project has **no completion condition** — the original brief says it will be
 handed to each new frontier model and iterated indefinitely. So this is not a
 list of tickets to close; it is a map of where quality still lives, and why.
@@ -859,3 +865,41 @@ guards are in the wrong three places", that is three cheap fixes and no migratio
 **Done when:** the document exists, every claim in it cites a file and line, and
 each of the five sections above has an answer. **Not** when a framework has been
 chosen.
+
+---
+
+## R14 — A richer city at 60 FPS during continuous travel
+
+**Status: authorised, pending the street batch** · **Priority: highest after that
+batch** · Owner direction: improve richness/detail; optimise and re-architect
+city-item placement where needed; adapt documented Spider-Man and Fortnite
+large-world techniques to this browser renderer.
+
+**Target platform, explicitly confirmed:** this Mac, Chrome, 1600 × 900. Record
+the browser version, adapter, quality tier, actual internal render size and
+draw distance with every result. The frame budget is 16.67 ms. Sustained
+rendering throughput and traversal frame pacing matter; a CPU encode reciprocal
+or a count of animation callbacks does not establish 60 rendered FPS.
+
+Research Insomniac and Epic primary sources, with game-specific claims separated
+from general engine features and proposed adaptations. Preserve WebGPU, seeded
+procedural generation, zero texture assets, and no runtime npm dependencies.
+Re-architecture is authorised where measurement supports it; a framework
+migration is not an objective.
+
+**Scope:** detailed streets and facades near the camera, recognisable district
+silhouettes and useful detail into the distance, continuous production and
+residency of new city regions, visibility/LOD and repeated-item placement that
+fit the frame budget. Streaming must not stop play behind a loading screen or
+hide an empty horizon by quietly reducing the measured draw distance.
+
+**Done when:** fixed and adaptive quality results are separately recorded for
+held street/market and skyline views and for continuous flight across chunk
+boundaries, including fast travel and reversal. Report raw frame intervals,
+percentiles, slow frames, submitted/completed work, streaming backlog and memory;
+use actual GPU timestamps where supported, labelled unavailable otherwise.
+Cold boot is measured separately. A non-implementing vision reviewer confirms
+near richness and district/distant-city readability against the section sheets
+and before/after grids. Unmet performance or visual clauses remain open.
+
+Execution and ownership: [WORK_PLAN_2026-10-06.md](WORK_PLAN_2026-10-06.md).

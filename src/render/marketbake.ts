@@ -36,6 +36,7 @@ import type { Vec3 } from '../core/math';
 import { GROUND_Y } from '../world/citygen';
 import { MeshBuilder, yawFromDir } from '../world/geometry';
 import type { GroundBakeCtx } from '../world/groundgrammar';
+import type { CrowdObstacle } from '../world/crowdobstacles';
 import {
   COUNTER_TOP, MARKET_LOD_GONE, RIGGING_LOD, SAG_ACROSS, SAG_ALONG,
   marketCatenary, marketGrammarFor,
@@ -114,20 +115,26 @@ function bakeCanopy(bld: MeshBuilder, s: MarketStall): void {
  * and stays off the building post, with nothing standing in the carriageway at
  * all. They read very differently down a street and they cost the same.
  */
-function bakeRigging(bld: MeshBuilder, s: MarketStall): void {
+function bakeRigging(bld: MeshBuilder, s: MarketStall, obstacles: CrowdObstacle[]): void {
   const halfPitch = s.pitch * 0.5;
   const legTop = s.eave;
   const postTop = s.ridge;
   const at = (lateral: number, along: number, y: number): Vec3 =>
     [s.cx + s.nx * lateral + s.tx * along, y, s.cz + s.nz * lateral + s.tz * along];
+  const block = (lateral: number, along: number, halfAlong: number, halfAcross: number, maxY: number, kind: string): void => {
+    const p = at(lateral, along, GROUND_Y);
+    obstacles.push({ x: p[0], z: p[2], tx: s.tx, tz: s.tz, halfAlong, halfAcross, minY: GROUND_Y, maxY, kind });
+  };
   for (const end of [-1, 1]) {
     const along = end * halfPitch;
     // The building-side post is common to both types.
     bld.pushCylinder(at(s.back, along, GROUND_Y), at(s.back, along, postTop), LEG_RADIUS, 4, s.frameColor);
+    block(s.back, along, LEG_RADIUS, LEG_RADIUS, postTop, 'market-post');
     if (s.frame === 'poles') {
       // Roadward legs stand inside the overhang; they are what the tarpaulin's
       // low edge is actually tied to.
       bld.pushCylinder(at(s.front, along, GROUND_Y), at(s.front, along, legTop), LEG_RADIUS, 4, s.frameColor);
+      block(s.front, along, LEG_RADIUS, LEG_RADIUS, legTop, 'market-post');
       // Guy from the head of each front leg up to the back post. This is the
       // diagonal that says "this is tied to something".
       bld.pushTubeAlongPath([at(s.front, along, legTop), at(s.back, along, postTop + 0.22)], GUY_RADIUS, 3, s.frameColor);
@@ -148,11 +155,16 @@ function bakeRigging(bld: MeshBuilder, s: MarketStall): void {
       [s.cx + s.nx * lateral + s.tx * halfPitch, top, s.cz + s.nz * lateral + s.tz * halfPitch],
     ], POLE_RADIUS, 4, s.frameColor);
   }
-  // Trestle: top and four splayed feet, as one box plus one cross bar.
+}
+
+/** Counter exists independently of a canopy, including open-air bare pitches. */
+function bakeCounter(bld: MeshBuilder, s: MarketStall, obstacles: CrowdObstacle[]): void {
   bld.pushBox(
     [s.cx + s.nx * s.counter, GROUND_Y + COUNTER_TOP * 0.5, s.cz + s.nz * s.counter],
     [s.pitch * 0.42, COUNTER_TOP * 0.5, 0.28], s.frameColor, { rotationY: yawFromDir(s.tx, s.tz) },
   );
+  obstacles.push({ x: s.cx + s.nx * s.counter, z: s.cz + s.nz * s.counter, tx: s.tx, tz: s.tz,
+    halfAlong: s.pitch * 0.42, halfAcross: 0.28, minY: GROUND_Y, maxY: GROUND_Y + COUNTER_TOP, kind: 'market-counter' });
 }
 
 /** Crates and sacks under the counter. `stack` puts the second crate on the first. */
@@ -245,20 +257,29 @@ function bakeCloth(bld: MeshBuilder, c: MarketCloth): void {
  * `bld` and `ctx.builder` are the same builder; the parameter is spelled out
  * because the signature has to match every other ground baker.
  */
-export function bakeMarketDetail(bld: MeshBuilder, ctx: GroundBakeCtx): void {
-  if (ctx.lod >= MARKET_LOD_GONE) return;
+export interface MarketBakeResult { stalls: MarketStall[]; obstacles: CrowdObstacle[]; }
+export interface MarketBakeState { stalls: Set<string>; strings: Set<string>; cloth: Set<string>; }
+export const marketBakeState = (): MarketBakeState => ({ stalls: new Set(), strings: new Set(), cloth: new Set() });
+export function bakeMarketDetail(bld: MeshBuilder, ctx: GroundBakeCtx, emitted = marketBakeState()): MarketBakeResult {
+  const result: MarketBakeResult = { stalls: [], obstacles: [] };
+  if (ctx.lod >= MARKET_LOD_GONE) return result;
   const desc = marketGrammarFor({
     seed: ctx.seed, plan: ctx.plan, chunk: ctx.chunk,
     kind: ctx.frame.kind, districtId: ctx.frame.districtId,
   });
-  if (desc.stalls.length === 0 && desc.strings.length === 0) return;
+  if (desc.stalls.length === 0 && desc.strings.length === 0) return result;
 
   const detailed = ctx.lod <= RIGGING_LOD;
   for (const s of desc.stalls) {
     if (s.lod < ctx.lod) continue;
+    const key = `${s.along}:${s.side}`;
+    if (emitted.stalls.has(key)) continue;
+    emitted.stalls.add(key);
+    result.stalls.push(s);
     bakeCanopy(bld, s);
     // A `bare` stall is a counter and crates in the open: no roof and no frame.
-    if (detailed && s.module !== 'bare') bakeRigging(bld, s);
+    if (detailed && s.module !== 'bare') bakeRigging(bld, s, result.obstacles);
+    if (detailed) bakeCounter(bld, s, result.obstacles);
     // Crates ride the counter, not the floor, so a stack reads as goods on a
     // table rather than as a heap in the road.
     let ground = GROUND_Y + COUNTER_TOP;
@@ -274,14 +295,18 @@ export function bakeMarketDetail(bld: MeshBuilder, ctx: GroundBakeCtx): void {
 
   for (const str of desc.strings) {
     if (str.lod < ctx.lod) continue;
+    const key = `${str.along}:${str.a.join(',')}:${str.b.join(',')}`;
+    if (emitted.strings.has(key)) continue;
+    emitted.strings.add(key);
     bakeLanternString(bld, str);
   }
 
   for (const c of desc.cloth) {
     if (c.lod < ctx.lod) continue;
+    const key = c.pos.join(',');
+    if (emitted.cloth.has(key)) continue;
+    emitted.cloth.add(key);
     bakeCloth(bld, c);
   }
-
-
+  return result;
 }
-

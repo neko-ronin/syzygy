@@ -15,8 +15,7 @@
 
 import { GPUContext } from '../core/gpu';
 import {
-  mat4 as m4, mat4identity as m4identity, m4invert, m4lookAt, m4mul,
-  m4perspectiveReverseZ, type Mat4, type Vec3,
+  mat4 as m4, mat4identity as m4identity, m4invert, m4mul, type Mat4, type Vec3,
 } from '../core/math';
 import { defaultWorld, fovOf, sunDirection, type WorldState } from '../core/state';
 import {
@@ -35,6 +34,8 @@ import {
 import { City, defaultCityConfig, type CityChunk } from '../world/citygen';
 import type { FlightCamera } from '../camera/camera';
 import type { Mesh } from '../world/geometry';
+import { FramePerf } from './perf';
+import { writeCaptureProjection } from './captureprojection';
 
 // ---------------------------------------------------------------- quality
 
@@ -81,6 +82,9 @@ interface RenderTargets {
 }
 
 interface ChunkEntry {
+  obstacles: BakedChunk['obstacles'];
+  marketStalls: BakedChunk['marketStalls'];
+  version: number;
   cx: number; cz: number;
   /** Detail level this mesh was baked at. Recorded so a rebake can be audited. */
   lod: number;
@@ -96,10 +100,9 @@ interface ChunkEntry {
 
 export interface RendererStats {
   /**
-   * Wall-clock milliseconds between frame starts. This includes GPU execution,
-   * because the loop is driven by presentation: if the GPU is the bottleneck
-   * the next rAF simply arrives late. This is the number a governor must act
-   * on. `cpuEncodeMs` is the JS-side encode cost and is NOT a frame time.
+   * Smoothed wall-clock milliseconds between encoded-frame stat publications.
+   * Includes queue pacing, JS work and callback scheduling. It is neither GPU
+   * execution time nor measured display presentation. `cpuEncodeMs` is JS work.
    */
   frameMs: number;
   cpuEncodeMs: number;
@@ -266,6 +269,10 @@ export interface CapturePhases {
 }
 
 export class Renderer {
+  readonly perf = new FramePerf();
+  private captureFrozen = false;
+  private residencyRevision = 0;
+  private obstacleCache: { revision: number; obstacles: BakedChunk['obstacles'] } = { revision: -1, obstacles: [] };
   readonly gpu: GPUContext;
   readonly city: City;
   readonly world: WorldState;
@@ -759,6 +766,19 @@ export class Renderer {
 
   get settings(): QualitySettings { return { tier: this.quality, ...this.q }; }
 
+  performanceMetadata() {
+    const canvas = this.gpu.canvas;
+    const rect = canvas.getBoundingClientRect();
+    return {
+      adapter: this.gpu.caps.adapterInfo, features: [...this.gpu.device.features],
+      viewport: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio },
+      canvas: { width: canvas.width, height: canvas.height, cssWidth: rect.width, cssHeight: rect.height },
+      internal: { width: this.targetsW, height: this.targetsH }, settings: this.settings,
+      city: { chunkSize: this.city.cfg.chunkSize, radiusChunks: this.city.cfg.radiusChunks, finite: true },
+      gpuTiming: 'unavailable: timestamp ring not attached to frame passes',
+    };
+  }
+
   private resize(): void {
     const { w, h } = this.gpu.resize(this.q.renderScale);
     if (w === this.targetsW && h === this.targetsH && this.targets) return;
@@ -834,8 +854,7 @@ export class Renderer {
     const d = this.frameData;
     const w = this.world;
     const near = 0.1;
-    m4lookAt(this.view, cam.position, cam.lookTarget, upFromRoll(cam.roll));
-    m4perspectiveReverseZ(this.proj, fovOf(w), this.targetsW / Math.max(1, this.targetsH), near, Infinity);
+    writeCaptureProjection(this.view, this.proj, cam.position, cam.lookTarget, cam.roll, fovOf(w), this.targetsW, this.targetsH);
     m4mul(this.viewProj, this.proj, this.view);
     m4invert(this.invViewProj, this.viewProj);
     const prev = this.prevViewProj;
@@ -947,6 +966,7 @@ export class Renderer {
    * budget is overrun by design and 4ms is a target, not a cap. Measured below.
    */
   private streamChunks(cam: FlightCamera): void {
+    if (this.captureFrozen) return;
     const cfg = this.city.cfg;
     const cs = cfg.chunkSize;
     const pcx = Math.floor(cam.position[0] / cs);
@@ -1069,6 +1089,7 @@ export class Renderer {
       baked.boundsMax[2] - baked.boundsMin[2],
     );
     this.chunks.set(key, {
+      obstacles: baked.obstacles, marketStalls: baked.marketStalls, version: ++this.residencyRevision,
       cx, cz, lod, mesh, foliage, lights: baked.lights, radius, centre, lastUsed: this.frameIndex,
       marketProduced: baked.marketLights?.produced ?? 0,
     });
@@ -1084,6 +1105,7 @@ export class Renderer {
       destroyMesh(e.mesh);
       destroyMesh(e.foliage);
       this.chunks.delete(key);
+      this.residencyRevision++;
       // Drop the eviction hook too, or a chunk that streams back in later finds
       // its key already latched in `rebakeQueued` and never gets re-baked.
       this.rebakeQueued.delete(key);
@@ -1243,7 +1265,10 @@ export class Renderer {
     // light appears or disappears, which is exactly when it matters.
     const lightCount = this.gatherLights(cam);
     this.writeFrameUniforms(cam);
+    const streamStart = performance.now();
     this.streamChunks(cam);
+    const streamMs = performance.now() - streamStart;
+    this.perf.cpu('stream', streamMs);
 
     const enc = this.gpu.device.createCommandEncoder({ label: 'frame' });
     this.recordShadow(enc, cam);
@@ -1256,6 +1281,7 @@ export class Renderer {
 
     this.frameIndex++;
     const cpu = performance.now() - t0;
+    this.perf.cpu('encode', Math.max(0, cpu - streamMs));
     this.lastCpu = this.lastCpu * 0.9 + cpu * 0.1;
     this.frameTimes.push(cpu);
     if (this.frameTimes.length > 60) this.frameTimes.shift();
@@ -1278,11 +1304,15 @@ export class Renderer {
     const q = this.gpu.device.queue;
     this.framesInFlight++;
     this.lastSubmitAt = performance.now();
+    const serial = this.perf.submitted(this.lastSubmitAt);
     void q.onSubmittedWorkDone().then(
-      () => { this.framesInFlight = Math.max(0, this.framesInFlight - 1); },
+      () => {
+        this.perf.completed(serial);
+        this.framesInFlight = Math.max(0, this.framesInFlight - 1);
+      },
       // Device lost or the queue torn down: never let the counter latch at the
       // cap, which would stop the app drawing for the rest of the session.
-      () => { this.framesInFlight = 0; },
+      () => { this.perf.failed(serial); this.framesInFlight = 0; },
     );
   }
 
@@ -1297,9 +1327,9 @@ export class Renderer {
    *                   GPU execution is not included, and cannot be: submit is
    *                   asynchronous, so it returns before the GPU has drawn a
    *                   pixel. On a GPU-bound frame this is near zero.
-   *   `frameMs`      — wall-clock between consecutive frame starts. The loop is
-   *                   driven by presentation, so a GPU-bound frame shows up here
-   *                   as a late rAF. This is the frame time.
+   *   `frameMs`      — smoothed wall-clock between encoded-frame publications.
+   *                   Includes queue pacing and callback scheduling; it is not
+   *                   measured display presentation or GPU execution time.
    */
   private publishStats(gbufferDraws: number, cam?: FlightCamera): void {
     const c = this.counter;
@@ -1384,7 +1414,8 @@ export class Renderer {
     const w = this.world;
     w.perf.frameMs = s.frameMs;
     w.perf.cpuMs = s.cpuEncodeMs;
-    w.perf.gpuMs = Math.max(0, s.frameMs - s.cpuEncodeMs);
+    w.perf.gpuMs = null;
+    w.perf.gpuMsSource = 'unavailable';
     w.perf.fps = s.fps;
     w.perf.drawCalls = s.drawCalls;
     w.perf.triangles = s.triangles;
@@ -2184,6 +2215,64 @@ export class Renderer {
   get entityGeometry() { return this.entities; }
   get instanceBuffer() { return this.instBuf; }
   get groundMesh() { return this.ground; }
+  freezeCaptureResidency(): void { this.captureFrozen = true; }
+  get submittedFrames(): number { return this.frameIndex; }
+  captureResidency() {
+    return [...this.chunks.values()].map((c) => ({ cx: c.cx, cz: c.cz, lod: c.lod, version: c.version }))
+      .sort((a, b) => a.cx - b.cx || a.cz - b.cz);
+  }
+  captureMatrices() { return { view: Array.from(this.view), projection: Array.from(this.proj), viewProjection: Array.from(this.viewProj) }; }
+  expectedCaptureMatrices(pose: { position: Vec3; lookAt: Vec3; roll: number }, lens: WorldState['lens']) {
+    const view = m4(), projection = m4(), viewProjection = m4();
+    writeCaptureProjection(view, projection, pose.position, pose.lookAt, pose.roll, lens.fov + (lens._fovOffset ?? 0), this.targetsW, this.targetsH);
+    m4mul(viewProjection, projection, view);
+    return { view: Array.from(view), projection: Array.from(projection), viewProjection: Array.from(viewProjection) };
+  }
+  /** Diagnostic replay only; synchronous exact residency is not a streaming benchmark. */
+  async replayCaptureResidency(saved: readonly { cx: number; cz: number; lod: number }[]): Promise<void> {
+    if (!this.captureFrozen) throw new Error('residency replay requires a frozen capture');
+    const wanted = new Map<string, typeof saved[number]>();
+    for (const item of saved) {
+      if (![item.cx, item.cz, item.lod].every(Number.isInteger) || item.lod < 0 || item.lod > 3) throw new Error('invalid saved residency');
+      const key = this.chunkKey(item.cx, item.cz);
+      if (wanted.has(key) || !this.city.getChunk(item.cx, item.cz)) throw new Error(`invalid or duplicate saved chunk ${key}`);
+      wanted.set(key, item);
+    }
+    await this.gpu.device.queue.onSubmittedWorkDone();
+    for (const [key, entry] of this.chunks) {
+      if (wanted.has(key)) continue;
+      destroyMesh(entry.mesh); destroyMesh(entry.foliage);
+      this.chunks.delete(key);
+      this.residencyRevision++;
+    }
+    for (const [key, item] of wanted) {
+      if (this.chunks.get(key)?.lod === item.lod) continue;
+      const chunk = this.city.getChunk(item.cx, item.cz)!;
+      this.uploadChunk(item.cx, item.cz, bakeChunk(chunk, item.lod, this.world.seed), item.lod);
+    }
+    const signature = (entries: readonly { cx: number; cz: number; lod: number }[]) => JSON.stringify(
+      entries.map(({ cx, cz, lod }) => ({ cx, cz, lod })).sort((a, b) => a.cx - b.cx || a.cz - b.cz));
+    if (signature(this.captureResidency()) !== signature(saved)) throw new Error('residency replay did not reproduce saved keys and LODs');
+  }
+  crowdObstacles() {
+    if (this.obstacleCache.revision !== this.residencyRevision) {
+      this.obstacleCache = { revision: this.residencyRevision, obstacles: [...this.chunks.values()].flatMap((c) => c.obstacles) };
+    }
+    return this.obstacleCache;
+  }
+  /** Initialise both histories alike after a capture phase cut, without rewinding telemetry. */
+  resetTemporalHistory(): void {
+    if (!this.targets) return;
+    this.prevViewProj.set(this.viewProj);
+    const enc = this.gpu.device.createCommandEncoder({ label: 'reset-capture-history' });
+    for (const view of this.targets.taaView) {
+      const pass = enc.beginRenderPass({ colorAttachments: [{
+        view, clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: 'clear', storeOp: 'store',
+      }] });
+      pass.end();
+    }
+    this.gpu.device.queue.submit([enc.finish()]);
+  }
   /** Detail level a resident chunk was baked at, or -1 if it is not resident. */
   chunkLod(cx: number, cz: number): number {
     return this.chunks.get(this.chunkKey(cx, cz))?.lod ?? -1;
@@ -2194,10 +2283,6 @@ export class Renderer {
     return [Math.floor(pos[0] / cs), Math.floor(pos[2] / cs)];
   }
   get frameUboSize() { return FRAME_UNIFORM_SIZE; }
-}
-
-function upFromRoll(roll: number): Vec3 {
-  return [Math.sin(roll), Math.cos(roll), 0];
 }
 
 /** IEEE-754 half -> float, for readback of rgba16float targets. */

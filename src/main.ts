@@ -10,7 +10,7 @@
  */
 
 import { GPUContext } from './core/gpu';
-import { clamp } from './core/math';
+import { clamp, type Vec3 } from './core/math';
 import { defaultWorld, integrateWorld, sunDirection, type WorldState } from './core/state';
 import { Renderer, type QualityTier, type RendererStats } from './render/renderer';
 import { FlightCamera } from './camera/camera';
@@ -21,11 +21,12 @@ import { CrowdSim } from './sim/crowd';
 import { TrafficSim, buildVehicleInstances, makeVehicleInstances } from './sim/traffic';
 import { WeatherDirector } from './sim/weather';
 import {
-  derivePose, deriveTrafficPose, poseIsHeld,
+  derivePose, deriveTrafficPose, deriveHeroWalk, poseIsHeld,
   type DerivedPoseId, type DerivedPoseResult,
   type TrafficPoseId, type TrafficPoseResult,
 } from './world/diagnosticposes';
-import { INSTANCE_FLOATS } from './render/citymesh';
+import { INSTANCE_FLOATS, bakeChunk } from './render/citymesh';
+import { accountEntityTriangles } from './render/perf';
 
 // ---------------------------------------------------------------- dom
 
@@ -244,7 +245,7 @@ class App {
     let stall = 0;
     let stopped: WarmReport['stopped'] = 'tick-cap';
     for (; ticks < maxTicks; ticks++) {
-      this.tick(performance.now());
+      this.tick(performance.now(), false);
       const s = this.renderer.stats;
       if (s.residentChunks >= target && s.rebakePending === 0) { stopped = 'target'; break; }
       if (performance.now() - t0 > maxMs) { stopped = 'ms-cap'; break; }
@@ -392,8 +393,9 @@ class App {
 
   // ---------------------------------------------------------------- loop
 
-  private tick = (now: number): void => {
+  private tick = (now: number, isAnimationFrame = true): void => {
     if (!this.running) return;
+    if (isAnimationFrame) this.renderer.perf.raf(now);
     requestAnimationFrame(this.tick);
 
     let dt = (now - this.last) / 1000;
@@ -401,6 +403,7 @@ class App {
     // Clamp so an alt-tab or a long GC pause does not teleport the sim.
     dt = Math.min(dt, 1 / 15);
 
+    const simStart = performance.now();
     if (!this.world.paused) {
       this.input.beginFrame(dt);
       // Any deliberate manual input cancels an authored flight.
@@ -417,11 +420,14 @@ class App {
       const simDt = dt * this.world.timeScale;
       integrateWorld(this.world, simDt);
       this.weather.update(simDt);
+      const blockers = this.renderer.crowdObstacles();
+      this.crowd.setStaticObstacles(blockers.obstacles, blockers.revision);
       this.crowd.update(simDt, { position: this.camera.position, lookAt: this.camera.lookTarget }, this.world);
       this.traffic.update(simDt, this.world);
       this.input.setFov(this.camera.fov);
       this.input.endFrame();
     }
+    this.renderer.perf.cpu('simulation', performance.now() - simStart);
 
     // Entities are drawn inside the G-buffer so they get shadows, fog and
     // deferred lighting for free.
@@ -445,6 +451,7 @@ class App {
     this.entityScratch.set(vehicles.data.subarray(0, vehicles.count * INSTANCE_FLOATS), ped.count * INSTANCE_FLOATS);
     this.entityCopyMs = performance.now() - copyT0;
 
+    this.pendingEntityTris = 0;
     this.renderer.pendingEntities = (p) => {
       this.renderer.uploadInstances(this.entityScratch, total);
       this.pendingEntityTris = this.drawEntityBlock(p, 'pedestrian', ped.count, 0);
@@ -452,14 +459,14 @@ class App {
         this.pendingEntityTris += this.drawEntityBlock(p, b.mesh, b.count, ped.count + b.start);
       }
     };
+    const beforeSubmission = this.renderer.submittedFrames;
     this.renderer.render(this.camera, dt);
     // The draws above bypass `drawEntitySet`, so they never reach
     // `renderer.counter.entityTris` and `stats.triangles` would silently
     // under-report. Add them once, from the counts the draws were issued with —
     // the same number `drawEntitySet` would have added. This disappears when
     // `drawEntitySet` takes an instance offset; see docs/TRAFFIC_REPORT.md.
-    this.renderer.stats.triangles += this.pendingEntityTris;
-    this.renderer.stats.entityTriangles += this.pendingEntityTris;
+    accountEntityTriangles(this.renderer.stats, this.pendingEntityTris, beforeSubmission, this.renderer.submittedFrames);
     this.frameCount++;
 
     if (this.screenshotRequested) {
@@ -733,6 +740,73 @@ class App {
        * console print names is therefore the pose the renderer used.
        */
       pose: (id: string) => app.pose(id as DerivedPoseId),
+      /** Resolve the hero once, evaluating missing spine chunks explicitly. */
+      heroWalk: () => {
+        const city = app.renderer.city;
+        const first = deriveHeroWalk(city.plan, app.world.seed, []);
+        if (first.ok) return first;
+        const chunks = first.chunksMissing.flatMap((key) => {
+          const [cx, cz] = key.split(',').map(Number);
+          const chunk = city.getChunk(cx, cz);
+          return chunk ? [chunk] : [];
+        });
+        const emissions = new Map(chunks.map((c) => [`${c.cx},${c.cz}`, bakeChunk(c, 0, app.world.seed).marketStalls]));
+        return deriveHeroWalk(city.plan, app.world.seed, chunks, emissions);
+      },
+      /** Pause simulation while still presenting frames for GPU readback. */
+      freezeCapture: () => { app.world.paused = true; app.renderer.freezeCaptureResidency(); },
+      submittedFrames: () => app.renderer.submittedFrames,
+      performanceSnapshot: () => app.renderer.perf.snapshot(),
+      performanceReset: () => app.renderer.perf.reset(),
+      performanceMetadata: () => ({ ...app.renderer.performanceMetadata(), qualityOverride: app.qualityOverride }),
+      setPaused: (paused: boolean) => { app.world.paused = paused; },
+      flyTo: (options: Parameters<FlightCamera['flyTo']>[0]) => app.camera.flyTo(options),
+      captureScene: () => ({
+        time: app.world.time,
+        residency: app.renderer.captureResidency(),
+        camera: { position: app.camera.position.slice(), lookAt: app.camera.lookTarget.slice(), roll: app.camera.roll, fov: app.camera.fov },
+        cameraRendered: app.camera.getPose(),
+        cameraMatrices: app.renderer.captureMatrices(),
+        lens: structuredClone(app.world.lens),
+        weather: structuredClone(app.world.weather),
+        crowd: Array.from(app.crowd.instances.data.subarray(0, app.crowd.instances.count * INSTANCE_FLOATS)),
+        crowdCount: app.crowd.instances.count,
+        vehicles: structuredClone(app.traffic.vehicles),
+        trafficLights: structuredClone(app.traffic.lights),
+      }),
+      expectedCaptureMatrices: (scene: { camera: { position: Vec3; lookAt: Vec3; roll: number }; lens: WorldState['lens'] }) =>
+        app.renderer.expectedCaptureMatrices(scene.camera, scene.lens),
+      /** Replay saved render poses for a material control; never resume this snapshot as a simulation. */
+      replayCaptureScene: async (scene: {
+        time: number; camera: Parameters<FlightCamera['setPose']>[0];
+        lens: WorldState['lens']; weather: WorldState['weather']; crowd: number[]; crowdCount: number;
+        vehicles: TrafficSim['vehicles']; trafficLights: TrafficSim['lights'];
+        residency: { cx: number; cz: number; lod: number }[];
+      }) => {
+        if (!app.world.paused) throw new Error('replay requires a frozen capture');
+        if (scene.crowd.length !== scene.crowdCount * INSTANCE_FLOATS || scene.crowd.length > app.crowd.instances.data.length) throw new Error('invalid saved actor buffer');
+        await app.renderer.replayCaptureResidency(scene.residency);
+        app.world.time = scene.time;
+        Object.assign(app.world.lens, structuredClone(scene.lens));
+        Object.assign(app.world.weather, structuredClone(scene.weather));
+        app.camera.setPose(scene.camera);
+        app.crowd.instances.data.set(scene.crowd);
+        app.crowd.instances.count = scene.crowdCount;
+        app.traffic.vehicles = structuredClone(scene.vehicles);
+        app.traffic.lights = structuredClone(scene.trafficLights);
+      },
+      /** Phase changes sun/sky and normal authored lamps; scene and grade stay held. */
+      capturePhase: (phase: string, scene: { weather: WorldState['weather']; lens: WorldState['lens'] }) => {
+        if (!app.world.paused) throw new Error('capturePhase requires a frozen scene');
+        app.weather.setPhase(phase);
+        app.weather.snap();
+        app.world.sun.azimuth = app.weather.targetSunState.azimuth;
+        const sky = app.world.weather.sky;
+        Object.assign(app.world.weather, structuredClone(scene.weather), { sky });
+        Object.assign(app.world.lens, structuredClone(scene.lens));
+        app.world.dayPhase = clamp((app.world.sun.elevation + 0.35) / 1.5, 0, 1);
+        app.renderer.resetTemporalHistory();
+      },
       /** Derive a pose from live traffic, then hand it to `setPose`. */
       trafficPose: (id: string) => app.trafficPose(id as TrafficPoseId),
       /** Synchronous streaming warm-up. `__syzygy.warm()` after `setPose`. */
@@ -753,8 +827,9 @@ class App {
        * before reading the counters back.
        */
       setCrowdCount: (n: number) => {
+        // Zero also caps seeding; clearPopulation alone refills within frames.
+        app.crowd.setCount(Math.max(0, n | 0));
         if ((n | 0) <= 0) app.crowd.clearPopulation();
-        else app.crowd.setCount(n | 0);
       },
       setPose: (pose: {
         position?: [number, number, number]; lookAt?: [number, number, number];
@@ -817,7 +892,7 @@ class App {
         if (!img) return null;
         return { w: img.width, h: img.height, d: Array.from(img.data) };
       },
-      step: (n: number) => { for (let i = 0; i < n; i++) app.tick(performance.now()); },
+      step: (n: number) => { for (let i = 0; i < n; i++) app.tick(performance.now(), false); },
       capture: () => app.refreshCapture(),
       probe: (t: string) => app.renderer.probe(t as never),
       camPos: () => app.camera.position.slice() as [number, number, number],

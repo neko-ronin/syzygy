@@ -7,7 +7,7 @@
  * carries `rgb + emissive` (the 4th component is an emissive mask, not alpha).
  */
 
-import { v3cross, v3len, v3norm, v3perp, v3sub, type Vec2, type Vec3 } from '../core/math';
+import { v3add, v3cross, v3dot, v3len, v3norm, v3perp, v3sub, type Vec2, type Vec3 } from '../core/math';
 
 /** Uploadable triangle soup with per-vertex colour and tangent-space UVs. */
 export interface Mesh {
@@ -28,6 +28,8 @@ export const FACE_PX = 1, FACE_NX = 2, FACE_PY = 4, FACE_NY = 8, FACE_PZ = 16, F
 export const FACE_ALL = FACE_PX | FACE_NX | FACE_PY | FACE_NY | FACE_PZ | FACE_NZ;
 
 export interface MeshOpts {
+  /** Negative authored ground metadata in the otherwise non-emissive mask slot. */
+  surfaceTag?: number;
   /** 0..N additive emissive mask written to the colour alpha. */
   emissive?: number;
   /** UV repeats per metre. Default 1. */
@@ -96,6 +98,16 @@ export class MeshBuilder {
   get indexCount(): number { return this.idx.length; }
   get triangleCount(): number { return this.idx.length / 3; }
 
+  /** Bounds of geometry actually emitted since a component began. */
+  boundsSince(firstVertex: number): [Vec3, Vec3] | null {
+    if (firstVertex >= this.vcount) return null;
+    const lo: Vec3 = [Infinity, Infinity, Infinity], hi: Vec3 = [-Infinity, -Infinity, -Infinity];
+    for (let i = firstVertex * 3; i < this.pos.length; i += 3) {
+      for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], this.pos[i + k]); hi[k] = Math.max(hi[k], this.pos[i + k]); }
+    }
+    return [lo, hi];
+  }
+
   private vert(p: Vec3, n: Vec3, u: number, v: number, color: Vec3, e: number): void {
     this.pos.push(p[0], p[1], p[2]);
     this.nrm.push(n[0], n[1], n[2]);
@@ -112,7 +124,7 @@ export class MeshBuilder {
 
   /** Four corners in CCW order viewed from the front. */
   pushQuad(a: Vec3, b: Vec3, c: Vec3, d: Vec3, color: Vec3, uvScale = 1, opts: MeshOpts = DEF_OPTS): void {
-    const e = opts.emissive ?? 0;
+    const e = opts.surfaceTag ?? opts.emissive ?? 0;
     const n = opts.normals
       ? undefined
       : v3norm(cross3(v3sub(b, a), v3sub(d, a)));
@@ -133,7 +145,18 @@ export class MeshBuilder {
       this.vert(c, nn, uo + e1, e2, color, e);
       this.vert(d, nn, uo, e2, color, e);
     }
-    this.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    // Explicit normals decide the visible side; winding must agree or the
+    // back-face cull hides it. Street bands traced for side = +/-1 shared one
+    // vertex order, so half of every footway, kerb and gutter was culled.
+    // Per triangle, because a quad folded at a bend has halves facing apart.
+    const ns = opts.normals;
+    const away = (p: Vec3, q: Vec3, r: Vec3, n: Vec3): boolean =>
+      !!ns && v3dot(cross3(v3sub(q, p), v3sub(r, p)), n) < 0;
+    const n0 = ns ? v3add(ns[0], ns[2]) : [0, 0, 0] as Vec3;
+    if (away(a, b, c, n0)) this.idx.push(base, base + 2, base + 1);
+    else this.idx.push(base, base + 1, base + 2);
+    if (away(a, c, d, n0)) this.idx.push(base, base + 3, base + 2);
+    else this.idx.push(base, base + 2, base + 3);
   }
 
   /** Axis-aligned (optionally yawed) box. UVs are metres-per-texel consistent. */

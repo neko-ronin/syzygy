@@ -29,6 +29,9 @@
  *   # extract a reference frame and put it in the strip
  *   node tools/compare.mjs --latest --ref dreamscape-05@12
  *
+ *   # a saved before/after pair, without replacing shots/baseline/
+ *   node tools/compare.mjs --current=shots/after --baseline=shots/before --auto
+ *
  * ffmpeg in this environment has no drawtext filter, so columns are not
  * labelled in-image. The order above is the contract; a .txt sidecar is written
  * beside the output naming each column.
@@ -103,6 +106,7 @@ function haveFfmpeg() {
 function runDirs() {
   if (!existsSync(SHOTS)) return [];
   return readdirSync(SHOTS)
+    .filter((d) => /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}$/.test(d))
     .filter((d) => !['baseline', 'reference', 'compare'].includes(d))
     .filter((d) => statSync(join(SHOTS, d)).isDirectory())
     .sort();
@@ -147,8 +151,15 @@ async function main() {
   }
 
   const only = argv.filter((a) => a.startsWith('--pose=')).map((a) => a.slice(7));
-  const currentDir = latestRunDir();
-  const baseDir = join(SHOTS, 'baseline');
+  const currentArg = val('--current');
+  const baselineArg = val('--baseline');
+  const currentDir = currentArg ? resolve(ROOT, currentArg) : latestRunDir();
+  const baseDir = baselineArg ? resolve(ROOT, baselineArg) : join(SHOTS, 'baseline');
+  for (const [flag, requested, path] of [['--current', currentArg, currentDir], ['--baseline', baselineArg, baseDir]]) {
+    if (requested !== null && (!path || !existsSync(path) || !statSync(path).isDirectory())) {
+      throw new Error(`${flag} directory does not exist: ${path ?? requested}`);
+    }
+  }
   const refPath = refSpec ? await referenceFrame(refSpec) : null;
 
   // How a row picks its reference. Three modes, in precedence order:
@@ -331,7 +342,8 @@ async function main() {
   ]);
 
   writeFileSync(outTxt,
-    `columns, left to right: ${cols.join('  |  ')}\n\n${legend.join('\n')}\n`);
+    `columns, left to right: ${cols.join('  |  ')}\n` +
+    `baseline directory: ${hasBaseline ? baseDir : '(none)'}\ncurrent directory: ${currentDir}\n\n${legend.join('\n')}\n`);
 
   console.log('');
   console.log(`  rows     ${poses.length}`);

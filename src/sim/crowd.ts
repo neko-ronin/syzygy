@@ -20,6 +20,8 @@ import {
 } from '../world/citygen';
 import { NavGraph, type NavNode } from '../world/networks';
 import { MAT, INSTANCE_FLOATS } from '../render/citymesh';
+import { PEDESTRIAN_RADIUS, PEDESTRIAN_HEIGHT, type CrowdObstacle } from '../world/crowdobstacles';
+import { WalkingSurfaceIndex, type WalkingSurfaceTriangles } from '../world/walkingsurfaces';
 import {
   districtAt, districtField, districtPaletteLinear, districtStyle, spineHit, spinePoint,
   type ResolvedPalette, type SpineHit,
@@ -27,16 +29,15 @@ import {
 
 const MAX_DT = 1 / 15;
 
-/**
- * Radius, metres, of the neighbour query separation actually uses.
- *
- * Sized so the query returns fewer bodies than the buffer holds: with 2 m cells
- * at the measured ~14 agents/m^2 a cell holds ~56, and a 1 m radius spans about
- * 4 cells, so the nearest neighbours are actually in the list. A wider query
- * re-saturates the buffer and separation goes back to steering against
- * strangers. Bodies do not collide at 3 m; they collide at shoulder width.
- */
+/** Only local bodies influence steering; the buffer keeps the true closest. */
 const SEP_RADIUS = 1.0;
+const NEAREST_COUNT = 32;
+/** The rendered mesh must fit this disc for clearance to mean body clearance. */
+const BODY_RADIUS = PEDESTRIAN_RADIUS;
+const BODY_SEPARATION = BODY_RADIUS * 2;
+/** Leave clearance for Float32 position rounding after a continuous sweep. */
+const CONTACT_SEPARATION = BODY_SEPARATION + 0.001;
+const BODY_HEIGHT = PEDESTRIAN_HEIGHT;
 /**
  * Ceiling on the pavement hold's correction, m/s.
  *
@@ -126,93 +127,270 @@ export interface CrowdInstanceView { data: Float32Array; count: number; }
 
 // ---------------------------------------------------------------- grid
 
-/**
- * Uniform spatial hash. Rebuilt on a stagger so the cost is amortised: each
- * frame rebuilds one seventh of the cells, which is imperceptible and keeps
- * the frame budget flat.
- */
+/** Local linked cells. Membership follows each committed movement this frame. */
 class HashGrid {
-  cellSize = 8;
+  cellSize = 2;
   originX = 0;
   originZ = 0;
   dimX = 1;
   dimZ = 1;
-  private counts: Int32Array = new Int32Array(1);
-  private starts: Int32Array = new Int32Array(1);
-  private items: Int32Array = new Int32Array(1);
-  /** Per-cell occupancy, refreshed by the compute pass and mirrored here. */
-  occupancy: Int32Array = new Int32Array(1);
+  private heads = new Int32Array(1);
+  private next = new Int32Array(0);
+  private prev = new Int32Array(0);
+  private cells = new Int32Array(0);
+  private f: Float32Array = new Float32Array(0);
+  private distances = new Float64Array(NEAREST_COUNT);
+  occupancy = new Int32Array(1);
+  maxCandidates = 0;
 
   configure(centre: Vec3, radius: number): void {
-    // 2 m cells, not 8 m. Measured: at 8 m and ~14 agents/m^2 a single cell
-    // holds ~900 bodies, so a 256-entry buffer fills in arbitrary storage
-    // order and the nearest neighbour is almost never in it — separation was
-    // steering bodies apart from strangers 3.4 m away while bodies at zero
-    // distance were absent, for 100% of agents. At 2 m a cell holds ~56, so a
-    // small-radius query returns the neighbours that actually matter. This is
-    // a query-resolution fix, not a tuning change.
-    const cs = 2;
-    const dim = Math.max(1, Math.min(256, Math.ceil((radius * 2) / cs) + 1));
-    if (dim !== this.dimX || cs !== this.cellSize) {
-      this.cellSize = cs;
-      this.dimX = dim;
-      this.dimZ = dim;
-      const n = dim * dim;
-      this.counts = new Int32Array(n + 1);
-      this.starts = new Int32Array(n + 1);
-      this.items = new Int32Array(n);
-      this.occupancy = new Int32Array(n);
+    const dim = Math.max(1, Math.ceil(radius * 2 / this.cellSize) + 1);
+    if (dim !== this.dimX) {
+      this.dimX = this.dimZ = dim;
+      this.heads = new Int32Array(dim * dim);
+      this.occupancy = new Int32Array(dim * dim);
     }
-    this.originX = centre[0] - (dim * cs) / 2;
-    this.originZ = centre[2] - (dim * cs) / 2;
+    this.originX = centre[0] - dim * this.cellSize * 0.5;
+    this.originZ = centre[2] - dim * this.cellSize * 0.5;
   }
 
   private cellOf(x: number, z: number): number {
-    const cx = clamp(((x - this.originX) / this.cellSize) | 0, 0, this.dimX - 1);
-    const cz = clamp(((z - this.originZ) / this.cellSize) | 0, 0, this.dimZ - 1);
+    const cx = clamp(Math.floor((x - this.originX) / this.cellSize), 0, this.dimX - 1);
+    const cz = clamp(Math.floor((z - this.originZ) / this.cellSize), 0, this.dimZ - 1);
     return cz * this.dimX + cx;
   }
 
-  /** Two-pass counting sort. O(n) with no allocation after construction. */
   build(f: Float32Array, ids: Int32Array, n: number): void {
-    this.counts.fill(0);
-    for (let i = 0; i < n; i++) {
-      if (f[i * F.LOCAL + F.active] < 0.5) continue;
-      this.counts[this.cellOf(f[i * F.LOCAL + F.x], f[i * F.LOCAL + F.z])]++;
+    this.f = f;
+    if (this.next.length < f.length / F.LOCAL) {
+      this.next = new Int32Array(f.length / F.LOCAL);
+      this.prev = new Int32Array(this.next.length);
+      this.cells = new Int32Array(this.next.length);
     }
-    // Prefix sum into `starts`, and reuse `counts` as the per-cell write cursor.
-    let run = 0;
-    for (let c = 0; c < this.counts.length; c++) {
-      this.occupancy[c] = this.counts[c];
-      this.starts[c] = run;
-      run += this.counts[c];
+    this.heads.fill(-1);
+    this.cells.fill(-1);
+    this.occupancy.fill(0);
+    this.maxCandidates = 0;
+    for (let k = 0; k < n; k++) {
+      const i = ids[k], o = i * F.LOCAL;
+      if (f[o + F.active] >= 0.5) this.insert(i, f[o + F.x], f[o + F.z]);
     }
-    this.starts[this.counts.length] = run;
-    for (let i = 0; i < n; i++) {
-      if (f[i * F.LOCAL + F.active] < 0.5) continue;
-      const c = this.cellOf(f[i * F.LOCAL + F.x], f[i * F.LOCAL + F.z]);
-      this.items[this.starts[c] + this.counts[c]++] = ids[i];
-    }
-    // `counts` is refilled with zeros at the top of the next build.
   }
 
-  /** Visit every agent within `r` cells of (x,z). Callback-free: use a loop. */
-  cellRange(x: number, z: number, r: number, out: Int32Array, max: number): number {
-    const cs = this.cellSize;
-    const x0 = clamp((((x - r) - this.originX) / cs) | 0, 0, this.dimX - 1);
-    const x1 = clamp((((x + r) - this.originX) / cs) | 0, 0, this.dimX - 1);
-    const z0 = clamp((((z - r) - this.originZ) / cs) | 0, 0, this.dimZ - 1);
-    const z1 = clamp((((z + r) - this.originZ) / cs) | 0, 0, this.dimZ - 1);
-    let n = 0;
-    for (let cz = z0; cz <= z1 && n < max; cz++) {
-      for (let cx = x0; cx <= x1 && n < max; cx++) {
-        const c = cz * this.dimX + cx;
-        const s = this.starts[c];
-        const e = this.starts[c + 1];
-        for (let i = s; i < e && n < max; i++) out[n++] = this.items[i];
+  remove(i: number): void {
+    const c = this.cells[i];
+    if (c < 0) return;
+    const before = this.prev[i], after = this.next[i];
+    if (before < 0) this.heads[c] = after; else this.next[before] = after;
+    if (after >= 0) this.prev[after] = before;
+    this.cells[i] = -1;
+    this.occupancy[c]--;
+  }
+
+  insert(i: number, x: number, z: number): void {
+    this.remove(i);
+    const c = this.cellOf(x, z), head = this.heads[c];
+    this.cells[i] = c;
+    this.prev[i] = -1;
+    this.next[i] = head;
+    if (head >= 0) this.prev[head] = i;
+    this.heads[c] = i;
+    this.occupancy[c]++;
+  }
+
+  move(i: number, x: number, z: number): void {
+    if (this.cells[i] !== this.cellOf(x, z)) this.insert(i, x, z);
+  }
+
+  /** Exact closest K inside a metric radius, ordered by distance then stable ID.
+   * Storage is bounded; candidate traversal is never truncated by storage order.
+   */
+  nearest(x: number, z: number, r: number, out: Int32Array, max: number, ignore = -1): number {
+    const limit = Math.min(max, out.length, this.distances.length);
+    if (limit <= 0) return 0;
+    const x0 = clamp(Math.floor((x - r - this.originX) / this.cellSize), 0, this.dimX - 1);
+    const x1 = clamp(Math.floor((x + r - this.originX) / this.cellSize), 0, this.dimX - 1);
+    const z0 = clamp(Math.floor((z - r - this.originZ) / this.cellSize), 0, this.dimZ - 1);
+    const z1 = clamp(Math.floor((z + r - this.originZ) / this.cellSize), 0, this.dimZ - 1);
+    const r2 = r * r, f = this.f;
+    let n = 0, candidates = 0;
+    for (let cz = z0; cz <= z1; cz++) for (let cx = x0; cx <= x1; cx++) {
+      for (let j = this.heads[cz * this.dimX + cx]; j >= 0; j = this.next[j]) {
+        if (j === ignore || f[j * F.LOCAL + F.active] < 0.5) continue;
+        candidates++;
+        const dx = x - f[j * F.LOCAL + F.x], dz = z - f[j * F.LOCAL + F.z];
+        const d2 = dx * dx + dz * dz;
+        if (d2 > r2) continue;
+        let at = n;
+        while (at > 0 && (d2 < this.distances[at - 1] ||
+          (d2 === this.distances[at - 1] && j < out[at - 1]))) at--;
+        if (at >= limit) continue;
+        const end = Math.min(n, limit - 1);
+        for (let k = end; k > at; k--) { out[k] = out[k - 1]; this.distances[k] = this.distances[k - 1]; }
+        out[at] = j;
+        this.distances[at] = d2;
+        n = Math.min(limit, n + 1);
       }
     }
+    this.maxCandidates = Math.max(this.maxCandidates, candidates);
     return n;
+  }
+
+  /** Sweep a disc against every body the segment can reach, without a K cap. */
+  sweep(i: number, x: number, z: number, dx: number, dz: number): number {
+    const a = dx * dx + dz * dz;
+    if (a < 1e-16) return 1;
+    const r = CONTACT_SEPARATION;
+    const x0 = clamp(Math.floor((Math.min(x, x + dx) - r - this.originX) / this.cellSize), 0, this.dimX - 1);
+    const x1 = clamp(Math.floor((Math.max(x, x + dx) + r - this.originX) / this.cellSize), 0, this.dimX - 1);
+    const z0 = clamp(Math.floor((Math.min(z, z + dz) - r - this.originZ) / this.cellSize), 0, this.dimZ - 1);
+    const z1 = clamp(Math.floor((Math.max(z, z + dz) + r - this.originZ) / this.cellSize), 0, this.dimZ - 1);
+    const f = this.f;
+    let fraction = 1;
+    for (let cz = z0; cz <= z1; cz++) for (let cx = x0; cx <= x1; cx++) {
+      for (let j = this.heads[cz * this.dimX + cx]; j >= 0; j = this.next[j]) {
+        if (j === i || f[j * F.LOCAL + F.active] < 0.5) continue;
+        if (Math.abs(f[i * F.LOCAL + F.y] - f[j * F.LOCAL + F.y]) > BODY_HEIGHT) continue;
+        const ox = x - f[j * F.LOCAL + F.x], oz = z - f[j * F.LOCAL + F.z];
+        const b = ox * dx + oz * dz;
+        if (b >= 0) continue;
+        const c = ox * ox + oz * oz - r * r;
+        // Existing penetrations may move outward, never deeper. Birth rejects
+        // occupied candidates, so this branch is for externally supplied state.
+        if (c <= 0) { fraction = 0; continue; }
+        const disc = b * b - a * c;
+        if (disc < 0) continue;
+        const t = (-b - Math.sqrt(disc)) / a;
+        if (t >= 0 && t < fraction) fraction = t;
+      }
+    }
+    return fraction;
+  }
+}
+
+/** Emitted solids indexed once per renderer revision, never regenerated here. */
+class ObstacleGrid {
+  private rows = new Map<number, Map<number, number[]>>();
+  private boxes: readonly CrowdObstacle[] = [];
+  private stamps = new Int32Array(0);
+  private stamp = 0;
+  private revision = -1;
+  private readonly cellSize = 8;
+
+  set(boxes: readonly CrowdObstacle[], revision: number): void {
+    if (revision === this.revision) return;
+    this.revision = revision;
+    this.boxes = boxes;
+    this.rows.clear();
+    this.stamps = new Int32Array(boxes.length);
+    for (let i = 0; i < boxes.length; i++) {
+      const b = boxes[i];
+      const ex = Math.abs(b.tx) * b.halfAlong + Math.abs(b.tz) * b.halfAcross + BODY_RADIUS;
+      const ez = Math.abs(b.tz) * b.halfAlong + Math.abs(b.tx) * b.halfAcross + BODY_RADIUS;
+      const x0 = Math.floor((b.x - ex) / this.cellSize), x1 = Math.floor((b.x + ex) / this.cellSize);
+      const z0 = Math.floor((b.z - ez) / this.cellSize), z1 = Math.floor((b.z + ez) / this.cellSize);
+      for (let cz = z0; cz <= z1; cz++) for (let cx = x0; cx <= x1; cx++) {
+        let row = this.rows.get(cz);
+        if (!row) { row = new Map(); this.rows.set(cz, row); }
+        let cell = row.get(cx);
+        if (!cell) { cell = []; row.set(cx, cell); }
+        cell.push(i);
+      }
+    }
+  }
+
+  /** Conservative disc/box sweep: expanded corners retain body clearance. */
+  sweep(x: number, z: number, y: number, dx: number, dz: number): number {
+    this.stamp++;
+    if (this.stamp >= 0x7fffffff) { this.stamps.fill(0); this.stamp = 1; }
+    const x0 = Math.floor(Math.min(x, x + dx) / this.cellSize), x1 = Math.floor(Math.max(x, x + dx) / this.cellSize);
+    const z0 = Math.floor(Math.min(z, z + dz) / this.cellSize), z1 = Math.floor(Math.max(z, z + dz) / this.cellSize);
+    let fraction = 1;
+    for (let cz = z0; cz <= z1; cz++) {
+      const row = this.rows.get(cz);
+      if (!row) continue;
+      for (let cx = x0; cx <= x1; cx++) {
+        const cell = row.get(cx);
+        if (!cell) continue;
+        for (let k = 0; k < cell.length; k++) {
+          const i = cell[k];
+          if (this.stamps[i] === this.stamp) continue;
+          this.stamps[i] = this.stamp;
+          const b = this.boxes[i];
+          if (y >= b.maxY || y + BODY_HEIGHT <= b.minY) continue;
+          const qx = (x - b.x) * b.tx + (z - b.z) * b.tz;
+          const qz = (x - b.x) * -b.tz + (z - b.z) * b.tx;
+          const vx = dx * b.tx + dz * b.tz, vz = dx * -b.tz + dz * b.tx;
+          const hx = b.halfAlong + BODY_RADIUS + 0.001, hz = b.halfAcross + BODY_RADIUS + 0.001;
+          if (Math.abs(qx) < hx && Math.abs(qz) < hz) {
+            // A newly streamed solid can surround an existing actor. Permit
+            // escape toward the nearest face; never pull it farther inside.
+            const along = hx - Math.abs(qx) < hz - Math.abs(qz);
+            const q = along ? qx : qz, v = along ? vx : vz;
+            if (q === 0 ? v === 0 : q * v <= 0) fraction = 0;
+            continue;
+          }
+          let enter = 0, exit = fraction;
+          if (Math.abs(vx) < 1e-12) { if (Math.abs(qx) >= hx) continue; }
+          else {
+            const a = (-hx - qx) / vx, c = (hx - qx) / vx;
+            enter = Math.max(enter, Math.min(a, c)); exit = Math.min(exit, Math.max(a, c));
+          }
+          if (Math.abs(vz) < 1e-12) { if (Math.abs(qz) >= hz) continue; }
+          else {
+            const a = (-hz - qz) / vz, c = (hz - qz) / vz;
+            enter = Math.max(enter, Math.min(a, c)); exit = Math.min(exit, Math.max(a, c));
+          }
+          if (enter <= exit && exit >= 0 && enter < fraction) fraction = Math.max(0, enter);
+        }
+      }
+    }
+    return fraction;
+  }
+
+  occupied(x: number, z: number, y: number): boolean {
+    const row = this.rows.get(Math.floor(z / this.cellSize));
+    const cell = row?.get(Math.floor(x / this.cellSize));
+    if (!cell) return false;
+    for (let k = 0; k < cell.length; k++) {
+      const b = this.boxes[cell[k]];
+      if (y >= b.maxY || y + BODY_HEIGHT <= b.minY) continue;
+      const qx = (x - b.x) * b.tx + (z - b.z) * b.tz;
+      const qz = (x - b.x) * -b.tz + (z - b.z) * b.tx;
+      if (Math.abs(qx) < b.halfAlong + BODY_RADIUS + 0.001 &&
+          Math.abs(qz) < b.halfAcross + BODY_RADIUS + 0.001) return true;
+    }
+    return false;
+  }
+
+  /** An arriving detail revision may reveal a solid around an existing body.
+   * Return a bounded local escape toward its nearest face, never a teleport.
+   */
+  recovery(x: number, z: number, y: number, maxStep: number, out: Float64Array): boolean {
+    if (maxStep <= 0) return false;
+    const cell = this.rows.get(Math.floor(z / this.cellSize))?.get(Math.floor(x / this.cellSize));
+    if (!cell) return false;
+    let best = Infinity, rx = 0, rz = 0;
+    for (let k = 0; k < cell.length; k++) {
+      const b = this.boxes[cell[k]];
+      if (y >= b.maxY || y + BODY_HEIGHT <= b.minY) continue;
+      const qx = (x - b.x) * b.tx + (z - b.z) * b.tz;
+      const qz = (x - b.x) * -b.tz + (z - b.z) * b.tx;
+      const ex = b.halfAlong + BODY_RADIUS + 0.001 - Math.abs(qx);
+      const ez = b.halfAcross + BODY_RADIUS + 0.001 - Math.abs(qz);
+      if (ex <= 0 || ez <= 0) continue;
+      const along = ex < ez, depth = along ? ex : ez;
+      if (depth >= best) continue;
+      best = depth;
+      const sign = (along ? qx : qz) < 0 ? -1 : 1;
+      rx = (along ? b.tx : -b.tz) * sign;
+      rz = (along ? b.tz : b.tx) * sign;
+    }
+    if (best === Infinity) return false;
+    const step = Math.min(best + 0.001, maxStep);
+    out[0] = rx * step;
+    out[1] = rz * step;
+    return true;
   }
 }
 
@@ -225,6 +403,10 @@ export class CrowdSim {
   private capacity: number;
 
   private grid = new HashGrid();
+  private obstacles = new ObstacleGrid();
+  private walkingSurfaces = new WalkingSurfaceIndex();
+  private walkingSurfaceChanged = false;
+  private escape = new Float64Array(2);
   private lastFwd: Vec3 = [0, 0, -1];
   private streetTangent = { x: 0, z: 0, tx: 1, tz: 0 };
   private nbr: Int32Array;
@@ -236,7 +418,6 @@ export class CrowdSim {
 
   private viewRadius = 190;
   private targetVisible = 0;
-  private rebuildPhase = 0;
   private densitySeen = -1;
   private rebuildCursor = 0;
   private readonly rebuildStride = 7;
@@ -261,7 +442,7 @@ export class CrowdSim {
 
   visibleCount = 0;
   /** Live diagnostic counters; surfaced through the automation stats(). */
-  diag = { frames: 0, live: 0, target: 0, radius: 0, instances: 0, cursor: 0, navNodes: 0, ms: 0 };
+  diag = { frames: 0, live: 0, target: 0, radius: 0, instances: 0, cursor: 0, navNodes: 0, ms: 0, blockedSeeds: 0, maxNeighbourCandidates: 0, obstacleRecoveries: 0, blockedRecoveries: 0 };
   /** Per-instance (mat4, tint, params) for the renderer to upload verbatim. */
   instances: CrowdInstanceView;
 
@@ -269,7 +450,7 @@ export class CrowdSim {
     this.capacity = 6000;
     this.f = new Float32Array(this.capacity * F.LOCAL);
     this.ids = new Int32Array(this.capacity);
-    this.nbr = new Int32Array(512);
+    this.nbr = new Int32Array(NEAREST_COUNT);
     this.pathPool = new Int32Array(this.PATH_POOL * this.PATH_MAX);
     this.pathLen = new Int32Array(this.PATH_POOL);
     this.instData = new Float32Array(this.capacity * INSTANCE_FLOATS);
@@ -284,6 +465,18 @@ export class CrowdSim {
     void seed;
     this.nav = new NavGraph(city);
     this.nodes = this.nav.nodes;
+  }
+
+  /** The renderer owns placement; retain and index its immutable revision. */
+  setStaticObstacles(obstacles: readonly CrowdObstacle[], revision: number): void {
+    this.obstacles.set(obstacles, revision);
+  }
+
+  /** Actual emitted walking triangles, retained without a per-frame copy.
+   * Existing bodies acquire new support on the next simulation update.
+   */
+  setWalkingSurfaces(triangles: WalkingSurfaceTriangles, revision: number): void {
+    if (this.walkingSurfaces.set(triangles, revision)) this.walkingSurfaceChanged = true;
   }
 
   setCount(n: number): void {
@@ -334,6 +527,13 @@ export class CrowdSim {
     dt = Math.min(dt, MAX_DT);
     const f = this.f;
 
+    if (this.walkingSurfaceChanged) {
+      for (let o = 0; o < f.length; o += F.LOCAL) {
+        if (f[o + F.active] > 0.5) f[o + F.y] = this.groundAt(f[o + F.x], f[o + F.z]);
+      }
+      this.walkingSurfaceChanged = false;
+    }
+
     this.diag.frames++;
     this.seedRef = world;
     // `world.events` is mutated in place (push/splice), never reassigned, so
@@ -359,13 +559,13 @@ export class CrowdSim {
 
     this.densityTarget(world);
     this.maybeRebuild(camera.position, dt);
-    this.rebuildSlices(camera.position, this.lastFwd);
-
     const cam = camera.position;
     this.grid.configure(cam, this.viewRadius + 40);
-
-    // Pass A: stagger the counting sort across `rebuildStride` frames.
-    if (this.rebuildPhase === 0) this.grid.build(f, this.ids, this.capacity);
+    this.grid.build(f, this.ids, this.capacity);
+    this.diag.blockedSeeds = 0;
+    this.diag.obstacleRecoveries = 0;
+    this.diag.blockedRecoveries = 0;
+    this.rebuildSlices(camera.position, this.lastFwd);
 
     // Pass B: count the agents inside the radius and write their instances.
     //
@@ -393,7 +593,11 @@ export class CrowdSim {
       if (d2 > r2) {
         // Outside: coarse update only — decay the goal so it reselects on return.
         f[o + F.strand] += 1;
-        if (f[o + F.strand] > 90) { f[o + F.active] = 0; }
+        if (f[o + F.strand] > 90) {
+          f[o + F.active] = 0;
+          this.grid.remove(i);
+          this.liveCount--;
+        }
         continue;
       }
       f[o + F.strand] = 0;
@@ -414,8 +618,7 @@ export class CrowdSim {
     this.diag.navNodes = this.nodes.length;
     this.diag.ms = this.lastMs;
 
-    // Advance the staggered rebuild.
-    this.rebuildPhase = (this.rebuildPhase + 1) % this.rebuildStride;
+    this.diag.maxNeighbourCandidates = this.grid.maxCandidates;
 
     const ms = performance.now() - t0;
     this.lastMs = this.lastMs * 0.85 + ms * 0.15;
@@ -616,21 +819,23 @@ export class CrowdSim {
     const dl = Math.hypot(dx, dz) || 1;
     dx /= dl; dz /= dl;
 
-    // Separation, from the local hash. This is the only neighbour work, and it
-    // is bounded by the cell radius rather than by agent count.
+    // True nearest local bodies, independent of storage/insertion order.
     let sx = 0, sz = 0;
-    // Query the radius separation actually cares about, not a whole cell.
-    const n = this.grid.cellRange(x, z, SEP_RADIUS, this.nbr, 256);
+    const n = this.grid.nearest(x, z, SEP_RADIUS, this.nbr, NEAREST_COUNT, i);
     for (let k = 0; k < n; k++) {
-      const j = this.nbr[k];
-      if (j === i) continue;
-      const p = j * F.LOCAL;
-      if (f[p + F.active] < 0.5) continue;
-      const ox = x - f[p + F.x], oz = z - f[p + F.z];
-      const d2 = ox * ox + oz * oz;
-      if (d2 > 9 || d2 < 1e-6) continue;
-      const inv = 1 / d2;
-      sx += ox * inv; sz += oz * inv;
+      const j = this.nbr[k], p = j * F.LOCAL;
+      let ox = x - f[p + F.x], oz = z - f[p + F.z];
+      let d = Math.hypot(ox, oz);
+      if (d < 1e-6) {
+        // Coincident externally supplied bodies still have an antisymmetric
+        // local direction; the old zero-distance guard left them coincident.
+        const a = ((Math.min(i, j) * 73856093 ^ Math.max(i, j) * 19349663) >>> 0) * 2.3283064365386963e-10 * Math.PI * 2;
+        const sign = i < j ? 1 : -1;
+        ox = Math.cos(a) * sign; oz = Math.sin(a) * sign; d = 1;
+      }
+      const weight = Math.max(0, 1 - Math.hypot(x - f[p + F.x], z - f[p + F.z]) / SEP_RADIUS);
+      sx += ox / d * weight * weight;
+      sz += oz / d * weight * weight;
     }
     f[o + F.density] = n;
 
@@ -639,26 +844,15 @@ export class CrowdSim {
     const wob = Math.sin(this.wanderClock * 0.7 + f[o + F.seed] * 6.28) * f[o + F.curious] * 0.55;
     const perpX = -dz, perpZ = dx;
 
-    // D26: separation is a LOCAL term and earns its authority the way the
-    // pavement hold did -- by an independent clamp, not by borrowing the crowd's.
-    // The jam factor exists so goal-seeking slows in a dense crowd and the crowd
-    // LOOKS dense; it was also throttling avoidance to 0.113 m/s against a
-    // 1.34 m/s pull. That verdict was measured while the query could not see the
-    // nearest neighbour, so it has never had a fair trial. This is that trial.
-    // D26: separation is a LOCAL term and earns its authority the way the
-    // pavement hold did -- by an independent clamp, not by borrowing the crowd's.
-    // The jam factor exists so goal-seeking slows in a dense crowd and the crowd
-    // LOOKS dense; it was also throttling avoidance to 0.113 m/s against a
-    // 1.34 m/s pull. That verdict was measured while the query could not see the
-    // nearest neighbour, so it has never had a fair trial. This is that trial.
+    // Goal motion may slow in a crowd; separation keeps its own speed budget.
     const jam = 1 / (1 + n * 0.09 * f[o + F.social]);
-    const maxSpeed = f[o + F.pace] * jam;
-    let wx = dx + sx * 1.9 + perpX * wob;
-    let wz = dz + sz * 1.9 + perpZ * wob;
-    const wl = Math.hypot(wx, wz) || 1;
-    wx /= wl; wz /= wl;
+    const maxSpeed = f[o + F.pace];
+    const sep = Math.hypot(sx, sz);
+    const sepSpeed = maxSpeed * Math.min(1, sep) * 0.8;
+    const wx = dx * maxSpeed * jam + perpX * wob + (sep > 0 ? sx / sep * sepSpeed : 0);
+    const wz = dz * maxSpeed * jam + perpZ * wob + (sep > 0 ? sz / sep * sepSpeed : 0);
 
-    const ax = wx * maxSpeed * 4.0, az = wz * maxSpeed * 4.0;
+    const ax = wx * 4.0, az = wz * 4.0;
     const damp = Math.exp(-6.0 * dt);
     f[o + F.vx] = (f[o + F.vx] + ax * dt) * damp;
     f[o + F.vz] = (f[o + F.vz] + az * dt) * damp;
@@ -671,13 +865,6 @@ export class CrowdSim {
     }
     let nx = x + f[o + F.vx] * dt;
     let nz = z + f[o + F.vz] * dt;
-
-    // Building avoidance. Cheap: test the agent's current cell's occupants
-    // only, and push out of any AABB it has entered.
-    if (this.city) {
-      const hit = this.resolveBuildings(nx, nz, f[o + F.y]);
-      nx = hit[0]; nz = hit[1];
-    }
 
     // Wind pushes people around, and rain makes them hurry.
     const wind = world.weather.windSpeed * 0.018;
@@ -735,10 +922,25 @@ export class CrowdSim {
       nx += nxx * corr;
       nz += nzz * corr;
     }
+    // The final local sweep owns clearance. Wind, pathing and the legacy hold
+    // cannot put a body back inside another body or an emitted solid afterward.
+    const recovering = this.obstacles.recovery(x, z, f[o + F.y], maxSpeed * dt, this.escape);
+    if (recovering) {
+      nx = x + this.escape[0];
+      nz = z + this.escape[1];
+      this.diag.obstacleRecoveries++;
+    }
+    const mx = nx - x, mz = nz - z;
+    const travel = Math.min(this.grid.sweep(i, x, z, mx, mz),
+      this.obstacles.sweep(x, z, f[o + F.y], mx, mz));
+    if (recovering && travel < 1e-6) this.diag.blockedRecoveries++;
+    nx = x + mx * travel;
+    nz = z + mz * travel;
     const step = Math.hypot(nx - x, nz - z);
     f[o + F.speed] = dt > 0 ? step / dt : 0;
     f[o + F.x] = nx;
     f[o + F.z] = nz;
+    this.grid.move(i, f[o + F.x], f[o + F.z]);
     f[o + F.y] = this.groundAt(nx, nz);
     const mv = Math.hypot(f[o + F.vx], f[o + F.vz]);
     if (mv > 0.06) {
@@ -755,17 +957,17 @@ export class CrowdSim {
   }
 
   /**
-   * Street height. Multi-level walking is not implemented yet, so this is
-   * always the deck.
+   * Actual emitted walking-surface support, with the global deck as fallback.
    *
    * It used to return the roof of the first building whose footprint contained
    * the point, which meant that seeding anywhere in the city — and the city is
    * mostly buildings — put the entire crowd on top of towers, hundreds of
    * metres up. Rejection sampling in `seedAgent` keeps them off the footprints
-   * in the first place; this is just the floor.
+   * in the first place. Only tagged walking triangles are supplied here;
+   * building roofs never enter this index.
    */
-  private groundAt(_x: number, _z: number): number {
-    return GROUND_Y;
+  private groundAt(x: number, z: number): number {
+    return this.walkingSurfaces.heightAt(x, z, GROUND_Y);
   }
 
   /** Reusable output for the street sampler; the module's own is private. */
@@ -809,26 +1011,6 @@ export class CrowdSim {
     return { x: x + dx * k, z: z + dz * k, tx: s.tx, tz: s.tz, width: s.width };
   }
 
-  private resolveBuildings(x: number, z: number, y: number): Vec3 {
-    if (!this.city) return [x, y, z];
-    const cs = this.city.cfg.chunkSize;
-    const chunk = this.city.getChunk(Math.floor(x / cs), Math.floor(z / cs));
-    if (!chunk) return [x, y, z];
-    for (const b of chunk.buildings) {
-      if (x > b.aabbMin[0] && x < b.aabbMax[0] && z > b.aabbMin[2] && z < b.aabbMax[2]) {
-        // Push out along the shallowest axis — the cheapest stable resolution.
-        const dl = x - b.aabbMin[0], dr = b.aabbMax[0] - x;
-        const db = z - b.aabbMin[2], df = b.aabbMax[2] - z;
-        const m = Math.min(dl, dr, db, df);
-        if (m === dl) return [b.aabbMin[0] - 0.4, y, z];
-        if (m === dr) return [b.aabbMax[0] + 0.4, y, z];
-        if (m === db) return [x, y, b.aabbMin[2] - 0.4];
-        return [x, y, b.aabbMax[2] + 0.4];
-      }
-    }
-    return [x, y, z];
-  }
-
   // ---------------------------------------------------------------- population
 
   /**
@@ -870,6 +1052,7 @@ export class CrowdSim {
 
       if (retire) {
         f[o + F.active] = 0;
+        this.grid.remove(i);
         this.liveCount--;
         continue;
       }
@@ -877,7 +1060,10 @@ export class CrowdSim {
         // An empty group slot must not be counted: `liveCount` is the number of
         // agents the rebuild believes are alive, and inflating it starves the
         // rest of the population.
-        if (this.seedAgent(i, cam, fwd)) this.liveCount++;
+        if (this.seedAgent(i, cam, fwd)) {
+          this.liveCount++;
+          this.grid.insert(i, f[o + F.x], f[o + F.z]);
+        } else this.diag.blockedSeeds++;
       }
     }
     this.rebuildCursor = end >= this.capacity ? 0 : end;
@@ -927,11 +1113,8 @@ export class CrowdSim {
     this.hasMarket = true;
   }
 
-  /** Returns false when this agent's group slot is deliberately empty. */
+  /** Reject occupied local candidates rather than putting bodies inside bodies. */
   private seedAgent(i: number, cam: Vec3, fwd: Vec3 = [0, 0, -1]): boolean {
-    // Returns false only when the caller has no room for this agent; group
-    // seeding itself always seats the agent, so gaps come from group spacing.
-    // empty, which is where the gaps between groups come from.
     const f = this.f;
     const o = i * F.LOCAL;
     const r = this.rng;
@@ -1007,10 +1190,18 @@ export class CrowdSim {
     // Seats beyond this group's size fall back onto the group centre itself, so
     // a small group is a tight knot and a zero group is an empty patch of
     // pavement with nobody on it.
-    const a2 = rm.next() * Math.PI * 2;
-    const rr = Math.sqrt(rm.next()) * GROUP_RADIUS;
-    const x = cx + Math.cos(a2) * rr;
-    const z = cz + Math.sin(a2) * rr;
+    let x = cx, z = cz, free = false;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const a2 = rm.next() * Math.PI * 2;
+      const rr = Math.sqrt(rm.next()) * GROUP_RADIUS;
+      x = cx + Math.cos(a2) * rr;
+      z = cz + Math.sin(a2) * rr;
+      if (this.obstacles.occupied(x, z, this.groundAt(x, z))) continue;
+      if (this.grid.nearest(x, z, CONTACT_SEPARATION, this.nbr, 1, i) !== 0) continue;
+      free = true;
+      break;
+    }
+    if (!free) return false;
     // Face along the street rather than a random direction — a crowd walking
     // across traffic reads as nonsense, and this costs nothing.
     this.streetTangent = placed;
@@ -1062,25 +1253,9 @@ export class CrowdSim {
    * written per iteration of a loop bounded by `capacity`, and `instData` is
    * `capacity * INSTANCE_FLOATS` long, so no capacity guard is reachable.
    *
-   * **The array write is in bounds; the record is 28 floats wide and the stride
-   * is 24.** `INSTANCE_FLOATS` is 24, and so is `INSTANCE_STRIDE / 4` on the GPU
-   * side, but the block below writes `d[b + 24..27]` (density, speed, 0, 0).
-   * Those four floats land on slot `n + 1`'s floats `0..3` — the first column
-   * of its rotation.
-   *
-   * That is benign *only* because records are written in ascending `n`, so each
-   * slot's head is rewritten after the previous slot's tail has clobbered it,
-   * and the last slot's tail spills past `count`, which `main.ts` never uploads.
-   * Measured determinant 1.000 across 2511 instances, confirmed independently
-   * from the GPU side.
-   *
-   * **What breaks it:** any change that writes slots out of ascending order —
-   * a `firstInstance`-offset path, compaction, or sorting instances by depth.
-   * Then every record after the first clobbered one gets a rotation column of
-   * `(density, speed, 0, 0)` and collapses, silently, with the counter still
-   * reading correctly. The clean fix is to drop the four floats or widen the
-   * stride; no shader can read them, since it only ever sees 24. Recorded here
-   * rather than changed, so this commit stays one change.
+   * Exactly INSTANCE_FLOATS are written. The old density/speed tail landed on
+   * the next record's rotation column and only appeared safe in ascending
+   * order. A record-isolation regression exercises out-of-order writes now.
    */
   private writeInstance(n: number, o: number): void {
     const f = this.f;
@@ -1101,7 +1276,7 @@ export class CrowdSim {
     d[b + 17] = f[o + F.cg];
     d[b + 18] = f[o + F.cb];
     d[b + 19] = mask;
-    // Params: matId, roughness, emissive (0), gait phase, density.
+    // Params: matId, roughness, emissive (0), gait phase.
     // MAT.PLAIN, not MAT.DIFFUSE: a pedestrian is 1.7m tall, so under the
     // building facade synthesiser it lands entirely inside one 3.1m x 3.6m
     // window cell and is shaded as dark glass. People were being drawn the
@@ -1110,10 +1285,6 @@ export class CrowdSim {
     d[b + 21] = 0.66;
     d[b + 22] = 0;
     d[b + 23] = gait;
-    d[b + 24] = f[o + F.density];
-    d[b + 25] = f[o + F.speed];
-    d[b + 26] = 0;
-    d[b + 27] = 0;
   }
 
 

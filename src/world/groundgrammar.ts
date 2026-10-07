@@ -48,12 +48,10 @@ export type MarkingStyle =
  * `shadow.wgsl`, which has its own copy of `VSIn` — so no per-vertex attribute
  * can be added, and no per-draw `matId` is available for chunk geometry (every
  * chunk draws through the identity instance, `params.x = MAT.DIFFUSE`).
- * The grammar therefore has to reach the fragment stage through the one
- * per-vertex channel that survives: `color.rgb`. These tables are the portable
- * encoding — a GLSL port keeps the same three integers and the same
- * `pavementFamily()` decode. `src/shaders/gbuffer.wgsl` mirrors them in
- * `PAVEMENT_FAMILY` / `KERB_STYLE` / `MARKING_STYLE`; `pavementFamilyFromAlbedo`
- * below is the measured decoder and the mirror of `pavementFamily()` in WGSL.
+ * Ground class and family now use negative values of the existing mask channel
+ * (see groundSurfaceTag), preserving the vertex stride and RGB as colour.
+ * These vocabulary codes and the older colour-band decoder remain portable
+ * authoring data; the shader uses BAND_ORDER for the explicit payload.
  */
 export const PAVEMENT_CODES: Record<PavementFamily, number> = {
   asphalt: 0, flagstone: 1, cobble: 2, boardwalk: 3, 'metal-deck': 4,
@@ -626,6 +624,25 @@ export const BAND_ORDER: readonly (PavementFamily | 'paint')[] = [
   'boardwalk', 'terracotta-tile', 'flagstone', 'board-formed', 'paint',
 ];
 
+/** Existing vertex mask channel: negative values carry ground data; emission is nonnegative.
+ * Integer payload is class*16+family; fractional payload is the authored kerb height.
+ * Flat interpolation in WGSL preserves this exact per-primitive contract without a new ABI.
+ */
+export type GroundSurfaceClass = 'carriageway' | 'paving' | 'kerb-face' | 'kerb-top' | 'gutter' | 'paint';
+export const GROUND_SURFACE_CLASSES: readonly GroundSurfaceClass[] = ['carriageway', 'paving', 'kerb-face', 'kerb-top', 'gutter', 'paint'];
+export function groundSurfaceTag(surface: GroundSurfaceClass, family: PavementFamily | 'paint', height = 0): number {
+  return -(1 + GROUND_SURFACE_CLASSES.indexOf(surface) * 16 + BAND_ORDER.indexOf(family) + clamp(height, 0, 0.99));
+}
+export function decodeGroundSurfaceTag(tag: number) {
+  const payload = -tag - 1;
+  return { surface: GROUND_SURFACE_CLASSES[Math.floor(payload / 16)], family: BAND_ORDER[Math.floor(payload) % 16], height: payload - Math.floor(payload) };
+}
+/** Asphalt carriageways meet constructed stone footways; other authored decks continue their family. */
+export function walkingFamily(g: GroundGrammar): PavementFamily {
+  return g.pavement === 'asphalt' || g.pavement === 'rubber' || g.pavement === 'dirt' ? 'flagstone' : g.pavement;
+}
+export const walkingAlbedo = (g: GroundGrammar): Vec3 => bandAlbedo(g.albedo, walkingFamily(g));
+
 /** Hue in turns (0..1), saturation (0..1) and value (0..1) of a linear colour. */
 export function hsv(c: Vec3): [number, number, number] {
   const mx = Math.max(c[0], c[1], c[2]);
@@ -687,7 +704,7 @@ export function bandAlbedo(c: Vec3, family: PavementFamily | 'paint'): Vec3 {
 export function pavingPitch(f: PavementFamily): { joint: number; slab: [number, number]; grain: number } {
   switch (f) {
     case 'flagstone': return { joint: 0.030, slab: [0.90, 0.60], grain: 3.0 };
-    case 'cobble': return { joint: 0.050, slab: [0.22, 0.19], grain: 7.0 };
+    case 'cobble': return { joint: 0.016, slab: [0.22, 0.19], grain: 7.0 };
     case 'boardwalk': return { joint: 0.025, slab: [0.16, 2.40], grain: 5.0 };
     case 'board-formed': return { joint: 0.020, slab: [2.40, 0.22], grain: 2.0 };
     case 'terracotta-tile': return { joint: 0.022, slab: [0.30, 0.30], grain: 4.0 };

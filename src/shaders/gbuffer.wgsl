@@ -34,6 +34,7 @@ struct VSOut {
   @location(6) @interpolate(flat) emis  : f32,
   @location(7) @interpolate(flat) seed  : f32,
   @location(8) @interpolate(flat) tint  : f32,
+  @location(9) @interpolate(flat) groundTag : f32,
 };
 
 @vertex
@@ -70,7 +71,8 @@ fn vs(v: VSIn) -> VSOut {
   // `params.z`, and `crowd.ts` submits its own. Adding would double-count every
   // entity emitter and push it through the bloom threshold at 1.05. `max` means
   // "whichever channel asked for more", which is what a mask is.
-  o.emis = max(v.emissive, v.params.z * v.tint.a);
+  o.emis = max(max(v.emissive, 0.0), v.params.z * v.tint.a);
+  o.groundTag = min(v.emissive, 0.0);
   o.seed = v.params.w;
   o.tint = v.tint.a;
   // `emis` and the tint alpha both gate emission, but the fragment stage needs
@@ -286,35 +288,6 @@ const DECK_Y : f32 = 0.35;
 // Paint lift. Must match PAINT_LIFT in src/render/groundbake.ts.
 const PAINT_Y : f32 = 0.366;
 
-/** Nearest pavement family band to a measured (saturation, value). */
-fn pavementFamily(sat: f32, val: f32) -> u32 {
-  // 0 asphalt 1 rubber 2 dirt 3 metal-deck 4 cobble
-  // 5 boardwalk 6 terracotta-tile 7 flagstone 8 board-formed 9 paint
-  var best = 0u;
-  var bestD = 1e9;
-  var i = 0u;
-  loop {
-    if (i >= 10u) { break; }
-    var b = vec2f(0.05, 0.15);
-    switch (i) {
-      case 0u: { b = vec2f(0.050, 0.150); }
-      case 1u: { b = vec2f(0.030, 0.075); }
-      case 2u: { b = vec2f(0.190, 0.215); }
-      case 3u: { b = vec2f(0.235, 0.330); }
-      case 4u: { b = vec2f(0.300, 0.290); }
-      case 5u: { b = vec2f(0.405, 0.375); }
-      case 6u: { b = vec2f(0.545, 0.470); }
-      case 7u: { b = vec2f(0.135, 0.560); }
-      case 8u: { b = vec2f(0.045, 0.735); }
-      default: { b = vec2f(0.600, 0.195); }
-    }
-    let d = (sat - b.x) * (sat - b.x) + (val - b.y) * (val - b.y);
-    if (d < bestD) { bestD = d; best = i; }
-    i = i + 1u;
-  }
-  return best;
-}
-
 /** (joint width, pitchU, pitchV, grain frequency) per family, in metres. */
 fn pavingParams(f: u32) -> vec4f {
   switch (f) {
@@ -322,30 +295,13 @@ fn pavingParams(f: u32) -> vec4f {
     case 1u:  { return vec4f(0.020, 0.50, 0.50, 9.0); }  // rubber
     case 2u:  { return vec4f(0.0,   0.0,  0.0,  1.2); }  // dirt
     case 3u:  { return vec4f(0.035, 1.20, 1.20, 2.2); }  // metal-deck
-    case 4u:  { return vec4f(0.050, 0.22, 0.19, 7.0); }  // cobble
+    case 4u:  { return vec4f(0.016, 0.22, 0.19, 7.0); }  // cobble
     case 5u:  { return vec4f(0.025, 0.16, 2.40, 5.0); }  // boardwalk
     case 6u:  { return vec4f(0.022, 0.30, 0.30, 4.0); }  // terracotta-tile
     case 7u:  { return vec4f(0.030, 0.90, 0.60, 3.0); }  // flagstone
     default: { return vec4f(0.020, 2.40, 0.22, 2.0); }  // board-formed
   }
   return vec4f(0.0, 0.0, 0.0, 1.6);
-}
-
-/**
- * Joint mask on a rotated lattice — the `facade()` idiom: build a frame,
- * quantise to a cell, hash the cell, derive everything from that.
- *
- * The lattice is aligned to world X/Z because a ground fragment's normal is
- * (0,1,0) and carries no direction information: there is no street-aligned
- * frame available on the GPU. The cell hash supplies a per-slab rotation and
- * tone, which is what stops a world-aligned grid from reading as a grid.
- */
-fn groundJoints(p: vec2f, pitch: vec2f, joint: f32, cellRot: f32) -> f32 {
-  let c = cos(cellRot);
-  let s = sin(cellRot);
-  let q = vec2f(p.x * c - p.y * s, p.x * s + p.y * c) / pitch;
-  let f = abs(fract(q) - 0.5) * pitch;      // metres to the nearest joint
-  return 1.0 - smoothstep(joint * 0.45, joint * 1.35, min(f.x, f.y));
 }
 
 /**
@@ -383,12 +339,38 @@ fn jointFloor(dist: f32) -> f32 {
   return dist * 0.00104;
 }
 
-/** `groundJoints` with a screen-space width floor. */
-fn groundJointsD(p: vec2f, pitch: vec2f, joint: f32, cellRot: f32, dist: f32) -> f32 {
-  let c = cos(cellRot);
-  let s = sin(cellRot);
-  let q = vec2f(p.x * c - p.y * s, p.x * s + p.y * c) / pitch;
-  let f = abs(fract(q) - 0.5) * pitch;
+/**
+ * Cobble stones: (distance to the nearest stone border in cells, stone hash).
+ *
+ * `worley2()` returns F1, the distance to the nearest feature, and a level set
+ * of F1 draws a dot at every stone CENTRE — which is exactly the "fine dots, no
+ * coherent courses" the material review saw. The border between two stones is
+ * the bisector of their features, so the joint distance is
+ * (d2^2 - d1^2) / (2 |o2 - o1|): exact, from squared distances, one sqrt.
+ * The field is one continuous lattice; no per-cell phase is added on top.
+ */
+fn cobbleCells(p: vec2f) -> vec2f {
+  let i = floor(p); let f = fract(p);
+  var d1 = 8.0; var d2 = 8.0;
+  var o1 = vec2f(0.0); var o2 = vec2f(0.0);
+  var id = vec2f(0.0);
+  for (var y = -1; y <= 1; y++) {
+    for (var x = -1; x <= 1; x++) {
+      let g = vec2f(f32(x), f32(y));
+      let o = g + hash22(i + g);
+      let r = o - f;
+      let d = dot(r, r);
+      if (d < d1) { d2 = d1; o2 = o1; d1 = d; o1 = o; id = i + g; }
+      else if (d < d2) { d2 = d; o2 = o; }
+    }
+  }
+  let edge = (d2 - d1) / max(2.0 * length(o2 - o1), 1e-4);
+  return vec2f(edge, hash21(id + vec2f(17.3, 4.1)));
+}
+
+/** World-aligned slab joints (no street frame on the GPU), with a screen-space width floor. */
+fn groundJointsD(p: vec2f, pitch: vec2f, joint: f32, dist: f32) -> f32 {
+  let f = abs(fract(p / pitch) - 0.5) * pitch;
   let w = max(joint, jointFloor(dist));
   return 1.0 - smoothstep(w * 0.45, w * 1.35, min(f.x, f.y));
 }
@@ -396,30 +378,27 @@ fn groundJointsD(p: vec2f, pitch: vec2f, joint: f32, cellRot: f32, dist: f32) ->
 /**
  * What a street surface looks like.
  *
- * Surface class comes from geometry alone — `groundSurface` is only called on
- * near-horizontal geometry within a metre of the deck, so normal and height are
- * enough to tell a kerb face from a footway from a painted line, with no
- * attribute and no extra draw.
+ * Surface class and family are authored by the emitter. The existing mask
+ * channel carries a negative flat payload; nonnegative values remain emission.
+ * Colour and height no longer have to impersonate material identity.
  */
-fn groundSurface(world: vec3f, n: vec3f, base: vec3f, detail: f32, dist: f32) -> Ground {
-  let mx = max(base.r, max(base.g, base.b));
-  let mn = min(base.r, min(base.g, base.b));
-  let sat = select(0.0, (mx - mn) / max(mx, 1e-4), mx > 1e-4);
-  let fam = pavementFamily(sat, mx);
+fn groundSurface(world: vec3f, n: vec3f, base: vec3f, detail: f32, dist: f32, tag: f32) -> Ground {
+  // Negative mask payload is authored at bake time, flat across every primitive.
+  // See groundSurfaceTag in groundgrammar.ts; colour remains colour.
+  let payload = max(0.0, -tag - 1.0);
+  let surface = u32(floor(payload / 16.0));
+  let fam = u32(floor(payload)) % 16u;
   let prm = pavingParams(fam);
   let isPaint = fam == 9u;
 
   let oct = select(2, 3, detail > 0.5);
   let p = world.xz;
 
-  // --- surface class.
-  //   vertical + low        = kerb face        (n.y near 0, deck is near 1)
-  //   horizontal at PAINT_Y = road paint
-  //   horizontal above deck = footway / kerb top
-  //   horizontal at deck    = carriageway
-  let vertical = abs(n.y) < 0.5;
-  let isPaintY = abs(world.y - PAINT_Y) < 0.006;
-  let isRaised = world.y > DECK_Y + 0.045;
+  // --- authored surface class (GROUND_SURFACE_CLASSES in groundgrammar.ts).
+  let vertical = surface == 2u;
+  let isPaintY = surface == 5u;
+  let isRaised = surface == 1u || surface == 3u;
+  let isGutter = surface == 4u;
 
   // Value structure between the walking plane and the carriageway.
   //
@@ -450,7 +429,7 @@ fn groundSurface(world: vec3f, n: vec3f, base: vec3f, detail: f32, dist: f32) ->
   // undo `kerbTone` and every measurement of it.
   let dirtyRoad = (fam == 0u || fam == 1u || fam == 2u);
   let isUp = abs(n.y) > 0.5;
-  let raised = world.y > DECK_Y + 0.045;
+  let raised = isRaised;
   let onDeck = isUp && !raised && abs(world.y - PAINT_Y) > 0.006;
   let deckMul = select(1.0, 0.82, dirtyRoad);
   var alb = select(base, base * deckMul, onDeck);
@@ -492,23 +471,33 @@ fn groundSurface(world: vec3f, n: vec3f, base: vec3f, detail: f32, dist: f32) ->
     alb = mix(alb * 1.25, alb * 0.72, edge);
     rough = mix(0.55, 0.80, edge);
     ao *= 0.94 + 0.06 * edge;
-  } else if (isRaised) {
-    // ---------------------------------------------------------------- footway
-    let cell = floor(p / max(prm.yz, vec2f(0.05)));
+  } else if (isGutter) {
+    rough = 0.88;
+  } else if (isRaised || (surface == 0u && fam != 0u && fam != 1u && fam != 2u)) {
+    // ---------------------------------------------------------------- constructed paving
+    // Running bond: alternate courses shift half a slab. This replaced a
+    // per-cell lattice rotation, which drew unrelated grid fragments per slab.
+    let pitch = max(prm.yz, vec2f(0.05));
+    let course = floor(p.y / pitch.y);
+    let ps = vec2f(p.x + 0.5 * pitch.x * (course - 2.0 * floor(course * 0.5)), p.y);
+    let cell = floor(ps / pitch);
     let h = hash21(cell + vec2f(3.17, 9.41));
-    let rot = (h - 0.5) * 0.5;                 // per-slab rotation, +/- 0.25 rad
     var joint = 0.0;
     if (fam == 4u) {
-      // Cobble is cellular, not a grid: worley cell edges are the joints.
-      joint = 1.0 - smoothstep(0.012, 0.055, worley2(p * (1.0 / 0.21) + h * 7.0));
+      // Cobble is cellular, not a grid: stone borders are the joints, and each
+      // stone carries its own tone so the courses read as separate setts.
+      let stone = cobbleCells(p * (1.0 / prm.y));
+      let w = max(prm.x, jointFloor(dist));
+      joint = 1.0 - smoothstep(w * 0.45, w * 1.35, stone.x * prm.y);
+      alb *= 0.84 + 0.30 * stone.y;
     } else if (fam == 6u) {
       // Terracotta: a tight grid with a per-tile hue jitter and a bevel.
-      joint = groundJointsD(p, prm.yz, prm.x, rot, dist);
+      joint = groundJointsD(ps, pitch, prm.x, dist);
       alb *= 0.82 + 0.34 * hash21(cell * 1.7 + vec2f(h, 21.0));
     } else if (fam == 8u) {
       // Board-formed concrete: 0.22m board bands, 2.4m lifts, with the timber
       // grain imprinted in each band.
-      joint = groundJointsD(p, prm.yz, prm.x, 0.0, dist);
+      joint = groundJointsD(p, prm.yz, prm.x, dist);
       let band = fract(p.y / 0.22);
       alb *= 0.94 + 0.12 * fbm2(vec2f(p.x * 9.0, band * 3.0), 2);
     } else if (fam == 5u) {
@@ -520,12 +509,12 @@ fn groundSurface(world: vec3f, n: vec3f, base: vec3f, detail: f32, dist: f32) ->
       alb *= 0.86 + 0.26 * hash21(vec2f(stagger, floor(q.y)));
     } else if (fam == 3u) {
       // Metal deck: 1.2m plates with a chequer relief inside each plate.
-      joint = groundJointsD(p, prm.yz, prm.x, 0.0, dist);
+      joint = groundJointsD(p, prm.yz, prm.x, dist);
       let cq = abs(fract((p.x + p.y) * 1.6) - 0.5) + abs(fract((p.x - p.y) * 1.6) - 0.5);
       alb *= 0.90 + 0.18 * smoothstep(0.55, 0.95, cq);
       metal = 0.35;
     } else {
-      joint = groundJointsD(p, prm.yz, prm.x, rot, dist);
+      joint = groundJointsD(ps, pitch, prm.x, dist);
       alb *= 0.88 + 0.24 * hash21(cell + vec2f(h * 13.0, 5.0));
     }
     // Joints are darker and hold dirt; they also occlude.
@@ -607,56 +596,16 @@ fn fs(i: VSOut) -> GOut {
 
   let detail = F.time.w;
 
-  // Street surfaces, from both draw paths.
-  //
-  // The global deck draws with its own instance (params.x = MAT_STREET). The
-  // per-chunk kerbs, footways and paint draw with the identity instance like
-  // everything else in a chunk, so there is no material id to tag them with and
-  // they are recognised geometrically instead: near-horizontal, within a metre
-  // of the deck, and nothing else in a chunk lives there. That is why
-  // `groundSurface` is factored out of the MAT_STREET branch below — it is the
-  // same surface either way.
+  // Explicit authored tags admit street geometry, including vertical kerbs.
+  // Ordinary props and bodies never become paving merely because they are low.
   let isDeckMat = i.matId == MAT_STREET;
-  // Gated on MAT_DIFFUSE, and that gate is load-bearing. Chunk ground detail is
-  // emitted into the chunk's solid builder, which draws through the identity
-  // instance and therefore arrives as MAT_DIFFUSE — nothing else in a chunk is
-  // both MAT_DIFFUSE, near-horizontal and inside 0.75 m of the deck except a
-  // building's top cap, and those start at 2.6 m.
-  //
-  // Ungated, this predicate claimed EVERY upward-facing fragment near the deck
-  // regardless of material, and the pedestrians stand at exactly DECK_Y: their
-  // leg-box top faces at 0.84 m were routed to `groundSurface()` and shaded as
-  // pavement — slab joints, kerb tones and all — instead of cloth. A heuristic
-  // that can claim an entity is a diagnostic pointing at the wrong subject, which
-  // is the F2 mistake in a shader.
-  //
-  // The MAT_DIFFUSE term is what stopped that, and it is sufficient on its own. The
-  // `abs(n.y) > 0.55` that rode along with it did not: it is *mutually exclusive
-  // with groundSurface()'s own definition of a kerb*, which is `vertical =
-  // abs(n.y) < 0.5`. Measured over one baked chunk: **3520 kerb-face vertices in the
-  // height band, 0 of them admitted by this gate.** Every kerb in the city was
-  // therefore falling through to the MAT_DIFFUSE *facade* branch below and being
-  // shaded with window cells and sills across a 12 cm strip — which is why the deck
-  // reads as one bare slab: the authored kerb/deck contrast (4.3x in vertex colour)
-  // had no consumer left to reach the frame.
-  //
-  // So the normal test is now split by surface class, because the two classes it has
-  // to admit are perpendicular to each other and the old single threshold could only
-  // hold one of them. Horizontal keeps the wide band (deck, footway, kerb top).
-  // Vertical gets a tight one — kerbs stand 0.06..0.20 m proud, so a window of
-  // DECK_Y-0.05 .. DECK_Y+0.22 admits the kerb run and excludes the 40 wall-base
-  // vertices above it (measured), which would otherwise pick up kerb block joints on
-  // the bottom 22 cm of a facade.
-  let isChunkDeck = i.matId == MAT_DIFFUSE && (
-       (abs(n.y) > 0.55 && i.world.y > DECK_Y - 0.40 && i.world.y < DECK_Y + 0.75)
-    || (abs(n.y) < 0.50 && i.world.y > DECK_Y - 0.05 && i.world.y < DECK_Y + 0.22)
-  );
+  let isChunkDeck = i.matId == MAT_DIFFUSE && i.groundTag < 0.0;
 
   if (isDeckMat || isChunkDeck) {
     // Distance drives the joint width floor below; without it every paving
     // family flattens to a uniform field past ~25m.
     let gdist = length(F.camPos.xyz - i.world);
-    let g = groundSurface(i.world, n, i.color, detail, gdist);
+    let g = groundSurface(i.world, n, i.color, detail, gdist, i.groundTag);
     base = g.albedo; rough = g.roughness; metal = g.metallic; emis = g.emissive;
     ao *= g.occlusion;
   } else if (i.matId == MAT_DIFFUSE || i.matId == MAT_PLASTER || i.matId == MAT_BRICK) {

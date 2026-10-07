@@ -471,10 +471,13 @@ export class FlightCamera {
     this.yawRate = 0;
     this.velocity = [0, 0, 0];
     this.speed = 0;
-    this.bobY = 0;
-    this.bobRoll = 0;
     this.syncBasis(pose.lookAt === undefined);
     this.updateLens(0);
+    // A snapped pose is already the requested rendered eye/roll. updateLens
+    // samples the old handheld phase even at dt=0; do not apply that bob twice
+    // when restoring a saved getPose() snapshot.
+    this.bobY = 0;
+    this.bobRoll = 0;
     this.buildMatrices(0);
   }
 

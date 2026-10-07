@@ -1,5 +1,54 @@
 # Handoff
 
+## Current work — updated 2026-10-07
+
+The owner authorised the street/hero batch, **then city richness and continuous
+world performance at 60 FPS on this Mac, Chrome, 1600 × 900**. The
+[execution plan](WORK_PLAN_2026-10-06.md) preserves that scope and order;
+[the session report](SESSION_2026-10-06.md) records the evidence.
+
+**Remaining work, in order:**
+
+1. ~~**Finish paving.**~~ **Accepted by the owner 2026-10-07** as satisfactory
+   for this early stage (cobble F2−F1 stones, `shots/2026-10-07T12-36-07`;
+   street report Round 5). Polygonal stone shape and mid-distance grain remain
+   noted, not blocking.
+2. **Finish street detail.** Kerb geometry repaired and **accepted by the owner
+   2026-10-07** (street report Round 6): the kerb top was never emitted, half of
+   all footway/kerb/gutter triangles were back-face culled (fixed in
+   `MeshBuilder.pushQuad`), footway joints were per-cell fragments. Still open:
+   wire and review the prepared human mesh, connect actual emitted
+   walking surfaces to foot grounding, and improve received night lighting.
+   The new mesh and walking-surface index are prepared; their production wiring
+   and visual acceptance remain open. See the street report and
+   [crowd report](SESSION_2026-10-06_CROWD.md). Keep these as separate visual
+   iterations.
+3. **Close the street batch.** Run the final required checks, obtain an
+   independent vision verdict against the section references and comparison
+   grids, update status, and commit verified work at natural boundaries.
+4. **Build richer city detail and seamless streaming.** Primary-source
+   [Insomniac/Epic research](LARGE_WORLD_RESEARCH.md) and
+   [benchmark tooling](PERFORMANCE_2026-10-06.md) are prepared. Run the Chrome
+   baseline at 1600 × 900, then implement the supported optimizations: asynchronous
+   generation, bounded uploads, predictive coverage and useful distant detail;
+   resolve finite-world addressing/ground coverage and item placement as needed.
+   This architecture and richness stage has **not been implemented**. Verify
+   sustained traversal performance and visual quality afterward; **60 FPS has
+   not been demonstrated**.
+
+**Capture capacity:** marginal. The guard passed at 277 MB unused on 2026-10-07
+(minimum 250 MB, `WORKFLOW.md` §6.1); serialize captures and never force past it.
+The last *independently reviewed* frame remains the Round 4 baseline.
+
+**Prepared foundations:** actual emitted hero subject and held day/night
+residency, nearest-neighbour/body/solid clearance repairs, instance ABI fixes,
+capture replay/projection records, and honest performance telemetry. These do
+not close the remaining visual or performance gates. The guard/atomic-lock fix
+is committed as `8fc332b`; the other session changes remain in the working tree.
+
+Older contradictory F2 rendering claims below are historical, superseded by the
+measured 2026-10-02 record and the current session's actual images.
+
 **Read this first, then [`ROADMAP.md`](ROADMAP.md) for what to work on,
 [`COVERAGE.md`](COVERAGE.md) for what is quietly missing,
 [`PITFALLS.md`](PITFALLS.md) before you touch the renderer, and

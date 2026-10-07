@@ -1,5 +1,11 @@
 # Coverage map
 
+> **Current work, 2026-10-06:** [session and owners](SESSION_2026-10-06.md).
+> Corrected hero subject/control is verified in saved frames. Ground, human
+> silhouettes and night finish remain open; CPU correctness is not visual
+> approval. City richness and 60 FPS traversal are authorised follow-on work
+> under R14; neither is implemented or claimed complete by this status update.
+
 A living map from **the original build checklist** to where each item is
 actually covered in this repository.
 
@@ -62,14 +68,14 @@ it satisfies a grep, and it will be believed.
 | 5 | Atmosphere: volumetric fog, god rays, sky, weather | `partial` | R6 |
 | 6 | Camera: free flight + gamepad/keyboard + tilt-shift/roll/FOV | `done` | `src/camera/`, D16 |
 | 7 | Post stack: TAA, bloom, DOF, CA, grade | `done` | `src/shaders/post.wgsl` |
-| 8 | Crowd sim + pedestrians | **`unverified` — but the suspected cause is eliminated** | F1, F2, F3. `entityDrawCalls` read 0 in every capture while `entityTriangles` read hundreds of thousands, which read as "counted, never issued" and was taken to be R1's cause. It was not: `counter.entity` is incremented only in `drawEntitySet`, which has **no callers** — the crowd and fleet go through `main.ts`'s own `drawEntityBlock`. A nonzero `entityTriangles` can only come from the branch that calls `drawIndexed`, so the draws were always issued (measured 356480 tris / 0 calls before, 330512 / 4 after). **The counter was the lie.** What makes the crowd illegible is still open and is most likely the night contrast — 1.28:1 against a 2.5:1 threshold, unliftable by palette because `skyIrradiance` multiplies coat and deck by the same ambient. That now has a frame with lights in it to be measured against |
+| 8 | Crowd sim + pedestrians | `partial` — pedestrians render in the corrected hero pair; independent review still finds repeated marker silhouettes. Local query/clearance repairs are in progress with brute-force and movement properties. Earlier draw-counter and night-contrast theories do not describe the current visual gate | R1, R12, [current review](VISION_2026-10-06_SUBJECT.md), [crowd evidence](SESSION_2026-10-06_CROWD.md) |
 | 9 | Traffic: trams, trolleys, cable cars, ziplines, blimps, balloons | `done` — instanced from `TrafficSim`, drawn in the shared 24-float layout (D18). Cycle dropped: no entity mesh exists. Distance-culled per kind, no per-mesh LOD. Cable cars were on a tram alignment until round 4. See `docs/TRAFFIC_REPORT.md` | F4 |
 | 10 | LLM agent integration (weather/camera/events) | `done` | `src/agent/`, D20 |
 | 11 | Destructible structures (GPU fracture) | `not built` | R5 |
 | 12 | Vegetation / solarpunk overgrowth + district colour identities | `done` | R9 |
 | 13 | Iteration loop: screenshots, perf, notes | `partial` | R10, F6 |
 | 14 | **Night market legibility** (added 2026-10-01) | `partial` — six mechanisms refuted, **measurement suspended as the wrong tool** | R2. Five mechanisms refuted with arithmetic; the "12% of predicted" residual was a lit deck compared against **night sky** (round 16 voided it). Validated histogram: frontage R−B **−5.0** vs deck **−3.7** — *both fail identically*. Real shape: a **~2 m pool, +41.5 at 3 m → −4.8 at 4–6 m → −3.3 at 8–10 m**, cords 17–31 m apart. Albedo and `matAo` both exonerated. The proposed lantern-**radius** lever was executed, scored **3 held / 3 failed**, and reverted (`882f434`) — the discriminating prediction (core must not brighten) failed. **Owner correction 2026-10-01: this item is subjective and numeric targets for it were a misuse of rigour.** Six refutations across nine rounds is one finding, not six rounds of progress. Next move is a **frame review**, not another histogram. Rule: derive numbers for aesthetics *after* a reviewer approves a frame, never before |
-| 15 | **Crowd dynamics / locomotion** (added 2026-10-01) | `not built` — diagnosed only | R12. Density (R1) and behaviour (R12) split deliberately. Standing numbers: `viewRadius` is the seeding limit; the **≥40 px gap bin is empty**. Gate 5 measured isolated silhouettes at 22×9 and 23×11 px with 20 clear px columns — those clear the target, packed rows do not, so **mesh proportions and placement are two open causes and neither alone will fix it** |
+| 15 | **Crowd dynamics / locomotion** (added 2026-10-01) | `partial` — local movement, nearest-neighbour query, swept body/static clearance and bounded recovery exist and are being verified; the later scene layer and visual motion approval remain open | R12, D26, [current crowd report](SESSION_2026-10-06_CROWD.md) |
 
 Two departures from the checklist as written. Both are deliberate, both are
 recorded in `DECISIONS.md`, and **neither is outstanding work**:

@@ -7,6 +7,8 @@ import { defaultWorld } from '../core/state';
 import type { Vec3 } from '../core/math';
 import { FlightCamera, TOUR_NAMES, TOUR_PRESETS, type CollisionProbe } from './camera';
 import { Input, type InputState } from './input';
+import { writeCaptureProjection } from '../render/captureprojection';
+import { mat4 } from '../core/math';
 
 const DT = 1 / 60;
 
@@ -40,6 +42,28 @@ export function runCameraSelfTest(): string {
   const L: string[] = [];
   const fail: string[] = [];
   const check = (ok: boolean, msg: string): void => { if (!ok) fail.push(msg); };
+
+  // A saved rendered pose must round-trip even after a different handheld phase.
+  {
+    const cam = new FlightCamera({ world: defaultWorld(), start: [0, 2, 0] });
+    for (let f = 0; f < 83; f++) cam.update(DT, input());
+    const saved = cam.getPose();
+    for (let f = 0; f < 47; f++) cam.update(DT, input());
+    cam.setPose(saved);
+    const restored = cam.getPose();
+    check(dist(saved.position, restored.position) < 1e-12 && dist(saved.lookAt, restored.lookAt) < 1e-12
+      && Math.abs(saved.roll - restored.roll) < 1e-12 && Math.abs(saved.fov - restored.fov) < 1e-12,
+    'saved rendered pose must restore exactly without sampling another bob phase');
+    const physical = { position: [...cam.position] as Vec3, lookAt: [...cam.lookTarget] as Vec3, roll: cam.roll, fov: cam.fov };
+    const view = mat4(), projection = mat4(), nextView = mat4(), nextProjection = mat4();
+    writeCaptureProjection(view, projection, physical.position, physical.lookAt, physical.roll, 1.1519173063162575, 1600, 900);
+    for (let f = 0; f < 31; f++) cam.update(DT, input());
+    cam.setPose(physical);
+    writeCaptureProjection(nextView, nextProjection, cam.position, cam.lookTarget, cam.roll, 1.1519173063162575, 1600, 900);
+    check(view.every((v, i) => v === nextView[i]) && projection.every((v, i) => v === nextProjection[i]),
+      'saved physical pose must restore the actual renderer view and projection matrices exactly');
+    cam.dispose();
+  }
 
   // ---------------------------------------------------------- free flight
   {
