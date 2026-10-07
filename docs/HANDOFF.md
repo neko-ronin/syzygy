@@ -19,7 +19,9 @@ world performance at 60 FPS on this Mac, Chrome, 1600 × 900**. The
    `MeshBuilder.pushQuad`), footway joints were per-cell fragments. Human mesh
    wired and walking surfaces feed foot grounding (crowd report, 2026-10-07
    section); **awaiting owner review** — skin takes the coat tint and the face
-   box reads as a beak up close. Still open: received night lighting. See the street report and
+   box reads as a beak up close. Night light (street report Round 7): stall
+   lamps added, and the light binner was anchoring every light at the screen's
+   top-left — fixed; **awaiting owner review**. See the street report and
    [crowd report](SESSION_2026-10-06_CROWD.md). Keep these as separate visual
    iterations.
 3. **Close the street batch.** Run the final required checks, obtain an

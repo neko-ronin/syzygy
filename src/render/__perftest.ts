@@ -39,7 +39,7 @@ import postWgsl from '../shaders/post.wgsl?raw';
 import { City, defaultCityConfig } from '../world/citygen';
 import { defaultWorld, sunDirection, type WorldState } from '../core/state';
 import { FlightCamera } from '../camera/camera';
-import { mat4 as m4, type Vec3 } from '../core/math';
+import { mat4 as m4, m4lookAt, m4mul, m4perspectiveReverseZ, type Vec3 } from '../core/math';
 import { bakeChunk } from './citymesh';
 import {
   CASCADE_SPLITS, cascadeMatrix, cascadeParams, extractOrthoFrustum,
@@ -701,12 +701,77 @@ function run(): void {
   }
 }
 
+// ---------------------------------------------------------------- light tiles
+
+/**
+ * The pixel rect lightbin.wgsl bins a light into, mirrored so its algorithm can
+ * be checked against sampled sphere points. The old test compared a UV centre
+ * (0..1) with pixel bounds and anchored every rect at the top-left corner.
+ * `null` = wholly behind the eye; `'all'` = sphere reaches the near plane.
+ */
+function lightTileRect(vp: Float32Array, view: Float32Array, pos: Vec3, r: number, W: number, H: number):
+  null | 'all' | [number, number, number, number] {
+  const depth = -(view[2] * pos[0] + view[6] * pos[1] + view[10] * pos[2] + view[14]);
+  if (depth < -r) return null;
+  if (depth - r <= 0.1) return 'all';
+  const clip = (x: number, y: number, z: number, w: number) => [0, 1, 3].map((i) =>
+    vp[i] * x + vp[4 + i] * y + vp[8 + i] * z + vp[12 + i] * w);
+  const rect: [number, number, number, number] = [1e9, 1e9, -1e9, -1e9];
+  for (let k = 0; k < 8; k++) {
+    const sx = k & 1 ? 1 : -1, sy = k & 2 ? 1 : -1, sz = k & 4 ? 1 : -1;
+    const c = clip(
+      pos[0] + r * (sx * view[0] + sy * view[1] + sz * view[2]),
+      pos[1] + r * (sx * view[4] + sy * view[5] + sz * view[6]),
+      pos[2] + r * (sx * view[8] + sy * view[9] + sz * view[10]), 1);
+    const px = (c[0] / c[2] * 0.5 + 0.5) * W, py = (0.5 - c[1] / c[2] * 0.5) * H;
+    rect[0] = Math.min(rect[0], px); rect[1] = Math.min(rect[1], py);
+    rect[2] = Math.max(rect[2], px); rect[3] = Math.max(rect[3], py);
+  }
+  return rect;
+}
+
+function lightTiles(): void {
+  out('');
+  out('light tiles: every sampled point of a light sphere lies in its binned rect');
+  const W = 1600, H = 900;
+  const view = m4lookAt(m4(), [107, 1.9, -406], [113, 1.9, -427], [0, 1, 0]);
+  const vp = m4mul(m4(), m4perspectiveReverseZ(m4(), 1.05, W / H, 0.1, Infinity), view);
+  let rng = 12345;
+  const rand = () => ((rng = (Math.imul(rng, 1664525) + 1013904223) >>> 0) / 4294967296);
+  let escaped = 0, behindVisible = 0, rects = 0;
+  for (let n = 0; n < 3000; n++) {
+    const pos: Vec3 = [107 + (rand() - 0.5) * 80, rand() * 12, -406 + (rand() - 0.5) * 80];
+    const r = 0.5 + rand() * 15;
+    const rect = lightTileRect(vp, view, pos, r, W, H);
+    if (rect === 'all') continue;
+    if (rect) rects++;
+    for (let k = 0; k < 48; k++) {
+      const u = rand() * 2 - 1, a = rand() * Math.PI * 2, s = Math.sqrt(1 - u * u);
+      const p: Vec3 = [pos[0] + r * s * Math.cos(a), pos[1] + r * u, pos[2] + r * s * Math.sin(a)];
+      const w = vp[3] * p[0] + vp[7] * p[1] + vp[11] * p[2] + vp[15];
+      if (w <= 0.1) continue;
+      if (!rect) { behindVisible++; continue; }
+      const px = ((vp[0] * p[0] + vp[4] * p[1] + vp[8] * p[2] + vp[12]) / w * 0.5 + 0.5) * W;
+      const py = (0.5 - (vp[1] * p[0] + vp[5] * p[1] + vp[9] * p[2] + vp[13]) / w * 0.5) * H;
+      if (px < rect[0] - 1e-3 || px > rect[2] + 1e-3 || py < rect[1] - 1e-3 || py > rect[3] + 1e-3) escaped++;
+    }
+  }
+  check(rects > 500 && escaped === 0, 'the light rect contains its whole sphere', `${rects} rects, ${escaped} escaped points`);
+  check(behindVisible === 0, 'a light rejected as behind the eye has no visible point', `${behindVisible}`);
+  // The hero stall lamp sits right of centre; its rect must not start at x = 0.
+  const lamp = lightTileRect(vp, view, [106.0, 2.65, -409.5], 6, W, H);
+  check(lamp === 'all' || (Array.isArray(lamp) && lamp[2] > W * 0.5), 'a light right of centre reaches the right of the screen');
+  check(/\* F\.screen\.xy;/.test(lightbinWgsl) && !/c\.z <= 0\.0/.test(lightbinWgsl),
+    'lightbin.wgsl bins in pixels and does not reject lights whose centre is behind the eye');
+}
+
 // ---------------------------------------------------------------- entry
 
 export function runPerfSelfTest(): string {
   failures = 0;
   lines.length = 0;
   run();
+  lightTiles();
   lines.push('');
   lines.push(failures === 0 ? 'ALL PASS' : `${failures} FAILURE(S)`);
   return lines.join('\n');

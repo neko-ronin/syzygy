@@ -298,9 +298,44 @@ triangles also oppose their normals; they come from builders other than
 junction kerb faces carry an edge-on normal (along the face). `pushQuad` ignores
 `doubleSided`.
 
+## Round 7, 2026-10-07 — night received light (2 hero pairs)
+
+Before: `shots/2026-10-07T15-19-13` (new mesh). The night counter was a black bar
+beside a warm floor pool — the exact failure in HERO_FRAME_SPEC's night table.
+CPU bake of chunk (0,-2) showed why the counter had no source: every cord lantern
+within 34 m ahead hangs 4.5–25.5 m to the left; the counters are 2 m right.
+
+**Stall lamps.** `marketgrammar` places one bulb per roofed stall midway between
+counter and roof edge (1.9–2.3 m above the deck), in a post-pass that draws no RNG
+(an RNG call in the stall walk would reshuffle the market and move the hero).
+32 per chunk are lit, spread evenly, with their own budget: the chunk lantern and
+lamp-post budgets now subtract them. `marketbake` draws the bulb on a drop to the
+roof. Lanterns stay 48/48 delivered. Frame `15-28-08`: a bulb appears; the counter
+stays black.
+
+**The light binner anchored every light at the top-left corner.** In
+`lightbin.wgsl`, `projectPoint` returned a UV centre (0..1) and the tile test
+compared it with pixel bounds, so each light was binned into the rect
+(0,0)–(rad,rad) px. Lights whose screen radius exceeded the screen looked correct
+(the left lantern pool); everything else lit only the top-left of the frame. The
+stall lamp's ~1100 px rect stopped just left of the counter. It also rejected any
+light whose centre was behind the camera, even when its sphere reached in front.
+Shading still culls by true distance, so the bug only ever removed light — which
+is why "night loses the right-hand frontage" survived several rounds. Fixed with a
+conservative pixel rect: reject only spheres wholly behind the eye, bin spheres
+reaching the near plane everywhere, otherwise project the 8 corners of the
+view-aligned cube. `__perftest.ts` mirrors the rect and checks 1179 random spheres'
+sampled points all lie inside (one-corner mutation: 56,592 escape), plus a static
+guard on the shader.
+
+Frame `shots/2026-10-07T15-30-45` (grid `shots/compare/2026-10-07T15-31-09.png`):
+warm light on the counter top and canopy underside, lit heads and shoulders at the
+counter, cobbles readable beside it, warm stalls and facades deeper in the street.
+Day unchanged apart from the bulb. **Awaiting owner review.** Binning cost per
+(tile, light) rose (4 mat-vec + 8 corners); measure in the performance stage.
+
 ## Open work
 
 - Gutter value: still the darkest band (0.020/0.048 albedo), now beside a pale top.
-- Received night lighting after a reviewer judges the held route.
 - Untagged/foliage winding audit (above).
 - Final build/check suite, independent vision verdict, and root integration.

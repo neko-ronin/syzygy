@@ -33,7 +33,7 @@ import {
 import { FACE_ALL, FACE_NY, FACE_PY, MeshBuilder } from '../world/geometry';
 import { bakeMarketDetail, marketBakeState, type MarketBakeState } from './marketbake';
 import {
-  marketGrammarFor, MAX_MARKET_LIGHTS_PER_CHUNK,
+  marketGrammarFor, MAX_MARKET_LIGHTS_PER_CHUNK, MAX_STALL_LAMPS_PER_CHUNK,
 } from '../world/marketgrammar';
 import { CLUTTER_EDGE, CLUTTER_KINDS } from '../world/groundgrammar';
 import { districtStyle } from '../world/districts';
@@ -306,7 +306,7 @@ export function bakeGroundDetail(
     roads: 0, edgeMetres: 0, triangles: 0, fieldMs: 0,
     clutter: {
       placed: 0, wanted: 0, tris: 0, lamps: 0,
-      marketLights: 0, marketLightsDropped: 0, marketTraces: 0,
+      marketLights: 0, marketLightsDropped: 0, marketTraces: 0, stallLights: 0,
     },
   };
   if (lod > 1) return res;
@@ -413,8 +413,8 @@ export function bakeGroundDetail(
     // in total however many traces offered them.
     const room = Math.max(0, Math.min(
       MAX_MARKET_LIGHTS_PER_CHUNK,
-      lightCap - lights.length,
-      Math.floor((lightCap - lights.length + maxLights) * 0.5),
+      lightCap - (lights.length - res.clutter.stallLights),
+      Math.floor((lightCap - (lights.length - res.clutter.stallLights) + maxLights) * 0.5),
     ));
     let added = 0;
     for (const l of ordered) {
@@ -556,6 +556,8 @@ export interface ClutterTally {
   marketLightsDropped: number;
   /** Distinct market carriageways in this chunk, i.e. grammar queries made. */
   marketTraces: number;
+  /** Stall lamp lights delivered, from their own budget. */
+  stallLights: number;
 }
 
 /**
@@ -1064,7 +1066,7 @@ function emitTrace(
               // were in the array before this bake began, so the original
               // `lights.length < maxLights` compared a *chunk-relative* cap with
               // an *absolute* count and refused every lamp post in the project.
-              if (CLUTTER_KINDS[d] === 'lamp-post' && lights.length < maxLights) {
+              if (CLUTTER_KINDS[d] === 'lamp-post' && lights.length - res.clutter.stallLights < maxLights) {
                 lights.push({ pos: [px, yHi + 4.6, pz], radius: 13, color: [1.0, 0.72, 0.42], intensity: 2.6 });
               }
             }
@@ -1166,6 +1168,14 @@ function emitTrace(
       if (marketSeenKeys.has(key)) continue;
       marketSeenKeys.add(key);
       pendingMarket.push({ pos: l.pos, radius: l.radius, color: l.color, intensity: l.intensity });
+    }
+    // Stall lamps sit outside the chunk budget: the budgets above subtract them.
+    for (const l of desc.stallLights) {
+      const key = `${l.pos[0].toFixed(2)}|${l.pos[1].toFixed(2)}|${l.pos[2].toFixed(2)}`;
+      if (marketSeenKeys.has(key) || res.clutter.stallLights >= MAX_STALL_LAMPS_PER_CHUNK) continue;
+      marketSeenKeys.add(key);
+      lights.push({ pos: l.pos, radius: l.radius, color: l.color, intensity: l.intensity });
+      res.clutter.stallLights++;
     }
   }
 }

@@ -261,6 +261,19 @@ export const LANTERN_LIGHT_INTENSITY = 2.0;
 /** Hard ceiling on market lights from one chunk, spread evenly along the walk. */
 export const MAX_MARKET_LIGHTS_PER_CHUNK = 48;
 
+/**
+ * One bulb under each roofed stall, between counter and roof edge. The cord
+ * lanterns light the aisle; nothing lit the counters, so at night the hero's
+ * counter was a black bar beside a warm floor pool — the failure named in
+ * docs/HERO_FRAME_SPEC.md's night table. Small radius: it is for the counter
+ * front and the people at it, not another floor wash.
+ */
+export const STALL_LAMP_RADIUS = 6;
+export const STALL_LAMP_INTENSITY = 1.0;
+export const STALL_LAMP_COLOR: Vec3 = [1.0, 0.66, 0.36];
+/** Separate from the lantern pool, which is ordered from the spine middle. */
+export const MAX_STALL_LAMPS_PER_CHUNK = 32;
+
 /** One stall in this many has a cooking vent and a hot glow under a grille. */
 export const COOKING_EVERY = 7;
 
@@ -511,6 +524,8 @@ export interface MarketStall {
   hasCloth: boolean;
   /** Coarsest LOD the *roof* survives at. */
   lod: MarketLod;
+  /** Bulb under the roof over the counter front; null on bare pitches. */
+  lamp: MarketLantern | null;
 }
 
 /** One lantern on a cord. */
@@ -604,6 +619,8 @@ export interface MarketDesc {
   strings: MarketLanternString[];
   cloth: MarketCloth[];
   lights: MarketLight[];
+  /** Stall lamp lights, budgeted apart from the cord lanterns. */
+  stallLights: MarketLight[];
   stats: MarketStats;
 }
 
@@ -815,7 +832,8 @@ export function marketGrammarFor(q: MarketQuery): MarketDesc {
     metres: 0, slots: 0, gaps: 0, fatigueGaps: 0, rejected: 0, stalls: 0, crates: 0, signs: 0,
     vents: 0, lanternStrings: 0, lanterns: 0, cloth: 0, lights: 0,
   };
-  const empty = (): MarketDesc => ({ stalls, strings, cloth, lights, stats });
+  const stallLights: MarketLight[] = [];
+  const empty = (): MarketDesc => ({ stalls, strings, cloth, lights, stallLights, stats });
 
   // Market dressing belongs to the market street and to the bazaar that wraps
   // it. Anything else gets nothing, however close its geometry runs to the
@@ -968,6 +986,7 @@ export function marketGrammarFor(q: MarketQuery): MarketDesc {
             vent: null,
             sign: null,
             lod: 1,
+            lamp: null,
           };
           stalls.push(stall);
           stats.stalls++;
@@ -1134,5 +1153,17 @@ export function marketGrammarFor(q: MarketQuery): MarketDesc {
     }
   }
 
-  return { stalls, strings, cloth, lights, stats };
+  // Stall lamps, after the walk and without the RNG: drawing here would reshuffle
+  // every later stall and move the hero subject. Lit ones are spread evenly.
+  const roofed = stalls.filter((st) => st.module !== 'bare');
+  roofed.forEach((st, i) => {
+    const lat = st.counter + (st.front - st.counter) * 0.5;
+    const pos: Vec3 = [st.cx + st.nx * lat, GROUND_Y + clamp(st.eave - 0.35, 1.9, 2.3), st.cz + st.nz * lat];
+    const lit = Math.floor(((i + 1) * MAX_STALL_LAMPS_PER_CHUNK) / roofed.length)
+      > Math.floor((i * MAX_STALL_LAMPS_PER_CHUNK) / roofed.length);
+    st.lamp = { pos, radius: 0.07, color: STALL_LAMP_COLOR, emissive: 5.5, light: lit };
+    if (lit) stallLights.push({ pos, radius: STALL_LAMP_RADIUS, color: STALL_LAMP_COLOR, intensity: STALL_LAMP_INTENSITY });
+  });
+
+  return { stalls, strings, cloth, lights, stallLights, stats };
 }

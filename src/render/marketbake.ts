@@ -40,7 +40,7 @@ import type { CrowdObstacle } from '../world/crowdobstacles';
 import {
   COUNTER_TOP, MARKET_LOD_GONE, RIGGING_LOD, SAG_ACROSS, SAG_ALONG,
   marketCatenary, marketGrammarFor,
-  type MarketCloth, type MarketCrate, type MarketLanternString, type MarketStall,
+  type MarketCloth, type MarketCrate, type MarketLantern, type MarketLanternString, type MarketStall,
 } from '../world/marketgrammar';
 
 // ---------------------------------------------------------------- the build
@@ -200,6 +200,15 @@ function bakeSign(bld: MeshBuilder, s: MarketStall): void {
   });
 }
 
+/** The bulb over a counter, on a drop to the roof directly above it. */
+function bakeStallLamp(bld: MeshBuilder, s: MarketStall, l: MarketLantern): void {
+  const lat = Math.hypot(l.pos[0] - s.cx, l.pos[2] - s.cz) * Math.sign(s.front || 1);
+  const t = (lat - s.front) / ((s.back - s.front) || 1);
+  const roof: Vec3 = [l.pos[0], GROUND_Y + s.eave + (s.ridge - s.eave) * t, l.pos[2]];
+  bld.pushCylinder(roof, l.pos, 0.012, 3, [0.18, 0.17, 0.16]);
+  bld.pushSphere(l.pos, l.radius, LANTERN_RINGS, LANTERN_SECTORS, l.color, { emissive: l.emissive });
+}
+
 /**
  * One cord across the street and the lanterns on it.
  *
@@ -291,6 +300,7 @@ export function bakeMarketDetail(bld: MeshBuilder, ctx: GroundBakeCtx, emitted =
     }
     if (s.vent && s.vent.lod <= ctx.lod) bakeVent(bld, s);
     if (s.sign && s.sign.lod <= ctx.lod) bakeSign(bld, s);
+    if (detailed && s.lamp) bakeStallLamp(bld, s, s.lamp);
   }
 
   for (const str of desc.strings) {
