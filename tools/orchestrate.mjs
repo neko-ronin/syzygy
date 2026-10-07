@@ -64,7 +64,16 @@ const MEM_BLOCK_MB = 250;
 /** A capture over this long is presumed dead; the lock may then be broken. */
 const LOCK_STALE_MIN = 25;
 
-const LOCK_DIR = 'shots/.caplock';
+// In the git common dir, so every worktree of this repo shares one lock: a
+// per-checkout `shots/.caplock` let parallel sessions launch GPU browsers at once.
+export const LOCK_DIR = process.env.SYZYGY_CAPLOCK ?? (() => {
+  try {
+    const common = execFileSync('git', ['rev-parse', '--git-common-dir'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    return join(resolve(common), 'syzygy-caplock');
+  } catch {
+    return 'shots/.caplock';
+  }
+})();
 
 // ---------------------------------------------------------------------------
 // Platform probes

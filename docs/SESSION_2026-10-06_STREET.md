@@ -331,7 +331,7 @@ guard on the shader.
 Frame `shots/2026-10-07T15-30-45` (grid `shots/compare/2026-10-07T15-31-09.png`):
 warm light on the counter top and canopy underside, lit heads and shoulders at the
 counter, cobbles readable beside it, warm stalls and facades deeper in the street.
-Day unchanged apart from the bulb. **Awaiting owner review.** Binning cost per
+Day unchanged apart from the bulb. **Owner verdict 2026-10-07:** satisfactory for this stage. Binning cost per
 (tile, light) rose (4 mat-vec + 8 corners); measure in the performance stage.
 
 ## Open work

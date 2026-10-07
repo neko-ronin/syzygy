@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { acquireLock, releaseLock, parsePlatformTelemetry, preflight, readPlatformTelemetry } from './orchestrate.mjs';
+// Lock checks below chdir to a temp dir; keep them off the real shared lock.
+process.env.SYZYGY_CAPLOCK = 'shots/.caplock';
+const { acquireLock, releaseLock, parsePlatformTelemetry, preflight, readPlatformTelemetry } = await import('./orchestrate.mjs');
 
 const tool = join(dirname(fileURLToPath(import.meta.url)), 'orchestrate.mjs');
 const healthy = {
@@ -152,6 +154,17 @@ const imported = spawnSync(process.execPath, ['--input-type=module', '-e',
 assert.equal(imported.status, 0);
 assert.equal(imported.stdout, 'IMPORTED\n', 'importing probes must not run CLI or exit the caller');
 assert.equal(imported.stderr, '');
+
+{
+  const env = { ...process.env };
+  delete env.SYZYGY_CAPLOCK;
+  const probe = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `const m = await import(${JSON.stringify(new URL('./orchestrate.mjs', import.meta.url).href)}); console.log(m.LOCK_DIR);`],
+  { encoding: 'utf8', timeout: 5000, env, cwd: dirname(fileURLToPath(import.meta.url)) });
+  const common = spawnSync('git', ['rev-parse', '--git-common-dir'], { encoding: 'utf8', cwd: dirname(fileURLToPath(import.meta.url)) }).stdout.trim();
+  assert.equal(probe.stdout.trim(), join(resolve(dirname(fileURLToPath(import.meta.url)), common), 'syzygy-caplock'),
+    'the default GPU lock lives in the git common dir, shared by every worktree');
+}
 
 const lockDir = mkdtempSync(join(tmpdir(), 'syzygy-gpu-lock-'));
 const previousCwd = process.cwd();

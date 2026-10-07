@@ -13,18 +13,14 @@ world performance at 60 FPS on this Mac, Chrome, 1600 × 900**. The
    for this early stage (cobble F2−F1 stones, `shots/2026-10-07T12-36-07`;
    street report Round 5). Polygonal stone shape and mid-distance grain remain
    noted, not blocking.
-2. **Finish street detail.** Kerb geometry repaired and **accepted by the owner
-   2026-10-07** (street report Round 6): the kerb top was never emitted, half of
-   all footway/kerb/gutter triangles were back-face culled (fixed in
-   `MeshBuilder.pushQuad`), footway joints were per-cell fragments. Human mesh
-   wired and walking surfaces feed foot grounding (crowd report, 2026-10-07
-   section); **awaiting owner review** — skin takes the coat tint and the face
-   box reads as a beak up close. Night light (street report Round 7): stall
-   lamps added, and the light binner was anchoring every light at the screen's
-   top-left — fixed; **awaiting owner review**. See the street report and
-   [crowd report](SESSION_2026-10-06_CROWD.md). Keep these as separate visual
-   iterations.
-3. **Close the street batch.** Run the final required checks, obtain an
+2. ~~**Finish street detail.**~~ **Accepted by the owner 2026-10-07** ("images
+   show satisfactory work for the stage we're at"): kerb geometry and half-city
+   winding (street report Round 6), human mesh and foot grounding (crowd report
+   2026-10-07), stall lamps and the light-binner fix (street report Round 7).
+   Noted, not blocking: skin takes the coat tint, face box reads as a beak up
+   close, every other counter lamp is lit.
+3. ~~**Close the street batch.**~~ Closed 2026-10-07 on the owner's review;
+   commits `c42abff`, `6db4b5a`, `f05af6d`. Original wording: Run the final required checks, obtain an
    independent vision verdict against the section references and comparison
    grids, update status, and commit verified work at natural boundaries.
 4. **Build richer city detail and seamless streaming.** Primary-source
@@ -39,7 +35,8 @@ world performance at 60 FPS on this Mac, Chrome, 1600 × 900**. The
 
 **Capture capacity:** marginal. The guard passed at 277 MB unused on 2026-10-07
 (minimum 250 MB, `WORKFLOW.md` §6.1); serialize captures and never force past it.
-The last *independently reviewed* frame remains the Round 4 baseline.
+The latest owner-reviewed frames are the hero pair `shots/2026-10-07T15-30-45`
+and the kerb diagnostic `shots/2026-10-07T13-18-36-01g-kerb-face.png`.
 
 **Prepared foundations:** actual emitted hero subject and held day/night
 residency, nearest-neighbour/body/solid clearance repairs, instance ABI fixes,
