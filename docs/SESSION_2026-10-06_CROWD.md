@@ -247,3 +247,28 @@ furniture clearance true on nondegenerate input. It produced a working local
 solver and failing mutation controls, rather than another density histogram.
 The visual crowd still requires the separate frame review; mechanical clearance
 does not certify figure identity, market occupancy or a 60 FPS city.
+
+## 2026-10-07 — mesh wired, walking support connected (3 frames)
+
+**Mesh.** `renderer.ts` now uploads `pedestrianMesh()`; the old box figure in
+`entityMeshes` is deleted. Also removed a dead upload that sent the whole 4 km
+ground mesh to the GPU a second time as `ground2` and was overwritten on the next
+line. Hero replay `shots/2026-10-07T15-19-13` against `13-19-01` (same saved
+actors, camera, residency; no WGSL errors; grid `shots/compare/2026-10-07T15-19-35.png`):
+figures now read as people — two legs with shoes, arms and hands, neck, head —
+instead of orange signposts. Observations, not fixed: the per-instance tint
+multiplies every vertex, so skin takes the coat colour (green/teal faces); the
+small face box reads as a beak at close range (`15-21-41-01e-crowd-closeup.png`);
+night is still too dark to judge bodies.
+
+**Grounding.** Nothing called `CrowdSim.setWalkingSurfaces`, so every actor stood
+at the 0.35 m deck. Now `walkingTriangles(mesh)` (walkingsurfaces.ts) extracts
+tagged paving/kerb-top triangles at bake time into `BakedChunk.walking`; the
+renderer concatenates resident chunks once per residency revision
+(`crowdWalkingSurfaces()`, like `crowdObstacles()`), and `main.ts` feeds the crowd
+beside its obstacles. The street winding fix (street report Round 6) is what makes
+this complete: the index skips downward-wound triangles, which used to be half of
+all footways. The separation suite now also checks the production extractor
+against its independent extraction at the known hero point (mutation: an empty
+extractor fails). Live: `crowd-closeup` reports `pop.maxY` 0.5 where every earlier
+capture reported 0.3 (rounded foot origins), so actors stand on raised footways.

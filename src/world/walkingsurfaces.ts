@@ -3,8 +3,28 @@
  * paving/kerb-top faces and treats the published Float32Array as immutable.
  * The consumer retains this buffer, never the opaque mesh it came from.
  */
+import type { Mesh } from './geometry';
+import { decodeGroundSurfaceTag } from './groundgrammar';
+
 export const WALKING_TRIANGLE_FLOATS = 9;
 export type WalkingSurfaceTriangles = Float32Array;
+
+/** The producer: tagged paving and kerb-top triangles of one baked mesh. */
+export function walkingTriangles(mesh: Mesh): WalkingSurfaceTriangles {
+  const out: number[] = [];
+  const { indices, colors, positions } = mesh;
+  for (let i = 0; i < mesh.indexCount; i += 3) {
+    const tag = colors[indices[i] * 4 + 3];
+    if (tag >= 0) continue;
+    const kind = decodeGroundSurfaceTag(tag).surface;
+    if (kind !== 'paving' && kind !== 'kerb-top') continue;
+    for (let k = 0; k < 3; k++) {
+      const v = indices[i + k] * 3;
+      out.push(positions[v], positions[v + 1], positions[v + 2]);
+    }
+  }
+  return new Float32Array(out);
+}
 
 const CELL_SIZE = 8;
 const EDGE_EPSILON = 1e-7;

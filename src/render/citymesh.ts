@@ -26,6 +26,7 @@ import {
 import { groundGrammarFor, groundSurfaceTag, walkingFamily, walkingAlbedo } from '../world/groundgrammar';
 import { bakeGroundDetail, type GroundLight } from './groundbake';
 import type { CrowdObstacle } from '../world/crowdobstacles';
+import { walkingTriangles, type WalkingSurfaceTriangles } from '../world/walkingsurfaces';
 import type { MarketStall } from '../world/marketgrammar';
 
 // ---------------------------------------------------------------- materials
@@ -690,6 +691,8 @@ function pushCable(bld: MeshBuilder, c: Cable, col: Vec3, sides: number): void {
 export interface BakedChunk {
   obstacles: CrowdObstacle[];
   marketStalls: MarketStall[];
+  /** Raised walking support the crowd stands on (see walkingsurfaces.ts). */
+  walking: WalkingSurfaceTriangles;
   /** World-space geometry for everything opaque and static. */
   opaque: Mesh;
   /** Thin geometry that wants double-sided, alpha-tested treatment. */
@@ -895,6 +898,7 @@ export function bakeChunk(chunk: CityChunk, lod: number, seed: number): BakedChu
   const foliage = leaf.build();
   return {
     obstacles, marketStalls,
+    walking: walkingTriangles(opaque),
     opaque,
     foliage,
     boundsMin: opaque.boundsMin,
@@ -998,27 +1002,6 @@ const hash01 = (h: number): number => {
  * colour carry everything.
  */
 export const entityMeshes = {
-  pedestrian(): Mesh {
-    const b = new MeshBuilder();
-    const skin: Vec3[] = [[0.62, 0.45, 0.34], [0.42, 0.30, 0.22], [0.75, 0.58, 0.45], [0.28, 0.20, 0.16]];
-    const cloth: Vec3[] = [
-      [0.75, 0.28, 0.22], [0.20, 0.34, 0.55], [0.85, 0.72, 0.35], [0.30, 0.48, 0.36],
-      [0.86, 0.86, 0.84], [0.42, 0.24, 0.46], [0.18, 0.20, 0.26], [0.92, 0.52, 0.30],
-    ];
-    const c = cloth[0], s = skin[0];
-    // Legs
-    b.pushBox([0, 0.42, 0], [0.075, 0.42, 0.075], [0.10, 0.11, 0.14], { faces: FACE_ALL });
-    // Torso
-    b.pushBox([0, 1.12, 0], [0.19, 0.30, 0.12], c, { faces: FACE_ALL });
-    // Arms
-    b.pushBox([0.25, 1.10, 0], [0.06, 0.26, 0.06], c, { faces: FACE_ALL });
-    b.pushBox([-0.25, 1.10, 0], [0.06, 0.26, 0.06], c, { faces: FACE_ALL });
-    // Head
-    b.pushBox([0, 1.58, 0], [0.105, 0.12, 0.10], s, { faces: FACE_ALL });
-    void skin; void cloth;
-    return b.build();
-  },
-
   tramCar(): Mesh {
     const b = new MeshBuilder();
     const L = 9.0, W = 1.2, H = 1.8;

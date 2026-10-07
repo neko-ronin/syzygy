@@ -16,11 +16,10 @@ world performance at 60 FPS on this Mac, Chrome, 1600 × 900**. The
 2. **Finish street detail.** Kerb geometry repaired and **accepted by the owner
    2026-10-07** (street report Round 6): the kerb top was never emitted, half of
    all footway/kerb/gutter triangles were back-face culled (fixed in
-   `MeshBuilder.pushQuad`), footway joints were per-cell fragments. Still open:
-   wire and review the prepared human mesh, connect actual emitted
-   walking surfaces to foot grounding, and improve received night lighting.
-   The new mesh and walking-surface index are prepared; their production wiring
-   and visual acceptance remain open. See the street report and
+   `MeshBuilder.pushQuad`), footway joints were per-cell fragments. Human mesh
+   wired and walking surfaces feed foot grounding (crowd report, 2026-10-07
+   section); **awaiting owner review** — skin takes the coat tint and the face
+   box reads as a beak up close. Still open: received night lighting. See the street report and
    [crowd report](SESSION_2026-10-06_CROWD.md). Keep these as separate visual
    iterations.
 3. **Close the street batch.** Run the final required checks, obtain an

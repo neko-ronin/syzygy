@@ -9,7 +9,7 @@ import { City, defaultCityConfig, GROUND_Y } from '../world/citygen';
 import { bakeChunk, INSTANCE_FLOATS } from '../render/citymesh';
 import { pedestrianMesh } from '../render/pedestrianmesh';
 import { PEDESTRIAN_RADIUS, PEDESTRIAN_HEIGHT, type CrowdObstacle } from '../world/crowdobstacles';
-import { WalkingSurfaceIndex, WALKING_TRIANGLE_FLOATS } from '../world/walkingsurfaces';
+import { WalkingSurfaceIndex, WALKING_TRIANGLE_FLOATS, walkingTriangles } from '../world/walkingsurfaces';
 import { decodeGroundSurfaceTag } from '../world/groundgrammar';
 import type { Mesh } from '../world/geometry';
 
@@ -256,6 +256,9 @@ function walkingSurfaceProperties(mesh:Mesh):void {
   check(actual.length%WALKING_TRIANGLE_FLOATS===0,'walking extraction breaks the compact triangle contract');
   index.set(actual,6);
   check(Math.abs(index.heightAt(...point,GROUND_Y)-expected)<1e-6,'known hero point is below its actual emitted support');
+  const production=new WalkingSurfaceIndex();
+  production.set(walkingTriangles(mesh),1);
+  check(Math.abs(production.heightAt(...point,GROUND_Y)-expected)<1e-6,'production walking extractor disagrees with the independent extraction');
 
   const points:[number,number,number,number][]=[
     [point[0],point[1],point[0]+12,point[1]],

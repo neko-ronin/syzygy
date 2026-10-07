@@ -25,6 +25,7 @@ import {
 } from './gpuutil';
 import { modules } from './wgsl';
 import { bakeChunk, bakeGround, entityMeshes, makeInstanceWriter, MAT, type BakedChunk } from './citymesh';
+import { pedestrianMesh } from './pedestrianmesh';
 import {
   CASCADE_SPLITS, cascadeMatrix, cascadeParams, extractOrthoFrustum, sphereInFrustum,
 } from './cascade';
@@ -83,6 +84,7 @@ interface RenderTargets {
 
 interface ChunkEntry {
   obstacles: BakedChunk['obstacles'];
+  walking: BakedChunk['walking'];
   marketStalls: BakedChunk['marketStalls'];
   version: number;
   cx: number; cz: number;
@@ -273,6 +275,7 @@ export class Renderer {
   private captureFrozen = false;
   private residencyRevision = 0;
   private obstacleCache: { revision: number; obstacles: BakedChunk['obstacles'] } = { revision: -1, obstacles: [] };
+  private walkingCache: { revision: number; triangles: Float32Array } = { revision: -1, triangles: new Float32Array(0) };
   readonly gpu: GPUContext;
   readonly city: City;
   readonly world: WorldState;
@@ -706,9 +709,8 @@ export class Renderer {
   private buildStaticGeometry(): void {
     const ground = bakeGround(4096, this.world.seed);
     this.ground = uploadMesh(this.gpu, 'ground', ground.mesh);
-    this.entities = { ground: uploadMesh(this.gpu, 'ground2', ground.mesh) };
     this.entities = {
-      pedestrian: uploadMesh(this.gpu, 'ped', entityMeshes.pedestrian()),
+      pedestrian: uploadMesh(this.gpu, 'ped', pedestrianMesh()),
       tram: uploadMesh(this.gpu, 'tram', entityMeshes.tramCar()),
       cablecar: uploadMesh(this.gpu, 'cablecar', entityMeshes.cableCar()),
       blimp: uploadMesh(this.gpu, 'blimp', entityMeshes.blimp()),
@@ -1089,7 +1091,7 @@ export class Renderer {
       baked.boundsMax[2] - baked.boundsMin[2],
     );
     this.chunks.set(key, {
-      obstacles: baked.obstacles, marketStalls: baked.marketStalls, version: ++this.residencyRevision,
+      obstacles: baked.obstacles, walking: baked.walking, marketStalls: baked.marketStalls, version: ++this.residencyRevision,
       cx, cz, lod, mesh, foliage, lights: baked.lights, radius, centre, lastUsed: this.frameIndex,
       marketProduced: baked.marketLights?.produced ?? 0,
     });
@@ -2259,6 +2261,18 @@ export class Renderer {
       this.obstacleCache = { revision: this.residencyRevision, obstacles: [...this.chunks.values()].flatMap((c) => c.obstacles) };
     }
     return this.obstacleCache;
+  }
+  /** Resident walking triangles, rebuilt only when residency changes. */
+  // ponytail: full concatenation per revision; per-chunk index slices if streaming makes this hot.
+  crowdWalkingSurfaces() {
+    if (this.walkingCache.revision !== this.residencyRevision) {
+      const parts = [...this.chunks.values()].map((c) => c.walking);
+      const triangles = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
+      let o = 0;
+      for (const p of parts) { triangles.set(p, o); o += p.length; }
+      this.walkingCache = { revision: this.residencyRevision, triangles };
+    }
+    return this.walkingCache;
   }
   /** Initialise both histories alike after a capture phase cut, without rewinding telemetry. */
   resetTemporalHistory(): void {
