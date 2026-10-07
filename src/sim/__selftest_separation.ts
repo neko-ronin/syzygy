@@ -5,7 +5,7 @@
  */
 import { CrowdSim } from './crowd';
 import { defaultWorld } from '../core/state';
-import { City, defaultCityConfig, GROUND_Y } from '../world/citygen';
+import { City, cityPlan, defaultCityConfig, GROUND_Y, sampleStreetPlan, type StreetSample } from '../world/citygen';
 import { bakeChunk, INSTANCE_FLOATS } from '../render/citymesh';
 import { pedestrianMesh } from '../render/pedestrianmesh';
 import { PEDESTRIAN_RADIUS, PEDESTRIAN_HEIGHT, type CrowdObstacle } from '../world/crowdobstacles';
@@ -363,6 +363,47 @@ function instanceIsolation():void {
   }
 }
 
-queryProperties();motionProperties();walkingSurfaceProperties(emittedSolids());meshEnvelope();instanceIsolation();
+/** The pavement hold reuses a street frame until the agent moves 0.5 m; it must
+ *  agree with an exact sample at the agent's current position, and be reused. */
+function holdCacheProperty():void {
+  const seed=6191639,sim=new CrowdSim(seed),world=defaultWorld(seed);
+  sim.attach(new City(defaultCityConfig(seed)),seed);
+  const camera={position:[107.06,1.95,-405.96] as [number,number,number],lookAt:[113.14,1.95,-426.94] as [number,number,number]};
+  for(let k=0;k<240;k++)sim.update(1/60,camera,world);
+  const st=sim as unknown as {f:Float32Array;holdCache:Float32Array};
+  const plan=cityPlan(seed),out={dist:0,px:0,pz:0,tx:1,tz:0,width:1,kind:'street',clearance:0} as StreetSample;
+  const errs:number[]=[];let reused=0;
+  for(let i=0;i*STRIDE<st.f.length;i++){
+    const o=i*STRIDE,c=i*6;
+    if(st.f[o+ACTIVE]<.5||st.f[o+28]===0||Number.isNaN(st.holdCache[c]))continue;
+    const x=st.f[o],z=st.f[o+2],h=st.holdCache;
+    if(h[c]!==x||h[c+1]!==z)reused++;
+    const e=sampleStreetPlan(plan,x,z,out);
+    const exact=(x-e.px)*-e.tz+(z-e.pz)*e.tx,cached=(x-h[c+2])*-h[c+5]+(z-h[c+3])*h[c+4];
+    errs.push(Math.abs(exact-cached));
+  }
+  errs.sort((a,b)=>a-b);
+  const p95=errs[Math.floor(errs.length*.95)]??Infinity;
+  check(errs.length>500,'hold cache fixture has too few held agents');
+  check(reused>errs.length*.5,'hold cache is not reused between frames');
+  check(p95<.05,`cached street frame disagrees with exact sample: p95 ${p95.toFixed(3)} m`);
+  console.log(`  hold cache: ${errs.length} held agents, ${reused} on reused frames, lateral error p95 ${p95.toFixed(4)} m`);
+}
+
+/** Near the city edge (skyline pose) every agent must hold a goal: goal -1 was
+ *  permanent and re-ran the goal search every frame. */
+function goalProperty():void {
+  const seed=6191639,sim=new CrowdSim(seed),world=defaultWorld(seed);
+  sim.attach(new City(defaultCityConfig(seed)),seed);
+  const camera={position:[900,120,1400] as [number,number,number],lookAt:[0,200,0] as [number,number,number]};
+  for(let k=0;k<240;k++)sim.update(1/60,camera,world);
+  const f=raw(sim).f;let active=0,none=0;
+  for(let o=0;o<f.length;o+=STRIDE){if(f[o+ACTIVE]<.5)continue;active++;if((f[o+8]|0)<0)none++;}
+  check(active>1000,'goal fixture seeded too few agents');
+  check(none===0,`${none} of ${active} agents have no goal near the city edge`);
+  console.log(`  goals: ${active} active at the skyline pose, ${none} without a goal`);
+}
+
+queryProperties();motionProperties();walkingSurfaceProperties(emittedSolids());meshEnvelope();instanceIsolation();holdCacheProperty();goalProperty();
 console.log(failures.length?`FAIL (${failures.length})\n${failures.join('\n')}`:'ALL PASS — true nearest, walking support, mesh envelope, body/solid clearance and instance isolation');
 if(failures.length)throw new Error('Crowd property regression failed');

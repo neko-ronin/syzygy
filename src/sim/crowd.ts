@@ -46,6 +46,9 @@ const BODY_HEIGHT = PEDESTRIAN_HEIGHT;
  * the speed a person covers ground rather than at the speed of the error.
  */
 const HOLD_SPEED = 1.4;
+/** Pavement-hold street frame is re-sampled after this much movement (see holdCache). */
+const HOLD_RESAMPLE_M = 0.5;
+const HOLD_CACHE_FLOATS = 6;
 
 /**
  * Agents per readable group, and the chance a group slot is left empty.
@@ -449,6 +452,7 @@ export class CrowdSim {
   constructor(seed: number) {
     this.capacity = 6000;
     this.f = new Float32Array(this.capacity * F.LOCAL);
+    this.holdCache = new Float32Array(this.capacity * HOLD_CACHE_FLOATS).fill(NaN);
     this.ids = new Int32Array(this.capacity);
     this.nbr = new Int32Array(NEAREST_COUNT);
     this.pathPool = new Int32Array(this.PATH_POOL * this.PATH_MAX);
@@ -463,7 +467,10 @@ export class CrowdSim {
   attach(city: City, seed: number): void {
     this.city = city;
     void seed;
-    this.nav = new NavGraph(city);
+    // The whole finite city, not the default 760 m disc: agents seeded beyond it
+    // (any view near the edges) had no node to walk to. 387 ms once at attach.
+    // ponytail: build-once for a finite city; grow with ensureRegion when the world streams.
+    this.nav = new NavGraph(city, { radius: (city.cfg.radiusChunks + 0.5) * city.cfg.chunkSize });
     this.nodes = this.nav.nodes;
   }
 
@@ -740,8 +747,15 @@ export class CrowdSim {
   private assignPath(i: number, goal: number): void {
     const f = this.f;
     const o = i * F.LOCAL;
-    const from = f[o + F.goal] | 0;
-    if (from < 0 || !this.nav) { f[o + F.next] = goal; return; }
+    // A failed search keeps the old goal. Writing -1 here, and never writing
+    // F.goal in the no-origin branch below, parked agents at goal -1 for good:
+    // `arrived` was then true every frame and they re-ran the goal search every
+    // frame without ever pathing (160 searches a frame, 67% of crowd CPU, at the
+    // skyline pose near the city edge, where seeding finds no node in range).
+    if (goal < 0) return;
+    let from = f[o + F.goal] | 0;
+    if (from < 0) from = this.nearestNodeIdx(f[o + F.x], f[o + F.z]);
+    if (from < 0 || !this.nav) { f[o + F.next] = goal; f[o + F.goal] = goal; f[o + F.pathPos] = 0; return; }
     const p = this.nav.path(from, goal);
     const slot = this.pathCursor++ % this.PATH_POOL;
     const n = Math.min(p.length, this.PATH_MAX);
@@ -777,7 +791,8 @@ export class CrowdSim {
     // --- pick a new goal when the old one is reached or the agent loses patience
     const gi = f[o + F.goal] | 0;
     const target = gi >= 0 && gi < this.nodes.length ? this.nodes[gi].position : null;
-    const arrived = !target ||
+    // No goal is not arrival: an agent without one retries on its ttl, not every frame.
+    const arrived = target !== null &&
       (target[0] - x) * (target[0] - x) + (target[2] - z) * (target[2] - z) < 36;
     f[o + F.ttl] -= dt;
     // Market dwell.
@@ -795,7 +810,8 @@ export class CrowdSim {
       f[o + F.need] = need;
       const g = this.randomNodeFor(need, x, z);
       this.assignPath(i, g);
-      f[o + F.ttl] = this.rng.range(35, 150);
+      // Without any goal yet, retry soon rather than in 35-150 s.
+      f[o + F.ttl] = (f[o + F.goal] | 0) < 0 ? this.rng.range(1.5, 4) : this.rng.range(35, 150);
       f[o + F.mood] = need === Need.Commute ? 1 : 0;
       if (wasMarket && need === Need.Market && this.hasMarket) {
         f[o + F.dwell] = this.rng.range(8, 30);
@@ -883,9 +899,15 @@ export class CrowdSim {
     // where the review asked for them.
     if (!this.plan) this.plan = cityPlan(this.seedRef.seed);
     if (f[o + F.lateral] !== 0) {
-      const s = sampleStreetPlan(this.plan, nx, nz, this.streetOut);
-      const nxx = -s.tz, nzz = s.tx;
-      const lat = (nx - s.px) * nxx + (nz - s.pz) * nzz;
+      const h = this.holdCache, c = i * HOLD_CACHE_FLOATS;
+      const mx = nx - h[c], mz = nz - h[c + 1];
+      // NaN (never sampled) fails the comparison and samples.
+      if (!(mx * mx + mz * mz < HOLD_RESAMPLE_M * HOLD_RESAMPLE_M)) {
+        const s = sampleStreetPlan(this.plan, nx, nz, this.streetOut);
+        h[c] = nx; h[c + 1] = nz; h[c + 2] = s.px; h[c + 3] = s.pz; h[c + 4] = s.tx; h[c + 5] = s.tz;
+      }
+      const nxx = -h[c + 5], nzz = h[c + 4];
+      const lat = (nx - h[c + 2]) * nxx + (nz - h[c + 3]) * nzz;
       // Hold the *band*, not a point. A constant offset pins every agent to one
       // lateral line, which is what the hold was for and also what collapsed
       // their screen separation: measured mean nearest-neighbour 1.67 px, below
@@ -971,6 +993,14 @@ export class CrowdSim {
   }
 
   /** Reusable output for the street sampler; the module's own is private. */
+  /**
+   * Per-agent street frame for the pavement hold: [sampledX, sampledZ, px, pz, tx, tz].
+   * `sampleStreetPlan` per agent per frame was ~60% of crowd CPU (profiled at the
+   * hero, 10.2 ms per update). The frame is a pure function of position, so it is
+   * re-sampled only after the agent moves HOLD_RESAMPLE_M; keyed by position, a
+   * reused slot cannot inherit another agent's street.
+   */
+  private holdCache: Float32Array;
   private streetOut: StreetSample = {
     dist: 0, px: 0, pz: 0, tx: 1, tz: 0, width: 1, kind: 'street', clearance: 0,
   };
@@ -1233,6 +1263,7 @@ export class CrowdSim {
     f[o + F.goal] = this.nearestNodeIdx(x, z);
     f[o + F.pathPos] = 0;
     f[o + F.ttl] = r.range(20, 120);
+    if (f[o + F.goal] < 0) f[o + F.ttl] = 0;   // born without a goal: search on the first step
 
     const c = crowdColorFor(this.seedRef, [x, f[o + F.y], z], f[o + F.seed]);
     f[o + F.cr] = c[0];
@@ -1290,6 +1321,7 @@ export class CrowdSim {
 
   dispose(): void {
     this.f = new Float32Array(0);
+    this.holdCache = new Float32Array(0);
     this.instData = new Float32Array(0);
     this.instances = { data: this.instData, count: 0 };
     this.visibleCount = 0;

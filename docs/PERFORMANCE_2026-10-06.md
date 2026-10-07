@@ -270,3 +270,35 @@ console errors now carry the failing URL; the page loaded Google Fonts at runtim
 **Next:** CPU — crowd simulation at 9.7–12 ms per callback is the next binding cost
 once GPU is under budget; then synchronous streaming for flight; then G-buffer and
 far shadow cascade cost on skyline.
+
+## 2026-10-07 — crowd CPU
+
+Profiled headlessly (Node `--cpu-prof`, real `CrowdSim` with the emitted obstacles
+and walking surfaces of the surrounding chunks), which reproduced the browser's
+10.2 ms per update at the hero.
+
+1. *Pavement hold sampled the street field per agent per frame* — `sampleStreetPlan`
+   and its noise/warp helpers were ~60% of crowd CPU. Each agent now caches its
+   street frame and re-samples after moving 0.5 m (the frame is a pure function of
+   position, so a reused slot cannot inherit a wrong street). Lateral error vs an
+   exact sample: p95 1.8 mm; a 1 km radius mutant fails at 7.9 m. 10.2 → 3.5 ms.
+2. *Agents stranded at goal −1 re-ran the goal search every frame.* `assignPath`
+   never wrote `F.goal` when the agent had no current node, and wrote −1 when a
+   search failed; `arrived` was true for a null target. At the skyline pose this was
+   160 radius searches (up to 1.2 km, ~5,900 bucket lookups each) per frame, 67% of
+   crowd CPU, with zero paths computed. Fixed: a failed search keeps the old goal,
+   the no-origin branch paths from the nearest node, no-target is not arrival and
+   retries on a short ttl.
+3. *The nav graph covered ±760 m of a ±1,536 m city*, so 735 of 2,550 agents near the
+   skyline camera had nothing to walk to. The crowd now builds the whole finite city
+   once at attach (19,071 nodes, ~390 ms instead of ~110 ms). A streamed world must
+   grow it with `ensureRegion` instead (37–40 ms per region, measured).
+   Regression: no active agent without a goal at the skyline pose (old graph: 973).
+
+Benchmark (`benchmarks/2026-10-07T23-31-00-738Z`, fixed high, valid): hero **54.7**,
+skyline **51.8**, flight **48.0** submitted frames/s (baseline 42.4 / 36.9 / 31.7).
+Simulation p50 3.5–4.3 ms (was 9.7–12). GPU is binding again on hero/skyline
+(completion latency p50 ~25 ms in this run; the instrumented hero run measured a
+14.5 ms frame span, so run-to-run GPU contention from other applications is
+material). Flight remains limited by synchronous streaming: stream p95 19.7 ms,
+max 46 ms.
