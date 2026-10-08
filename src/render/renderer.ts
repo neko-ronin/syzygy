@@ -36,6 +36,7 @@ import { City, defaultCityConfig, type CityChunk } from '../world/citygen';
 import type { FlightCamera } from '../camera/camera';
 import type { Mesh } from '../world/geometry';
 import { FramePerf, GpuPassTimer } from './perf';
+import type { BakeRequest, BakeResponse } from './bakeworker';
 import { writeCaptureProjection } from './captureprojection';
 
 // ---------------------------------------------------------------- quality
@@ -65,6 +66,10 @@ const LIGHT_FLOATS = 8;
  * the LOD rebake queue so a tier change can never spend more than this.
  */
 const BAKE_BUDGET_MS = 4;
+/** Off-thread bakes in flight at once: enough to keep the worker busy, few enough to stay current. */
+const MAX_INFLIGHT_BAKES = 2;
+/** Main-thread time for uploading finished bakes per frame; at least one always goes. */
+const UPLOAD_BUDGET_MS = 3;
 
 // ---------------------------------------------------------------- resources
 
@@ -273,6 +278,14 @@ export interface CapturePhases {
 export class Renderer {
   readonly perf = new FramePerf();
   private captureFrozen = false;
+  /** Natural streaming bakes here when Workers exist; see bakeworker.ts. */
+  private baker: Worker | null = null;
+  private bakeSeq = 0;
+  private inflight = new Map<number, { cx: number; cz: number; lod: number; rebake: boolean }>();
+  private inflightKeys = new Set<string>();
+  private bakedReady: { cx: number; cz: number; lod: number; rebake: boolean; baked: BakedChunk }[] = [];
+  /** Warm-up and captures bake synchronously so residency is settled when they return. */
+  streamSync = false;
   private residencyRevision = 0;
   private obstacleCache: { revision: number; obstacles: BakedChunk['obstacles'] } = { revision: -1, obstacles: [] };
   private walkingCache: { revision: number; triangles: Float32Array } = { revision: -1, triangles: new Float32Array(0) };
@@ -506,6 +519,7 @@ export class Renderer {
   // ---------------------------------------------------------------- init
 
   private init(): void {
+    this.startBaker();
     const dev = this.gpu.device;
 
     this.frameBgl = makeFrameLayout(dev);
@@ -1019,7 +1033,11 @@ export class Renderer {
         for (let dx = -r; dx <= r; dx++) {
           if (dx * dx + dz * dz > r * r + 1) continue;
           const cx = pcx + dx, cz = pcz + dz;
-          if (this.chunks.has(this.chunkKey(cx, cz))) continue;
+          // Outside the finite city there is no chunk; queueing it re-sent a
+          // no-op bake forever and pinned rebakePending above zero.
+          if (Math.abs(cx) > cfg.radiusChunks || Math.abs(cz) > cfg.radiusChunks) continue;
+          const key = this.chunkKey(cx, cz);
+          if (this.chunks.has(key) || this.inflightKeys.has(key)) continue;
           this.pendingBakes.push({ cx, cz });
         }
       }
@@ -1057,6 +1075,14 @@ export class Renderer {
     const t0 = performance.now();
     let baked = 0;
 
+    if (this.baker && !this.streamSync) {
+      baked = this.applyBaked(pcx, pcz, r, t0);
+      this.dispatchBakes(pcx, pcz);
+      if (baked) this.evictChunks(r);
+      this.stats.rebakePending = this.rebakeQueue.length + this.inflight.size + this.bakedReady.length;
+      return;
+    }
+
     while (this.rebakeQueue.length > 0 && performance.now() - t0 < BAKE_BUDGET_MS) {
       const job = this.rebakeQueue.shift()!;
       const key = this.chunkKey(job.cx, job.cz);
@@ -1092,6 +1118,82 @@ export class Renderer {
     if (ms > 0.05) { this.bakeAccum = this.bakeAccum * 0.88 + ms * 0.12; this.stats.bakeMs = this.bakeAccum; }
     if (baked) this.evictChunks(r);
     this.stats.rebakePending = this.rebakeQueue.length;
+  }
+
+  private startBaker(): void {
+    if (typeof Worker === 'undefined') return;
+    try {
+      const w = new Worker(new URL('./bakeworker.ts', import.meta.url), { type: 'module' });
+      w.onmessage = (e: MessageEvent<BakeResponse>) => this.onBaked(e.data);
+      w.onerror = (e) => {
+        // Fall back to main-thread baking; lost jobs are re-found by the scans.
+        console.error(`bake worker failed (${e.message}); baking on the main thread`);
+        for (const job of this.inflight.values()) this.rebakeQueued.delete(this.chunkKey(job.cx, job.cz));
+        this.inflight.clear(); this.inflightKeys.clear(); this.pendingBakes.length = 0;
+        this.baker = null;
+      };
+      w.postMessage({ type: 'init', seed: this.world.seed } satisfies BakeRequest);
+      this.baker = w;
+    } catch { this.baker = null; }
+  }
+
+  private onBaked(r: BakeResponse): void {
+    const job = this.inflight.get(r.id);
+    if (!job) return;
+    this.inflight.delete(r.id);
+    this.inflightKeys.delete(this.chunkKey(job.cx, job.cz));
+    if (r.ms > 0) { this.bakeAccum = this.bakeAccum * 0.88 + r.ms * 0.12; this.stats.bakeMs = this.bakeAccum; }
+    if (!r.baked) {
+      if ('error' in r && r.error) console.error(`bake ${job.cx},${job.cz} failed: ${r.error}`);
+      if (job.rebake) this.rebakeQueued.delete(this.chunkKey(job.cx, job.cz));
+      return;
+    }
+    this.bakedReady.push({ ...job, baked: r.baked });
+  }
+
+  /** Upload finished bakes that are still wanted, within the frame's upload budget. */
+  private applyBaked(pcx: number, pcz: number, r: number, t0: number): number {
+    let n = 0;
+    while (this.bakedReady.length > 0 && (n === 0 || performance.now() - t0 < UPLOAD_BUDGET_MS)) {
+      const done = this.bakedReady.shift()!;
+      const key = this.chunkKey(done.cx, done.cz);
+      if (done.rebake) {
+        this.rebakeQueued.delete(key);
+        if (!this.chunks.has(key)) continue;          // evicted while baking
+      } else if (this.chunks.has(key)) continue;      // a synchronous warm got there first
+      if (chunkDistance(done.cx, done.cz, pcx, pcz) > r + 1) continue;  // flown past
+      this.uploadChunk(done.cx, done.cz, done.baked, done.lod);
+      n++;
+    }
+    return n;
+  }
+
+  /** Keep the worker fed: rebakes first (wrong detail where the camera is), then new chunks. */
+  private dispatchBakes(pcx: number, pcz: number): void {
+    while (this.baker && this.inflight.size < MAX_INFLIGHT_BAKES) {
+      let job: { cx: number; cz: number } | undefined;
+      let lod = 0, rebake = false;
+      while (!job && this.rebakeQueue.length > 0) {
+        const j = this.rebakeQueue.shift()!;
+        const key = this.chunkKey(j.cx, j.cz);
+        const entry = this.chunks.get(key);
+        lod = lodForDistance(chunkDistance(j.cx, j.cz, pcx, pcz), this.q);
+        if (!entry || lod === entry.lod || this.inflightKeys.has(key)) { this.rebakeQueued.delete(key); continue; }
+        job = j; rebake = true;
+      }
+      while (!job && this.pendingBakes.length > 0) {
+        const j = this.pendingBakes.shift()!;
+        const key = this.chunkKey(j.cx, j.cz);
+        if (this.chunks.has(key) || this.inflightKeys.has(key)) continue;
+        lod = lodForDistance(chunkDistance(j.cx, j.cz, pcx, pcz), this.q);
+        job = j;
+      }
+      if (!job) return;
+      const id = ++this.bakeSeq;
+      this.inflight.set(id, { cx: job.cx, cz: job.cz, lod, rebake });
+      this.inflightKeys.add(this.chunkKey(job.cx, job.cz));
+      this.baker.postMessage({ type: 'bake', id, cx: job.cx, cz: job.cz, lod } satisfies BakeRequest);
+    }
   }
 
   /** Re-bake an already-resident chunk at a given detail level, in place. */
@@ -1273,6 +1375,14 @@ export class Renderer {
 
   render(cam: FlightCamera, dt: number): void {
     if (!this.targets) return;
+    // Streaming needs no GPU slot, so it runs before the pacing gate. Behind the
+    // gate a synchronous warm stalled: its ticks were declined while two frames
+    // were in flight, and it can never see them complete (boot warm 1/64 chunks).
+    const streamStart = performance.now();
+    this.streamChunks(cam);
+    this.perf.cpu('stream', performance.now() - streamStart);
+    // Live, not end-of-frame: warm reads it on ticks the gate declines.
+    this.stats.residentChunks = this.chunks.size;
     // The GPU is the bottleneck, and a fence is the only place that shows it.
     //   1. A readback is in flight. Every frame submitted here is work the
     //      readback's `mapAsync` has to wait behind.
@@ -1304,10 +1414,6 @@ export class Renderer {
     // light appears or disappears, which is exactly when it matters.
     const lightCount = this.gatherLights(cam);
     this.writeFrameUniforms(cam);
-    const streamStart = performance.now();
-    this.streamChunks(cam);
-    const streamMs = performance.now() - streamStart;
-    this.perf.cpu('stream', streamMs);
 
     const enc = this.gpu.device.createCommandEncoder({ label: 'frame' });
     this.passTimer?.instrument(enc);
@@ -1323,7 +1429,7 @@ export class Renderer {
 
     this.frameIndex++;
     const cpu = performance.now() - t0;
-    this.perf.cpu('encode', Math.max(0, cpu - streamMs));
+    this.perf.cpu('encode', cpu);
     this.lastCpu = this.lastCpu * 0.9 + cpu * 0.1;
     this.frameTimes.push(cpu);
     if (this.frameTimes.length > 60) this.frameTimes.shift();

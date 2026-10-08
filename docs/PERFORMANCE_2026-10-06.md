@@ -302,3 +302,31 @@ Simulation p50 3.5–4.3 ms (was 9.7–12). GPU is binding again on hero/skyline
 14.5 ms frame span, so run-to-run GPU contention from other applications is
 material). Flight remains limited by synchronous streaming: stream p95 19.7 ms,
 max 46 ms.
+
+## 2026-10-08 — chunk baking off the main thread
+
+`src/render/bakeworker.ts` bakes chunks in a Web Worker with its own `City` from the
+same seed. A chunk baked in a fresh City is byte-identical to one baked after its
+neighbours (SHA-256 over all mesh arrays, obstacles, lights and stalls, LOD 0 and 1),
+so worker output equals the synchronous path. Natural streaming keeps two bakes in
+flight (rebakes first) and uploads finished chunks within 3 ms per frame (at least
+one); results for evicted, already-baked or flown-past chunks are dropped. Mesh
+arrays are transferred. Warm-up, capture replay and worker-less environments keep
+the synchronous path (`renderer.streamSync`), so captures stay deterministic: hero
+pair identical at 4% fuzz.
+
+Found on the way:
+- Chunks outside the finite city were queued forever (the worker answered "no
+  chunk" and nothing marked them done), pinning `rebakePending` above zero.
+- `render()` declined frames while two were in flight *before* streaming, so a
+  synchronous warm loop — which can never see frames complete — stalled, and the
+  residency count it polled was only refreshed on admitted frames. Boot warm reached
+  10/64 chunks before today and 1/64 with the worker; streaming now runs before the
+  pacing gate and residency is refreshed live: **64/64, stopped: target**.
+
+Benchmark (`benchmarks/2026-10-08T01-28-52-596Z`, fixed high, valid): hero **60.0**,
+skyline **58.6**, flight **46.9** (a run minutes earlier measured 60.0 / 59.9 / 52.9;
+run-to-run spread is material on this shared machine). Flight stream p95 19.7 →
+2.0 ms. Flight is now limited by crowd simulation spikes while the camera moves
+fast (p95 20 ms), single large uploads (max 21.6 ms) and heavier GPU frames
+(completion p50 23 ms).

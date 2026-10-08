@@ -238,6 +238,12 @@ class App {
    * a capture of a half-loaded world that still looks like a picture.
    */
   warmChunks(target = 96, maxTicks = 400, maxMs = 90_000): WarmReport {
+    // A synchronous loop cannot receive worker results; warm bakes on this thread.
+    this.renderer.streamSync = true;
+    try { return this.warmChunksSync(target, maxTicks, maxMs); } finally { this.renderer.streamSync = false; }
+  }
+
+  private warmChunksSync(target: number, maxTicks: number, maxMs: number): WarmReport {
     const t0 = performance.now();
     this.last = t0;
     let ticks = 0;
