@@ -355,3 +355,24 @@ re-indexing (1.7 ms per change) is left as is.
 Benchmark (`benchmarks/2026-10-08T16-49-29-174Z`, fixed high, valid): hero **60.0**,
 skyline **60.0** (0 intervals over 33 ms each), flight **56.3** (simulation p95 9.2,
 stream max 17.8 ms — a single large upload; completion p50 17.4 ms).
+
+## 2026-10-08 — far cascades alternate; walking support per chunk
+
+- Far shadow cascades (2, 3; 160–1900 m) render on alternate frames, each keeping
+  the matrix it was rendered with. GPU frame span 14.1 → 12.1 ms (hero), 13.9 →
+  12.3 (skyline), 13.6 → 12.2 (flight). Hero pair identical at 4% fuzz.
+- 41 of flight's 48 slow intervals coincided with simulation over 8 ms: the crowd
+  rebuilt one walking index over all LOD 0 chunks on every LOD 0 swap. Walking
+  support is now a `WalkingSurfaceSet` indexed per chunk (diffed by key and array
+  identity); a split gives identical heights to one index at 2,000 points (a
+  first-part-only mutant fails at 70).
+
+**Benchmark** (`benchmarks/2026-10-08T16-58-19-982Z`, fixed high, headless,
+1600 × 900, valid): **hero 60.0, skyline 60.0, flight 59.5** submitted frames/s
+(baseline 42.4 / 36.9 / 31.7). Intervals over 33 ms: 0 / 0 / 11. Flight's residual
+spikes: simulation max 15.6 ms, single uploads up to 18 ms. Presentation FPS is
+not measured (headless); submitted and completed rates agree.
+
+Not yet done: headed-Chrome confirmation, an adaptive-quality run, uploads split
+across frames for the largest chunks, and richer distant detail now that GPU
+headroom exists (~4.5 ms).

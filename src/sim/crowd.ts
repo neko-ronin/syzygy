@@ -21,7 +21,7 @@ import {
 import { NavGraph, type NavNode } from '../world/networks';
 import { MAT, INSTANCE_FLOATS } from '../render/citymesh';
 import { PEDESTRIAN_RADIUS, PEDESTRIAN_HEIGHT, type CrowdObstacle } from '../world/crowdobstacles';
-import { WalkingSurfaceIndex, type WalkingSurfaceTriangles } from '../world/walkingsurfaces';
+import { WalkingSurfaceSet, type WalkingSurfaceTriangles } from '../world/walkingsurfaces';
 import {
   districtAt, districtField, districtPaletteLinear, districtStyle, spineHit, spinePoint,
   type ResolvedPalette, type SpineHit,
@@ -411,7 +411,7 @@ export class CrowdSim {
 
   private grid = new HashGrid();
   private obstacles = new ObstacleGrid();
-  private walkingSurfaces = new WalkingSurfaceIndex();
+  private walkingSurfaces = new WalkingSurfaceSet();
   private walkingSurfaceChanged = false;
   private escape = new Float64Array(2);
   private lastFwd: Vec3 = [0, 0, -1];
@@ -486,9 +486,13 @@ export class CrowdSim {
   /** Actual emitted walking triangles, retained without a per-frame copy.
    * Existing bodies acquire new support on the next simulation update.
    */
-  setWalkingSurfaces(triangles: WalkingSurfaceTriangles, revision: number): void {
-    if (this.walkingSurfaces.set(triangles, revision)) this.walkingSurfaceChanged = true;
+  setWalkingSurfaces(input: WalkingSurfaceTriangles | ReadonlyMap<string, WalkingSurfaceTriangles>, revision: number): void {
+    if (revision === this.walkingRevision) return;
+    this.walkingRevision = revision;
+    const parts = input instanceof Float32Array ? new Map([['all', input]]) : input;
+    if (this.walkingSurfaces.update(parts)) this.walkingSurfaceChanged = true;
   }
+  private walkingRevision = Number.NaN;
 
   setCount(n: number): void {
     this.targetVisible = clamp(n | 0, 0, this.capacity);

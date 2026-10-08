@@ -431,7 +431,7 @@ class App {
       const blockers = this.renderer.crowdObstacles();
       this.crowd.setStaticObstacles(blockers.obstacles, blockers.revision);
       const walking = this.renderer.crowdWalkingSurfaces();
-      this.crowd.setWalkingSurfaces(walking.triangles, walking.revision);
+      this.crowd.setWalkingSurfaces(walking.parts, walking.revision);
       this.crowd.update(simDt, { position: this.camera.position, lookAt: this.camera.lookTarget }, this.world);
       this.traffic.update(simDt, this.world);
       this.input.setFov(this.camera.fov);

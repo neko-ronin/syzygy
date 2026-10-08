@@ -288,7 +288,7 @@ export class Renderer {
   streamSync = false;
   private residencyRevision = 0;
   private obstacleCache: { revision: number; obstacles: BakedChunk['obstacles'] } = { revision: -1, obstacles: [] };
-  private walkingCache: { revision: number; triangles: Float32Array } = { revision: -1, triangles: new Float32Array(0) };
+  private walkingCache: { revision: number; parts: Map<string, Float32Array> } = { revision: -1, parts: new Map() };
   /**
    * Bumps only when a chunk carrying walking triangles arrives or leaves (LOD 0
    * only). Keyed on every residency change, the crowd re-indexed ~90k triangles
@@ -2440,15 +2440,12 @@ export class Renderer {
     }
     return this.obstacleCache;
   }
-  /** Resident walking triangles, rebuilt only when residency changes. */
-  // ponytail: full concatenation per revision; per-chunk index slices if streaming makes this hot.
+  /** Resident walking triangles per chunk; the map is rebuilt only when walking content changes. */
   crowdWalkingSurfaces() {
     if (this.walkingCache.revision !== this.walkingRevision) {
-      const parts = [...this.chunks.values()].map((c) => c.walking);
-      const triangles = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
-      let o = 0;
-      for (const p of parts) { triangles.set(p, o); o += p.length; }
-      this.walkingCache = { revision: this.walkingRevision, triangles };
+      const parts = new Map<string, Float32Array>();
+      for (const [key, c] of this.chunks) if (c.walking.length > 0) parts.set(key, c.walking);
+      this.walkingCache = { revision: this.walkingRevision, parts };
     }
     return this.walkingCache;
   }

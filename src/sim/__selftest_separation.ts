@@ -9,7 +9,7 @@ import { City, cityPlan, defaultCityConfig, GROUND_Y, sampleStreetPlan, type Str
 import { bakeChunk, INSTANCE_FLOATS } from '../render/citymesh';
 import { pedestrianMesh } from '../render/pedestrianmesh';
 import { PEDESTRIAN_RADIUS, PEDESTRIAN_HEIGHT, type CrowdObstacle } from '../world/crowdobstacles';
-import { WalkingSurfaceIndex, WALKING_TRIANGLE_FLOATS, walkingTriangles } from '../world/walkingsurfaces';
+import { WalkingSurfaceIndex, WalkingSurfaceSet, WALKING_TRIANGLE_FLOATS, walkingTriangles } from '../world/walkingsurfaces';
 import { decodeGroundSurfaceTag } from '../world/groundgrammar';
 import type { Mesh } from '../world/geometry';
 
@@ -259,6 +259,17 @@ function walkingSurfaceProperties(mesh:Mesh):void {
   const production=new WalkingSurfaceIndex();
   production.set(walkingTriangles(mesh),1);
   check(Math.abs(production.heightAt(...point,GROUND_Y)-expected)<1e-6,'production walking extractor disagrees with the independent extraction');
+  // Per-chunk set: any split of the same triangles answers exactly like one index.
+  const all=walkingTriangles(mesh),cut=Math.floor(all.length/18)*9;
+  const a=all.slice(0,cut),b=all.slice(cut),set=new WalkingSurfaceSet();
+  check(set.update(new Map([['a',a],['b',b]])),'walking set did not accept its first parts');
+  check(!set.update(new Map([['a',a],['b',b]])),'walking set rebuilt unchanged parts');
+  let mismatch=0;
+  for(let k=0;k<2000;k++){
+    const x=point[0]-60+((k*7919)%1000)/1000*120,z=point[1]-60+((k*104729)%1000)/1000*120;
+    if(Math.abs(set.heightAt(x,z,GROUND_Y)-production.heightAt(x,z,GROUND_Y))>1e-6)mismatch++;
+  }
+  check(mismatch===0,`per-chunk walking set disagrees with one index at ${mismatch} of 2000 points`);
 
   const points:[number,number,number,number][]=[
     [point[0],point[1],point[0]+12,point[1]],

@@ -34,6 +34,8 @@ export class WalkingSurfaceIndex {
   private triangles: WalkingSurfaceTriangles = new Float32Array(0);
   private rows = new Map<number, Map<number, Uint32Array>>();
   private revision = Number.NaN;
+  /** XZ bounds of the indexed triangles; empty index has inverted bounds. */
+  minX = Infinity; minZ = Infinity; maxX = -Infinity; maxZ = -Infinity;
 
   /** Returns whether a new immutable buffer was accepted. Reusing a revision
    * deliberately ignores the supplied buffer; changed geometry needs a new ID.
@@ -91,6 +93,12 @@ export class WalkingSurfaceIndex {
       }
     }
     this.triangles = triangles;
+    this.minX = this.minZ = Infinity; this.maxX = this.maxZ = -Infinity;
+    for (let o = 0; o < triangles.length; o += 3) {
+      const x = triangles[o], z = triangles[o + 2];
+      if (x < this.minX) this.minX = x; if (x > this.maxX) this.maxX = x;
+      if (z < this.minZ) this.minZ = z; if (z > this.maxZ) this.maxZ = z;
+    }
     this.rows = rows;
     this.revision = revision;
     return true;
@@ -117,5 +125,41 @@ export class WalkingSurfaceIndex {
       height = Math.max(height, a * t[o + 1] + b * t[o + 4] + c * t[o + 7]);
     }
     return height;
+  }
+}
+
+/**
+ * Walking support indexed per chunk, so a chunk arriving or leaving re-indexes
+ * only itself. One index over all resident chunks was rebuilt on every LOD 0
+ * swap (7 ms for nine chunks), which was most of the flight route's slow frames.
+ */
+export class WalkingSurfaceSet {
+  private parts = new Map<string, { source: WalkingSurfaceTriangles; index: WalkingSurfaceIndex }>();
+  private nextRevision = 0;
+
+  /** Diff by key and array identity; returns whether anything changed. */
+  update(parts: ReadonlyMap<string, WalkingSurfaceTriangles>): boolean {
+    let changed = false;
+    for (const key of [...this.parts.keys()]) {
+      if (!parts.has(key)) { this.parts.delete(key); changed = true; }
+    }
+    for (const [key, source] of parts) {
+      if (this.parts.get(key)?.source === source) continue;
+      const index = new WalkingSurfaceIndex();
+      index.set(source, ++this.nextRevision);
+      this.parts.set(key, { source, index });
+      changed = true;
+    }
+    return changed;
+  }
+
+  /** Highest support across parts whose bounds contain the point. */
+  heightAt(x: number, z: number, fallback: number): number {
+    let h = fallback;
+    for (const { index } of this.parts.values()) {
+      if (x < index.minX || x > index.maxX || z < index.minZ || z > index.maxZ) continue;
+      h = Math.max(h, index.heightAt(x, z, fallback));
+    }
+    return h;
   }
 }
