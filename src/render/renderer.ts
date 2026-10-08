@@ -359,6 +359,9 @@ export class Renderer {
   /** Starts as identity, not zeros: a zero matrix reprojects everything to NaN. */
   private prevViewProj: Mat4 = m4identity(m4());
   private cascadeMats: Mat4[] = Array.from({ length: CASCADE_COUNT }, () => m4());
+  /** Which cascades render this frame, and which hold a rendered map at all. */
+  private cascadeDue: boolean[] = Array(CASCADE_COUNT).fill(true);
+  private cascadeValid: boolean[] = Array(CASCADE_COUNT).fill(false);
   /**
    * World-space planes (6 x vec4) of each cascade's orthographic box, in the
    * same normalised layout `camera.frustumPlanes` uses, so the same
@@ -616,6 +619,7 @@ export class Renderer {
   private shadowView: GPUTextureView[] = [];
 
   private allocShadow(): void {
+    this.cascadeValid.fill(false);
     const dev = this.gpu.device;
     const res = this.q.shadowRes;
     if (this.shadowTex[0]?.width === res) return;
@@ -978,6 +982,13 @@ export class Renderer {
     const splits = CASCADE_SPLITS;
     this.cascadeSplits.set(splits);
     for (let i = 0; i < this.q.cascades; i++) {
+      // Far cascades (2, 3) alternate frames. They cover 160-1900 m, where one
+      // frame of sun or camera motion is sub-texel, and were the costliest
+      // passes (2.5-3.2 ms each). A skipped cascade keeps the matrix it was
+      // rendered with, so sampling stays consistent with its texture.
+      this.cascadeDue[i] = i < 2 || !this.cascadeValid[i] || (this.frameIndex & 1) === (i & 1);
+      if (!this.cascadeDue[i]) continue;
+      this.cascadeValid[i] = true;
       const near = i === 0 ? 0.1 : splits[i - 1];
       const far = splits[i];
       const box = cascadeParams(cam.position, cam.forward, s, near, far, this.q.shadowRes);
@@ -1587,6 +1598,7 @@ export class Renderer {
       entries: [{ binding: 0, resource: { buffer: this.shadowUbo, offset: 0, size: CASCADE_STRIDE } }],
     });
     for (let i = 0; i < this.q.cascades; i++) {
+      if (!this.cascadeDue[i]) continue;
       const pass = enc.beginRenderPass({
         label: `shadow${i}`,
         colorAttachments: [],
