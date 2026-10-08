@@ -543,14 +543,29 @@ export class NavGraph {
     return best;
   }
 
+  /**
+   * A node somewhere within r: a random point in the disc, then its nearest node.
+   * Collecting every node within r to pick one cost thousands of entries per call
+   * at r = 1.2 km on the whole-city graph (12% of crowd CPU in flight). Uniform
+   * over space rather than over nodes, so dense street grids no longer dominate.
+   */
   randomNodeNear(p: Vec3, r: number): number {
-    const near = this.nodesNear(p, r);
-    if (near.length === 0) return -1;
-    return near[this.rng.int(0, near.length - 1)];
+    for (let k = 0; k < 4; k++) {
+      const a = this.rng.next() * Math.PI * 2, d = r * Math.sqrt(this.rng.next());
+      const n = this.nearestNode([p[0] + Math.cos(a) * d, p[1], p[2] + Math.sin(a) * d]);
+      if (n >= 0 && dist3(this.nodes[n].position, p) <= r + nodeGridCell * 8) return n;
+    }
+    return -1;
   }
 
-  /** A* node-index path, endpoints included. Empty when unreachable. */
-  path(from: number, to: number): number[] {
+  /**
+   * A* node-index path, endpoints included. Empty when unreachable.
+   * With `partial`, a search that runs out of `maxExpansions` (or finds the goal
+   * unreachable) returns the path to the explored node nearest the goal instead:
+   * a caller that keeps only the first few nodes gets the right direction at a
+   * bounded cost, rather than exploring the whole graph to return nothing.
+   */
+  path(from: number, to: number, maxExpansions = 40000, partial = false): number[] {
     const n = this.nodes.length;
     if (from < 0 || to < 0 || from >= n || to >= n) return [];
     if (from === to) return [from];
@@ -571,18 +586,24 @@ export class NavGraph {
     this.closed[from] = 0;
     this.heapPush(from, dist3(this.nodes[from].position, this.nodes[to].position));
 
+    const trace = (end: number): number[] => {
+      const out: number[] = [];
+      for (let n2 = end; n2 !== -1; n2 = this.came[n2]) out.push(n2);
+      return out.reverse();
+    };
+    const goalPos = this.nodes[to].position;
+    let best = from, bestH = Infinity;
     let expansions = 0;
     while (this.heapLen > 0) {
       const cur = this.heapPop();
-      if (cur === to) {
-        const out: number[] = [];
-        for (let n2 = to; n2 !== -1; n2 = this.came[n2]) out.push(n2);
-        out.reverse();
-        return out;
-      }
+      if (cur === to) return trace(to);
       if (this.closed[cur] === 1 && this.stamp[cur] === gen) continue;
       this.closed[cur] = 1;
-      if (++expansions > 40000) return [];
+      if (partial) {
+        const h = dist3(this.nodes[cur].position, goalPos);
+        if (h < bestH) { bestH = h; best = cur; }
+      }
+      if (++expansions > maxExpansions) return partial && best !== from ? trace(best) : [];
       const here = this.nodes[cur];
       for (const nb of here.links) {
         if (this.stamp[nb] === gen && this.closed[nb] === 1) continue;
@@ -599,7 +620,7 @@ export class NavGraph {
         }
       }
     }
-    return [];
+    return partial && best !== from ? trace(best) : [];
   }
 
   private heapPush(node: number, key: number): void {

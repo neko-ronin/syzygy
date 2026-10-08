@@ -289,6 +289,12 @@ export class Renderer {
   private residencyRevision = 0;
   private obstacleCache: { revision: number; obstacles: BakedChunk['obstacles'] } = { revision: -1, obstacles: [] };
   private walkingCache: { revision: number; triangles: Float32Array } = { revision: -1, triangles: new Float32Array(0) };
+  /**
+   * Bumps only when a chunk carrying walking triangles arrives or leaves (LOD 0
+   * only). Keyed on every residency change, the crowd re-indexed ~90k triangles
+   * on each far LOD 1 upload in flight: simulation p95 21 ms.
+   */
+  private walkingRevision = 0;
   readonly gpu: GPUContext;
   readonly city: City;
   readonly world: WorldState;
@@ -1214,6 +1220,7 @@ export class Renderer {
       destroyMesh(existing.mesh);
       destroyMesh(existing.foliage);
     }
+    if (baked.walking.length > 0 || (existing?.walking.length ?? 0) > 0) this.walkingRevision++;
     const mesh = uploadMesh(this.gpu, `chunk${key}`, baked.opaque);
     let foliage: GpuMesh | null = null;
     if (this.q.foliageEnabled && baked.foliage.indexCount > 0) {
@@ -1247,6 +1254,7 @@ export class Renderer {
       destroyMesh(e.foliage);
       this.chunks.delete(key);
       this.residencyRevision++;
+      if (e.walking.length > 0) this.walkingRevision++;
       // Drop the eviction hook too, or a chunk that streams back in later finds
       // its key already latched in `rebakeQueued` and never gets re-baked.
       this.rebakeQueued.delete(key);
@@ -2403,6 +2411,7 @@ export class Renderer {
       destroyMesh(entry.mesh); destroyMesh(entry.foliage);
       this.chunks.delete(key);
       this.residencyRevision++;
+      if (entry.walking.length > 0) this.walkingRevision++;
     }
     for (const [key, item] of wanted) {
       if (this.chunks.get(key)?.lod === item.lod) continue;
@@ -2422,12 +2431,12 @@ export class Renderer {
   /** Resident walking triangles, rebuilt only when residency changes. */
   // ponytail: full concatenation per revision; per-chunk index slices if streaming makes this hot.
   crowdWalkingSurfaces() {
-    if (this.walkingCache.revision !== this.residencyRevision) {
+    if (this.walkingCache.revision !== this.walkingRevision) {
       const parts = [...this.chunks.values()].map((c) => c.walking);
       const triangles = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
       let o = 0;
       for (const p of parts) { triangles.set(p, o); o += p.length; }
-      this.walkingCache = { revision: this.residencyRevision, triangles };
+      this.walkingCache = { revision: this.walkingRevision, triangles };
     }
     return this.walkingCache;
   }

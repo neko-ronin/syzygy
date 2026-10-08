@@ -330,3 +330,28 @@ run-to-run spread is material on this shared machine). Flight stream p95 19.7 �
 2.0 ms. Flight is now limited by crowd simulation spikes while the camera moves
 fast (p95 20 ms), single large uploads (max 21.6 ms) and heavier GPU frames
 (completion p50 23 ms).
+
+## 2026-10-08 — flight crowd spikes
+
+Profiled the crowd along the benchmark flight path (Node, 96 m/s at 220 m): p50 4.0,
+p95 13.3, max 25 ms. Fixes:
+- A* explored the whole 19k-node city graph for long or unreachable goals (up to
+  7.5 ms per path) although agents keep only 24 nodes. `NavGraph.path` gained an
+  opt-in budget with a partial result (path to the explored node nearest the goal);
+  the crowd uses 600 expansions and makes the partial end its goal.
+- `randomNodeNear` collected every node within up to 1.2 km to pick one; it now
+  samples a point in the disc and takes its nearest node (uniform over space).
+- Goal changes are capped at 12 per update (flight average ~10); over budget an
+  agent keeps its goal and asks next frame. Paths per frame were up to 44.
+Node flight crowd: p50 3.4, p95 4.0, max 6.4 ms. `__selftest_spread`, failing all
+session, now passes.
+
+In the browser flight simulation was still p95 21 ms: every residency change made
+the crowd re-index all walking triangles (7 ms for nine LOD 0 chunks), including
+far LOD 1 uploads that carry none. Walking surfaces now have their own revision,
+bumped only when a chunk with walking triangles arrives or leaves. Obstacle
+re-indexing (1.7 ms per change) is left as is.
+
+Benchmark (`benchmarks/2026-10-08T16-49-29-174Z`, fixed high, valid): hero **60.0**,
+skyline **60.0** (0 intervals over 33 ms each), flight **56.3** (simulation p95 9.2,
+stream max 17.8 ms — a single large upload; completion p50 17.4 ms).

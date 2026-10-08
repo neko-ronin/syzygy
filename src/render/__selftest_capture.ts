@@ -10,9 +10,9 @@ export async function runCaptureResidencySelfTest(): Promise<void> {
   const requireThat = (ok: unknown, why: string) => { if (!ok) throw new Error(why); };
   const key = (cx: number, cz: number) => `${cx},${cz}`;
   const chunks = new Map([
-    [key(0, 0), { cx: 0, cz: 0, lod: 1, version: 7, mesh: null, foliage: null }],
-    [key(1, 0), { cx: 1, cz: 0, lod: 0, version: 8, mesh: null, foliage: null }],
-    [key(5, 5), { cx: 5, cz: 5, lod: 2, version: 9, mesh: null, foliage: null }],
+    [key(0, 0), { cx: 0, cz: 0, lod: 1, version: 7, mesh: null, foliage: null, walking: new Float32Array(0) }],
+    [key(1, 0), { cx: 1, cz: 0, lod: 0, version: 8, mesh: null, foliage: null, walking: new Float32Array(0) }],
+    [key(5, 5), { cx: 5, cz: 5, lod: 2, version: 9, mesh: null, foliage: null, walking: new Float32Array(0) }],
   ]);
   const uploaded: string[] = [];
   const harness = Object.assign(Object.create(RendererClass.prototype), {
@@ -22,7 +22,7 @@ export async function runCaptureResidencySelfTest(): Promise<void> {
     uploadChunk(cx: number, cz: number, baked: BakedChunk, lod: number) {
       requireThat(baked.opaque.indexCount > 0, 'replay must bake actual requested geometry');
       uploaded.push(key(cx, cz));
-      chunks.set(key(cx, cz), { cx, cz, lod, version: ++this.residencyRevision, mesh: null, foliage: null });
+      chunks.set(key(cx, cz), { cx, cz, lod, version: ++this.residencyRevision, mesh: null, foliage: null, walking: new Float32Array(0) });
     },
   }) as Renderer;
   const saved = [{ cx: 0, cz: 0, lod: 0 }, { cx: 1, cz: 0, lod: 0 }, { cx: 0, cz: -1, lod: 2 }];

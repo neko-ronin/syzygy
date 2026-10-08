@@ -48,6 +48,10 @@ const BODY_HEIGHT = PEDESTRIAN_HEIGHT;
 const HOLD_SPEED = 1.4;
 /** Pavement-hold street frame is re-sampled after this much movement (see holdCache). */
 const HOLD_RESAMPLE_M = 0.5;
+/** A* expansion budget per crowd path; PATH_MAX nodes are kept anyway. */
+const PATH_EXPANSIONS = 600;
+/** New goals (search + path) per crowd update; the flight average is ~10. */
+const GOAL_BUDGET = 12;
 const HOLD_CACHE_FLOATS = 6;
 
 /**
@@ -565,6 +569,7 @@ export class CrowdSim {
     if (!this.nav && this.city) this.attach(this.city, world.seed);
 
     this.densityTarget(world);
+    this.goalBudget = GOAL_BUDGET;
     this.maybeRebuild(camera.position, dt);
     const cam = camera.position;
     this.grid.configure(cam, this.viewRadius + 40);
@@ -756,7 +761,11 @@ export class CrowdSim {
     let from = f[o + F.goal] | 0;
     if (from < 0) from = this.nearestNodeIdx(f[o + F.x], f[o + F.z]);
     if (from < 0 || !this.nav) { f[o + F.next] = goal; f[o + F.goal] = goal; f[o + F.pathPos] = 0; return; }
-    const p = this.nav.path(from, goal);
+    // Bounded: only PATH_MAX nodes are kept, so a long or unreachable goal gets
+    // a partial path whose end becomes the goal (re-planned on arrival). The
+    // unbounded search explored the whole city graph, up to 7.5 ms per path.
+    const p = this.nav.path(from, goal, PATH_EXPANSIONS, true);
+    if (p.length > 0) goal = p[p.length - 1];
     const slot = this.pathCursor++ % this.PATH_POOL;
     const n = Math.min(p.length, this.PATH_MAX);
     const base = slot * this.PATH_MAX;
@@ -804,7 +813,11 @@ export class CrowdSim {
     // occupancy, which is the thing the review asked to see.
     if (f[o + F.dwell] > 0) {
       f[o + F.dwell] -= dt;
-    } else if (arrived || f[o + F.ttl] <= 0) {
+    } else if ((arrived || f[o + F.ttl] <= 0) && this.goalBudget > 0) {
+      // Bounded per frame: a fast camera retires and seeds agents in bursts and
+      // up to 44 goal searches + paths landed in one frame. Over budget, an agent
+      // keeps its current goal and asks again next frame.
+      this.goalBudget--;
       const wasMarket = f[o + F.need] === Need.Market;
       const need = this.pickNeed(world);
       f[o + F.need] = need;
@@ -1001,6 +1014,7 @@ export class CrowdSim {
    * reused slot cannot inherit another agent's street.
    */
   private holdCache: Float32Array;
+  private goalBudget = 0;
   private streetOut: StreetSample = {
     dist: 0, px: 0, pz: 0, tx: 1, tz: 0, width: 1, kind: 'street', clearance: 0,
   };
