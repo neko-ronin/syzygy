@@ -56,6 +56,11 @@ export interface DistrictStyle {
    */
   clutterDensity: number;
   windowStyle: WindowStyle;
+  /**
+   * Window glass reflects the cladding colour, so the grid is barely there and
+   * the tower keeps its colour (owner direction 2026-10-10 for the teal towers).
+   */
+  reflectiveGlass?: true;
   accentColor: Vec3;
   roofStyle: RoofStyle;
   description: string;
@@ -92,6 +97,7 @@ export const DISTRICT_STYLES: DistrictStyle[] = [
     palette: pal('#4e8f86', '#3c6d68', '#c96a2e', '#2f4f52', '#35706a', '#5c554a', '#6b8f4a', '#7b6b5b', '#205055', '#ff9a4a'),
     heightRange: [190, 520], footprintRange: [17, 31],
     leanAmount: 0.019, gapBias: 0.92, greenery: 0.36, cableDensity: 1.4, clutterDensity: 0.8,
+    reflectiveGlass: true,
     windowStyle: 'louvre', accentColor: hexLinear('#e07a2f'), roofStyle: 'antenna-forest',
     description: 'Oxidised copper cladding, orange patina streaks, industrial flues above the parapet.',
   },
@@ -108,6 +114,7 @@ export const DISTRICT_STYLES: DistrictStyle[] = [
     palette: pal('#b4c8d4', '#8fa9b8', '#6e828f', '#9db9cb', '#7c8b98', '#6b7683', '#6d8a6a', '#8da2ab', '#2d6b81', '#ffb35e'),
     heightRange: [210, 570], footprintRange: [19, 35],
     leanAmount: 0.013, gapBias: 0.86, greenery: 0.3, cableDensity: 1.5, clutterDensity: 0.7,
+    reflectiveGlass: true,
     windowStyle: 'mullion', accentColor: hexLinear('#4f9fc4'), roofStyle: 'mast',
     description: 'Pale steel-blue glass over blue-grey metal, cold and reflective, very few openings.',
   },

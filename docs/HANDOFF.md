@@ -38,8 +38,9 @@ world performance at 60 FPS on this Mac, Chrome, 1600 × 900**. The
    and residency-range fixes; upload interleave moved off-thread (stream max 3.4 ms).
    **Distant detail:** facades now reach the screen (an instance-bind leak shaded every
    building as paving), plant floors and per-floor night occupancy read at distance,
-   floating pilasters removed. **Needs the owner's eyes**: the hero pair and every
-   skyline changed by design. Open: headed-Chrome confirmation, vision review.
+   floating pilasters removed. Owner reviewed 2026-10-10 and directed D27 (reflective
+   window grids on the teal towers, daylight-faded window glow); applied. Open:
+   headed-Chrome confirmation, vision review.
 
 **Capture capacity:** marginal. The guard passed at 277 MB unused on 2026-10-07
 (minimum 250 MB, `WORKFLOW.md` §6.1); serialize captures and never force past it.

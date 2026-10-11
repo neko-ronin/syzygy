@@ -220,7 +220,8 @@ export function pushBuilding(
     const nz = t === 0 ? tz : tz * shrink;
     // Body of the tier, inset from the previous so the setback reads.
     const inset = t === 0 ? 0 : 0.18;
-    pushBoxShell(bld, P, nx - inset, nz - inset, y0, y1, base, mat, rough, seed + t, lod, yaw, true);
+    pushBoxShell(bld, P, nx - inset, nz - inset, y0, y1, base, mat, rough, seed + t, lod, yaw,
+      dp.style.reflectiveGlass ? FACADE_UV_REFLECTIVE : FACADE_UV);
     // Parapet lip on top of the tier.
     if (!isLast || lod < 1) {
       pushBoxShell(
@@ -236,7 +237,7 @@ export function pushBuilding(
   if (lod < 2) {
     const plinthH = Math.min(7.5, totalH * 0.25);
     pushBoxShell(bld, P, hx + 0.28, hz + 0.28, yBase, yBase + plinthH,
-      pal.secondary, MAT.DIFFUSE, STONE + 0.15, seed + 7, 0, yaw, true);
+      pal.secondary, MAT.DIFFUSE, STONE + 0.15, seed + 7, 0, yaw, FACADE_UV);
   }
 
   // --- vertical pilasters. These are the single cheapest thing that makes a
@@ -278,21 +279,25 @@ export function pushBuilding(
 }
 
 const NO_FACES = 0;
-/** u offset marking building-shell quads for `facade()` (gbuffer.wgsl FACADE_UV). */
+/**
+ * u offset marking building-shell quads for `facade()` (gbuffer.wgsl FACADE_UV);
+ * twice it selects reflective glass. Shell u never exceeds ~20 on its own.
+ */
 const FACADE_UV = 4096;
+const FACADE_UV_REFLECTIVE = 8192;
 const ALL_FACES = FACE_ALL;
 
 function pushBoxShell(
   bld: MeshBuilder, P: (x: number, y: number, z: number) => Vec3,
   hx: number, hz: number, y0: number, y1: number,
   color: Vec3, mat: number, rough: number, seed: number, lod: number, yaw: number,
-  facade = false,
+  facade: 0 | typeof FACADE_UV | typeof FACADE_UV_REFLECTIVE = 0,
 ): void {
   const opts: MeshOpts = { emissive: 0, rotationY: 0, faces: ALL_FACES };
   void mat; void rough; void seed; void lod; void yaw; void opts; void NO_FACES;
   // Walls offset u by FACADE_UV so the G-buffer synthesises windows on them;
   // parapets, crowns and roof boxes stay plain.
-  const SHELL = { doubleSided: false, uvOffset: facade ? FACADE_UV : 0 };
+  const SHELL = { doubleSided: false, uvOffset: facade };
   // Emit six quads by hand so each can carry its own normal and a uv scale
   // that is consistent in world units (one uv unit per metre).
   const a = P(-hx, y0, hz), b = P(hx, y0, hz), c = P(hx, y1, hz), d = P(-hx, y1, hz);

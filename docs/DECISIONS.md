@@ -656,3 +656,20 @@ No invented thresholds for "crowd-like" behaviour. Separation has a right answer
 — bodies do not end up inside other bodies — and it gets measured. Scene quality
 is a **frame judgement** by the vision reviewer against the reference sheets, and
 never a number. `PROCESS.md` rule 1's scope limit applies to the whole slice.
+
+## D27 — Teal towers keep their colour; window grids are reflective texture
+
+**Owner direction, 2026-10-10**, after facades first reached the screen (the instance-bind fix):
+the pale pastel teal towers lost their drama under dark window grids. Keep the dramatic teal
+towers, with a window grid that is almost imperceptible — glass reflecting the cladding colour —
+just enough to ground each tower as a banal building. Interior window glow fades in daylight.
+
+### Consequences
+
+- `DistrictStyle.reflectiveGlass` (copper-stacks, glass-foxholes): wall quads carry
+  `FACADE_UV_REFLECTIVE`; `facade()` keeps glass, mullions, ledges and plant floors within a few
+  percent of the wall colour. Their plinths keep ordinary shopfronts.
+- Other districts keep dark glass (terracotta's lit grid reads well and was not in scope).
+- Window glow follows `F.sunDir.y`: full at dusk and night, gone by mid-morning; shop displays and
+  neon dim to ~1/3 by day.
+- Frame-edge lens streaks: accepted for now.

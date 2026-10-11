@@ -90,7 +90,7 @@ const MAT_FOLIAGE : u32 = 2u;
 const MAT_METAL   : u32 = 3u;
 const MAT_WATER   : u32 = 4u;
 const MAT_EMISSIVE: u32 = 5u;
-/** Building shells opt in to `facade()` by offsetting u (citymesh FACADE_UV); props stay plain. */
+/** Building shells opt in to `facade()` by offsetting u (citymesh FACADE_UV; twice = reflective glass); props stay plain. */
 const FACADE_UV: f32 = 4096.0;
 const MAT_BRICK   : u32 = 6u;
 const MAT_PLASTER : u32 = 7u;
@@ -132,8 +132,13 @@ fn floorLitThreshold(floorIdx: f32, seed: f32) -> f32 {
  */
 fn facade(
   world: vec3f, n: vec3f, base: vec3f, accent: vec3f, seed: f32,
-  floorH: f32, detail: f32,
+  floorH: f32, detail: f32, mirror: f32,
 ) -> Facade {
+  // Interior light is a night feature: full at dusk and night (sun sin-elevation
+  // under 0.02), gone by mid-morning. Glowing windows read as dots in daylight.
+  let lightsOn = 1.0 - smoothstep(0.02, 0.25, F.sunDir.y);
+  // `mirror` 1: glass mirrors the cladding (teal/pastel towers), so the window
+  // grid stays a near-imperceptible texture and the tower keeps its colour.
   // Work in a 2D frame on the wall: u = horizontal, v = height.
   let ax = select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 0.0, 1.0), abs(n.x) > 0.5);
   let u = dot(world, ax);
@@ -182,8 +187,8 @@ fn facade(
   alb *= 0.86 + 0.28 * blotch;
 
   if (ledge > 0.01) {
-    alb = mix(alb, alb * 0.72 + vec3f(0.02), ledge * 0.8);
-    ao *= 1.0 - ledge * 0.30;
+    alb = mix(alb, alb * mix(0.72, 0.95, mirror) + vec3f(0.02 * (1.0 - mirror)), ledge * 0.8);
+    ao *= 1.0 - ledge * 0.30 * (1.0 - 0.8 * mirror);
   }
 
   if (isGlass) {
@@ -196,13 +201,13 @@ fn facade(
     let isMull = mull < 0.018;
 
     if (isMull) {
-      alb = base * 0.55 + vec3f(0.03);
+      alb = mix(base * 0.55 + vec3f(0.03), base * 0.93, mirror);
       rough = 0.55;
     } else {
       // Glass: dark, and it *reflects the sky* — that is most of the read.
       let glassDepth = 0.10 + 0.35 * r;
-      alb = mix(vec3f(0.020, 0.028, 0.036), base * 0.30, glassDepth);
-      rough = 0.06 + 0.10 * kind;
+      alb = mix(mix(vec3f(0.020, 0.028, 0.036), base * 0.30, glassDepth), base * (0.90 + 0.08 * r), mirror);
+      rough = mix(0.06 + 0.10 * kind, 0.30 + 0.08 * kind, mirror);
       metal = 0.0;
 
       // Interior lights. Roughly 40% lit, warm with occasional cold/green.
@@ -212,21 +217,21 @@ fn facade(
         let bright = 0.35 + 3.2 * pow(hash21(cellId * 5.7 + seed), 3.0);
         // Fluorescent interiors are flatter; lamps read as a hot core.
         let core = 1.0 - smoothstep(0.0, 0.35, min(abs(fx - 0.5), abs(fy - 0.5)));
-        emis = warm * bright * (0.55 + core * 0.9);
-        alb = mix(alb, warm * 0.5, 0.4);
+        emis = warm * bright * (0.55 + core * 0.9) * lightsOn;
+        alb = mix(alb, warm * 0.5, 0.4 * lightsOn);
       }
       // Blinds / curtains occlude part of the aperture.
       let blind = step(0.72, kind) * step(0.5, fract(fy * 6.0 + r));
-      alb *= 1.0 - blind * 0.4;
+      alb *= 1.0 - blind * 0.4 * (1.0 - 0.85 * mirror);
       emis *= 1.0 - blind * 0.55;
     }
-    ao *= 0.88;
+    ao *= mix(0.88, 0.98, mirror);
   } else if (mech) {
     // Louvred plant floor: dark, horizontally slatted, never lit.
     let slat = step(0.5, fract(fy * 9.0));
-    alb = base * (0.38 + 0.12 * slat);
+    alb = base * mix(0.38 + 0.12 * slat, 0.88 + 0.05 * slat, mirror);
     rough = 0.6;
-    ao *= 0.8;
+    ao *= mix(0.8, 0.96, mirror);
   } else {
     // --- Sill: a proud ledge that catches light and casts a soft line below.
     if (sill > 0.01) {
@@ -248,14 +253,14 @@ fn facade(
         // Neon: saturated accent, gated by cell hash so only some are on.
         let on = step(0.42, hash21(vec2f(colIdx * 7.7, floorIdx * 2.1) + seed));
         let neon = mix(accent, vec3f(1.0, 0.35, 0.22), hash11(colIdx * 3.1 + seed));
-        emis += neon * signBand * on * (2.2 + 2.0 * hash11(colIdx * 9.1));
+        emis += neon * signBand * on * (2.2 + 2.0 * hash11(colIdx * 9.1)) * mix(0.35, 1.0, lightsOn);
         alb = mix(alb, vec3f(0.03), signBand * 0.7);
       }
       // Window display, warmly lit from inside.
       let disp = step(0.42, gy) * (1.0 - step(0.70, gy));
       let glow = 0.25 + 0.75 * hash11(colIdx * 13.7 + floorIdx + seed);
       alb = mix(alb, mix(vec3f(0.04, 0.045, 0.05), vec3f(0.9, 0.72, 0.5) * glow, 0.55), disp * 0.85);
-      emis += vec3f(0.85, 0.66, 0.44) * disp * glow * 1.5;
+      emis += vec3f(0.85, 0.66, 0.44) * disp * glow * 1.5 * mix(0.3, 1.0, lightsOn);
       // Awning stripe.
       let aw = step(0.62, gy) * (1.0 - step(0.70, gy));
       let stripe = step(0.5, fract(u * 0.7 + shopKind * 3.0));
@@ -639,7 +644,8 @@ fn fs(i: VSOut) -> GOut {
     base = g.albedo; rough = g.roughness; metal = g.metallic; emis = g.emissive;
     ao *= g.occlusion;
   } else if ((i.matId == MAT_DIFFUSE || i.matId == MAT_PLASTER || i.matId == MAT_BRICK) && i.uv.x >= FACADE_UV) {
-    let r = facade(i.world, n, i.color, i.color * 0.4 + vec3f(0.25, 0.12, 0.05), i.seed, 3.6, detail);
+    let mirror = select(0.0, 1.0, i.uv.x >= 2.0 * FACADE_UV);
+    let r = facade(i.world, n, i.color, i.color * 0.4 + vec3f(0.25, 0.12, 0.05), i.seed, 3.6, detail, mirror);
     base = r.albedo; rough = r.roughness; metal = r.metallic; emis = r.emissive; ao = r.occlusion;
     // Brick courses on the masonry districts.
     if (i.matId == MAT_BRICK) {
