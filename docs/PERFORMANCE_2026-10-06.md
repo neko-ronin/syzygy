@@ -406,3 +406,20 @@ Splitting writes across frames is not needed at this size.
 tier held high throughout); fixed high 60.0 / 60.0 / 58.9 (`r14-fixed-final`). Adaptive from ultra on
 flight: ultra fails, retries once, caps at high, 60 fps thereafter (`r14-storm-c`). Hero pair identical to
 `shots/2026-10-07T15-30-45` at 4% fuzz.
+
+## 2026-10-10 — distant detail: facades reach the screen
+
+The GPU headroom (span 12.3 ms of 16.7) was meant for distant detail, but the first look showed
+the real deficit was not geometry: every tower was a flat prism at every distance.
+- **Instance bind leak.** `drawChunks` left `groundInst` (MAT_STREET) bound for all chunk draws, so
+  every building shaded as paving and `facade()` never ran. Fixed; building walls opt in to
+  `facade()` with a u offset (`FACADE_UV`), so counters, stalls, ribs and roof boxes stay plain.
+- **Distance-surviving structure** in `facade()`: a louvred plant floor every 8–13 storeys and
+  per-floor occupancy at night (lit floors as bands), keyed on a per-building seed hashed from a ±4%
+  wall-colour jitter (the instance seed is per chunk and never reached the shader).
+- **Pilasters** rose height/2 − 6 m above every roof (absolute top passed a length): the dashes
+  over the skyline. Roof vents all stacked at the roof centre (`pushBoxAt` ignored x/z).
+
+Cost: G-buffer 2.26 → 2.20 ms, span 12.34 → 12.22 ms (`r14-passes-facade`). Fixed high
+60.0 / 59.8 / 59.9, adaptive 60.0 / 60.0 / 60.0 (`r14-facade-fixed`, `r14-facade-adaptive`).
+The hero pair changes by design (facades, lit windows, glowing lanterns); paving is unchanged.

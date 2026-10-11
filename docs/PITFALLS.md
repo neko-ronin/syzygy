@@ -756,6 +756,21 @@ they were invented specifically because inventing them felt like rigour.
 
 ---
 
+## 23. One missing bind turned the whole city into pavement
+
+**Symptom:** every tower read as a flat tinted prism, near and far, day and night.
+`facade()` — windows, floor ledges, grime, shopfronts, lit interiors, 150 lines —
+had never reached a pixel. Nothing failed; the frames looked like a style.
+
+**Cause:** `drawChunks` bound `groundInst` (`MAT_STREET`) for the ground plane and
+never rebound `identityInst`, so every chunk after it drew as street deck through
+`groundSurface()`. Found 2026-10-10 by painting each fragment branch a flat colour:
+all buildings came back green (deck).
+
+**Catch it next time:** when a shader feature "doesn't show", paint the branch
+before tuning the feature. Per-draw state (vertex buffer 1 here) persists across
+draws in a pass; every function that binds it must restore what its caller set.
+
 ## Working norms that held up
 
 - **Measure before theorising.** Every bug above cost far less time to measure

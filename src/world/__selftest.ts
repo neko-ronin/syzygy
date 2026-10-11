@@ -12,7 +12,7 @@ import {
 } from './citygen';
 import { interleaveMesh, MeshBuilder, meshTriangleCount, VERTEX_FLOATS, type Mesh } from './geometry';
 import { bakeGroundDetail } from '../render/groundbake';
-import { bakeChunk } from '../render/citymesh';
+import { bakeChunk, profileFor, pushBuilding } from '../render/citymesh';
 import { NavGraph, buildRailLines, buildZiplines, resampleSpline } from './networks';
 import {
   BAND_ORDER, CLUTTER_KINDS, bandAlbedo, familyFromBand, groundGrammarFor, hsv,
@@ -672,6 +672,15 @@ export function runCitySelfTest(): string {
   L.push(`              ${faceVerts} unambiguous kerb-face vertices sit on the carriageway edge: p50 ${f2(faceP50)}m, p90 ${f2(faceP90)}m; ` +
     `${deckInCorridor}/${deckVerts} deck vertices inside a street corridor (worst ${f2(deckWorst)}m clear)`);
   L.push(`              chunk overhang ${outside} vertices, of which ${ownOutside} on raised/kerb surfaces (bundle includes another module's market detail; reported, not asserted)`);
+  // Nothing of a tower but its crown rises above its roof. Pilasters took a run
+  // length as an absolute top and stood height/2 - 6 m clear of every roof.
+  {
+    const bld = new MeshBuilder();
+    const h = 150, tower = { position: [0, h, 0], halfExtents: [10, h, 10], rotationY: 0, lean: [0, 0, 0], windowSeed: 7 } as unknown as Parameters<typeof pushBuilding>[1];
+    pushBuilding(bld, tower, { ...profileFor(0), roofStyle: 'dome' }, makeRng(7), 0);
+    const top = bld.build().boundsMax[1], limit = 2 * h + 13;   // parapet 1.1 + dome 2 + 9
+    if (top > limit) fail(`tower geometry ${(top - 2 * h).toFixed(0)} m above its roof (dome crown allows 13)`);
+  }
   // Vertex layout: every vertex keeps its own UV (a stride-3 read gave the last third NaN).
   {
     const n = 5, uvs = Float32Array.from({ length: n * 2 }, (_, k) => k);

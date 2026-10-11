@@ -133,7 +133,7 @@ function wallMatFor(s: DistrictStyle): number {
 }
 
 const PROFILE_CACHE = new Map<number, DistrictProfile>();
-function profileFor(id: number): DistrictProfile {
+export function profileFor(id: number): DistrictProfile {
   let p = PROFILE_CACHE.get(id);
   if (!p) {
     const style = districtStyle(id);
@@ -156,7 +156,8 @@ function profileFor(id: number): DistrictProfile {
  * is the *silhouette work* — setbacks, a crown, a parapet, a plinth, and the
  * vertical rib pilasters that catch the sun and give the canyon its rhythm.
  */
-function pushBuilding(
+/** Exported for `__selftest.ts` only. */
+export function pushBuilding(
   bld: MeshBuilder, b: BuildingInstance, dp: DistrictProfile, rng: Rng, lod: number,
 ): void {
   const [hx, , hz] = b.halfExtents;
@@ -174,8 +175,11 @@ function pushBuilding(
   const lean = b.lean;
   const yaw = b.rotationY;
   const pal = dp.palette;
-  const base = pal.base;
   const seed = b.windowSeed;
+  // ±4% per building: neighbours stop reading as one wall, and the G-buffer
+  // hashes this colour into a per-building seed (the instance seed is per chunk).
+  const jit = 0.96 + 0.08 * ((Math.imul(seed | 0, 0x9e3779b1) >>> 0) / 4294967296);
+  const base: Vec3 = [pal.base[0] * jit, pal.base[1] * jit, pal.base[2] * jit];
 
   // Local → world for a point in the building's own frame.
   const P = (lx: number, ly: number, lz: number): Vec3 => {
@@ -206,6 +210,8 @@ function pushBuilding(
   let y0 = yBase;
   let tx = hx, tz = hz;
   const totalH = height;
+  // Pilasters stand on the first tier's walls, so they stop where it does.
+  const tier0Top = tiers === 1 ? yRoof : yBase + height * split[0];
   for (let t = 0; t < tiers; t++) {
     const isLast = t === tiers - 1;
     const y1 = isLast ? yRoof : yBase + height * split[t];
@@ -214,7 +220,7 @@ function pushBuilding(
     const nz = t === 0 ? tz : tz * shrink;
     // Body of the tier, inset from the previous so the setback reads.
     const inset = t === 0 ? 0 : 0.18;
-    pushBoxShell(bld, P, nx - inset, nz - inset, y0, y1, base, mat, rough, seed + t, lod, yaw);
+    pushBoxShell(bld, P, nx - inset, nz - inset, y0, y1, base, mat, rough, seed + t, lod, yaw, true);
     // Parapet lip on top of the tier.
     if (!isLast || lod < 1) {
       pushBoxShell(
@@ -230,7 +236,7 @@ function pushBuilding(
   if (lod < 2) {
     const plinthH = Math.min(7.5, totalH * 0.25);
     pushBoxShell(bld, P, hx + 0.28, hz + 0.28, yBase, yBase + plinthH,
-      pal.secondary, MAT.DIFFUSE, STONE + 0.15, seed + 7, 0, yaw);
+      pal.secondary, MAT.DIFFUSE, STONE + 0.15, seed + 7, 0, yaw, true);
   }
 
   // --- vertical pilasters. These are the single cheapest thing that makes a
@@ -238,14 +244,20 @@ function pushBuilding(
   //     its vertical rhythm as the light sweeps across it.
   if (lod < 2) {
     const ribW = 0.22;
-    const runH = height - 6;
+    // `pushRib*` take an absolute top. This passed the run LENGTH (height - 6)
+    // where yBase = -height/2, so every rib rose height/2 - 6 above the roof:
+    // 144 m of trim standing in open sky over a 300 m tower, which aliased into
+    // the columns of dashes above the whole skyline. Upper tiers are inset, so
+    // ribs also stop at the first tier rather than float beside them.
+    const ribTop = tier0Top - 3;
+    const runH = ribTop - (yBase + 3);
     if (runH >= 6) {
       const count = Math.max(2, Math.round(hx / 4.2));
       for (let i = 0; i < count; i++) {
         const f = count === 1 ? 0.5 : i / (count - 1);
         const lx = (f - 0.5) * 2 * (hx - 0.4);
         for (const sz of [1, -1]) {
-          pushRibZ(bld, P, lx, sz * (hz + 0.10), yBase + 3, runH, ribW,
+          pushRibZ(bld, P, lx, sz * (hz + 0.10), yBase + 3, ribTop, ribW,
             pal.trim, seed + i);
         }
       }
@@ -254,7 +266,7 @@ function pushBuilding(
         const f = countZ === 1 ? 0.5 : i / (countZ - 1);
         const lz = (f - 0.5) * 2 * (hz - 0.4);
         for (const sx of [1, -1]) {
-          pushRibX(bld, P, sx * (hx + 0.10), lz, yBase + 3, runH, ribW,
+          pushRibX(bld, P, sx * (hx + 0.10), lz, yBase + 3, ribTop, ribW,
             pal.trim, seed + i + 20);
         }
       }
@@ -266,25 +278,31 @@ function pushBuilding(
 }
 
 const NO_FACES = 0;
+/** u offset marking building-shell quads for `facade()` (gbuffer.wgsl FACADE_UV). */
+const FACADE_UV = 4096;
 const ALL_FACES = FACE_ALL;
 
 function pushBoxShell(
   bld: MeshBuilder, P: (x: number, y: number, z: number) => Vec3,
   hx: number, hz: number, y0: number, y1: number,
   color: Vec3, mat: number, rough: number, seed: number, lod: number, yaw: number,
+  facade = false,
 ): void {
   const opts: MeshOpts = { emissive: 0, rotationY: 0, faces: ALL_FACES };
   void mat; void rough; void seed; void lod; void yaw; void opts; void NO_FACES;
+  // Walls offset u by FACADE_UV so the G-buffer synthesises windows on them;
+  // parapets, crowns and roof boxes stay plain.
+  const SHELL = { doubleSided: false, uvOffset: facade ? FACADE_UV : 0 };
   // Emit six quads by hand so each can carry its own normal and a uv scale
   // that is consistent in world units (one uv unit per metre).
   const a = P(-hx, y0, hz), b = P(hx, y0, hz), c = P(hx, y1, hz), d = P(-hx, y1, hz);
-  bld.pushQuad(a, b, c, d, color, 0.34, { doubleSided: false });
+  bld.pushQuad(a, b, c, d, color, 0.34, SHELL);
   const a2 = P(hx, y0, -hz), b2 = P(-hx, y0, -hz), c2 = P(-hx, y1, -hz), d2 = P(hx, y1, -hz);
-  bld.pushQuad(a2, b2, c2, d2, color, 0.34, { doubleSided: false });
+  bld.pushQuad(a2, b2, c2, d2, color, 0.34, SHELL);
   const a3 = P(hx, y0, hz), b3 = P(hx, y0, -hz), c3 = P(hx, y1, -hz), d3 = P(hx, y1, hz);
-  bld.pushQuad(a3, b3, c3, d3, color, 0.34, { doubleSided: false });
+  bld.pushQuad(a3, b3, c3, d3, color, 0.34, SHELL);
   const a4 = P(-hx, y0, -hz), b4 = P(-hx, y0, hz), c4 = P(-hx, y1, hz), d4 = P(-hx, y1, -hz);
-  bld.pushQuad(a4, b4, c4, d4, color, 0.34, { doubleSided: false });
+  bld.pushQuad(a4, b4, c4, d4, color, 0.34, SHELL);
   // Top cap.
   //
   // The guard used to be `y1 > 0`, which meant "above the building's centre"
@@ -471,8 +489,9 @@ function pushBoxAt(
   bld: MeshBuilder, P: (x: number, y: number, z: number) => Vec3,
   x: number, y: number, z: number, hx: number, hy: number, hz: number, color: Vec3,
 ): void {
-  pushBoxShell(bld, P, hx, hz, y - hy, y + hy, color, MAT.METAL, METAL_ROUGH, 0, 0, 0);
-  void x; void z;
+  // x/z were ignored (`void x; void z`), so every roof vent stacked at the centre.
+  const Q = (lx: number, ly: number, lz: number): Vec3 => P(lx + x, ly, lz + z);
+  pushBoxShell(bld, Q, hx, hz, y - hy, y + hy, color, MAT.METAL, METAL_ROUGH, 0, 0, 0);
 }
 
 const tint3 = (c: Vec3, k: number): Vec3 => [c[0] * k, c[1] * k, c[2] * k];

@@ -1698,6 +1698,12 @@ export class Renderer {
       pass.drawIndexed(this.ground.indexCount);
       draws++;
       tris += this.ground.indexCount / 3;
+      // Chunks draw with the identity instance (generic material). This bind was
+      // missing, so every chunk inherited the ground's MAT_STREET: every tower
+      // was shaded as paving and `facade()` (windows, ledges, grime, shopfronts)
+      // never reached a pixel. Authored chunk paving carries its own negative
+      // ground tag and still takes the deck path.
+      pass.setVertexBuffer(1, this.identityInst);
     }
 
     // Draw what streaming keeps: residency is an LRU cache wider than the view

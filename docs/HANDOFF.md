@@ -36,7 +36,10 @@ world performance at 60 FPS on this Mac, Chrome, 1600 × 900**. The
    depth-bounded light binning, alternating far cascades, worker chunk baking,
    crowd CPU fixes. **2026-10-10:** adaptive run 60.0 / 60.0 / 60.0 after governor
    and residency-range fixes; upload interleave moved off-thread (stream max 3.4 ms).
-   Open: headed-Chrome confirmation, richer distant detail.
+   **Distant detail:** facades now reach the screen (an instance-bind leak shaded every
+   building as paving), plant floors and per-floor night occupancy read at distance,
+   floating pilasters removed. **Needs the owner's eyes**: the hero pair and every
+   skyline changed by design. Open: headed-Chrome confirmation, vision review.
 
 **Capture capacity:** marginal. The guard passed at 277 MB unused on 2026-10-07
 (minimum 250 MB, `WORKFLOW.md` §6.1); serialize captures and never force past it.

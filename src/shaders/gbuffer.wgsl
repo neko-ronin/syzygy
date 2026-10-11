@@ -90,6 +90,8 @@ const MAT_FOLIAGE : u32 = 2u;
 const MAT_METAL   : u32 = 3u;
 const MAT_WATER   : u32 = 4u;
 const MAT_EMISSIVE: u32 = 5u;
+/** Building shells opt in to `facade()` by offsetting u (citymesh FACADE_UV); props stay plain. */
+const FACADE_UV: f32 = 4096.0;
 const MAT_BRICK   : u32 = 6u;
 const MAT_PLASTER : u32 = 7u;
 const MAT_STREET  : u32 = 8u;
@@ -105,6 +107,23 @@ struct Facade {
   emissive  : vec3f,
   occlusion : f32,
 };
+
+/**
+ * Detail that survives distance. A 3.1 x 3.6 m window cell is ~4 px at 1 km and
+ * TAA averages it to a flat wall, so towers need structure at a lower spatial
+ * frequency: a louvred mechanical floor every 8-13 storeys (per building) and
+ * per-floor occupancy at night, so lit floors read as bands, not uniform fizz.
+ */
+fn isMechFloor(floorIdx: f32, seed: f32) -> bool {
+  let every = 8.0 + floor(hash11(seed * 7.31) * 6.0);
+  let k = floorIdx + floor(hash11(seed * 3.17) * every);
+  return floorIdx > 2.5 && abs(k - every * floor(k / every)) < 0.5;
+}
+
+/** Lit-window threshold for a floor: mean ~0.6 keeps ~40% of windows lit city-wide. */
+fn floorLitThreshold(floorIdx: f32, seed: f32) -> f32 {
+  return mix(0.25, 0.95, hash11(floorIdx * 1.93 + seed * 5.7));
+}
 
 /**
  * A whole facade in one function: floor bands, window cells, recessed sills,
@@ -132,7 +151,10 @@ fn facade(
   let bayJit = hash21(cellId + vec2f(seed * 37.0, 0.0));
   let insetX = 0.24 + 0.10 * bayJit;
   let insetY = 0.22 + 0.06 * hash21(cellId.yx + vec2f(0.0, seed * 91.0));
-  let isGlass = fx > insetX && fx < 1.0 - insetX && fy > insetY && fy < 1.0 - insetY;
+  // Per-building seed: the instance seed is per chunk; walls carry a ±4% jitter.
+  let bseed = seed + hash21(base.xy * 517.0 + vec2f(base.z * 31.0)) * 97.0;
+  let mech = isMechFloor(floorIdx, bseed);
+  let isGlass = !mech && fx > insetX && fx < 1.0 - insetX && fy > insetY && fy < 1.0 - insetY;
 
   // Per-floor structural band: a slightly proud ledge at every floor line.
   let ledge = 1.0 - smoothstep(0.0, 0.055, fy);
@@ -184,7 +206,7 @@ fn facade(
       metal = 0.0;
 
       // Interior lights. Roughly 40% lit, warm with occasional cold/green.
-      let lit = step(0.58, hash21(cellId * 3.3 + vec2f(seed * 17.0, 9.0)));
+      let lit = step(floorLitThreshold(floorIdx, bseed), hash21(cellId * 3.3 + vec2f(seed * 17.0, 9.0)));
       if (lit > 0.5) {
         let warm = mix(vec3f(1.0, 0.72, 0.38), vec3f(0.55, 0.85, 1.0), step(0.86, kind));
         let bright = 0.35 + 3.2 * pow(hash21(cellId * 5.7 + seed), 3.0);
@@ -199,6 +221,12 @@ fn facade(
       emis *= 1.0 - blind * 0.55;
     }
     ao *= 0.88;
+  } else if (mech) {
+    // Louvred plant floor: dark, horizontally slatted, never lit.
+    let slat = step(0.5, fract(fy * 9.0));
+    alb = base * (0.38 + 0.12 * slat);
+    rough = 0.6;
+    ao *= 0.8;
   } else {
     // --- Sill: a proud ledge that catches light and casts a soft line below.
     if (sill > 0.01) {
@@ -610,7 +638,7 @@ fn fs(i: VSOut) -> GOut {
     let g = groundSurface(i.world, n, i.color, detail, gdist, i.groundTag);
     base = g.albedo; rough = g.roughness; metal = g.metallic; emis = g.emissive;
     ao *= g.occlusion;
-  } else if (i.matId == MAT_DIFFUSE || i.matId == MAT_PLASTER || i.matId == MAT_BRICK) {
+  } else if ((i.matId == MAT_DIFFUSE || i.matId == MAT_PLASTER || i.matId == MAT_BRICK) && i.uv.x >= FACADE_UV) {
     let r = facade(i.world, n, i.color, i.color * 0.4 + vec3f(0.25, 0.12, 0.05), i.seed, 3.6, detail);
     base = r.albedo; rough = r.roughness; metal = r.metallic; emis = r.emissive; ao = r.occlusion;
     // Brick courses on the masonry districts.
