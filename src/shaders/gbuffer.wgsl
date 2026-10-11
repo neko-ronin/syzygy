@@ -50,7 +50,9 @@ fn vs(v: VSIn) -> VSOut {
   // we transform the normal by it directly.
   o.normal = normalize((m * vec4f(v.normal, 0.0)).xyz);
   o.uv = v.uv;
-  o.color = v.color * v.tint.rgb;
+  // Negative red flags a vertex that keeps its own colour under the instance
+  // tint (pedestrian skin and hair); albedo is never negative otherwise.
+  o.color = select(v.color * v.tint.rgb, abs(v.color), v.color.r < 0.0);
   o.matId = u32(v.params.x + 0.5);
   o.rough = v.params.y;
   // `v.emissive` is the PER-VERTEX emissive mask: `MeshBuilder.vert` writes it

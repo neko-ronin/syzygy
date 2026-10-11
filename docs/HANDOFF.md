@@ -17,8 +17,9 @@ world performance at 60 FPS on this Mac, Chrome, 1600 × 900**. The
    show satisfactory work for the stage we're at"): kerb geometry and half-city
    winding (street report Round 6), human mesh and foot grounding (crowd report
    2026-10-07), stall lamps and the light-binner fix (street report Round 7).
-   Noted, not blocking: skin takes the coat tint, face box reads as a beak up
-   close, every other counter lamp is lit.
+   Noted then, fixed 2026-10-10: skin no longer takes the coat tint (negative-red
+   vertex flag), hair replaces the beak-like face box, stall lamps share one light per
+   neighbouring pair (46–49 of ~55 counters lit per chunk, was 32).
 3. ~~**Close the street batch.**~~ Closed 2026-10-07 on the owner's review;
    commits `c42abff`, `6db4b5a`, `f05af6d`. Original wording: Run the final required checks, obtain an
    independent vision verdict against the section references and comparison

@@ -1154,15 +1154,32 @@ export function marketGrammarFor(q: MarketQuery): MarketDesc {
   }
 
   // Stall lamps, after the walk and without the RNG: drawing here would reshuffle
-  // every later stall and move the hero subject. Lit ones are spread evenly.
+  // every later stall and move the hero subject. Every bulb glows; lights are
+  // budgeted. A light per alternate stall read as every other counter lit, so
+  // neighbouring lamps (3.5–4 m apart, inside the 6 m radius) share one light at
+  // their midpoint, and the budget is spread over those groups instead.
   const roofed = stalls.filter((st) => st.module !== 'bare');
-  roofed.forEach((st, i) => {
+  const lamps = roofed.map((st) => {
     const lat = st.counter + (st.front - st.counter) * 0.5;
     const pos: Vec3 = [st.cx + st.nx * lat, GROUND_Y + clamp(st.eave - 0.35, 1.9, 2.3), st.cz + st.nz * lat];
-    const lit = Math.floor(((i + 1) * MAX_STALL_LAMPS_PER_CHUNK) / roofed.length)
-      > Math.floor((i * MAX_STALL_LAMPS_PER_CHUNK) / roofed.length);
-    st.lamp = { pos, radius: 0.07, color: STALL_LAMP_COLOR, emissive: 5.5, light: lit };
-    if (lit) stallLights.push({ pos, radius: STALL_LAMP_RADIUS, color: STALL_LAMP_COLOR, intensity: STALL_LAMP_INTENSITY });
+    st.lamp = { pos, radius: 0.07, color: STALL_LAMP_COLOR, emissive: 5.5, light: false };
+    return st.lamp;
+  });
+  const groups: MarketLantern[][] = [];
+  for (let i = 0; i < lamps.length; i++) {
+    const next = lamps[i + 1];
+    if (next && Math.hypot(next.pos[0] - lamps[i].pos[0], next.pos[2] - lamps[i].pos[2]) < STALL_LAMP_RADIUS) {
+      groups.push([lamps[i], next]); i++;
+    } else groups.push([lamps[i]]);
+  }
+  groups.forEach((g, i) => {
+    const lit = Math.floor(((i + 1) * MAX_STALL_LAMPS_PER_CHUNK) / groups.length)
+      > Math.floor((i * MAX_STALL_LAMPS_PER_CHUNK) / groups.length);
+    if (!lit) return;
+    for (const l of g) l.light = true;
+    const pos: Vec3 = [0, 0, 0];
+    for (const l of g) for (let k = 0; k < 3; k++) pos[k] += l.pos[k] / g.length;
+    stallLights.push({ pos, radius: STALL_LAMP_RADIUS, color: STALL_LAMP_COLOR, intensity: STALL_LAMP_INTENSITY });
   });
 
   return { stalls, strings, cloth, lights, stallLights, stats };

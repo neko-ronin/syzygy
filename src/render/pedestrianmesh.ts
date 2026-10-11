@@ -14,7 +14,10 @@ export function pedestrianMesh(): Mesh {
   const cloth: Vec3 = [0.65, 0.68, 0.72];
   const trousers: Vec3 = [0.16, 0.19, 0.23];
   const shoe: Vec3 = [0.08, 0.09, 0.11];
-  const skin: Vec3 = [0.70, 0.54, 0.42];
+  // Negative red = keep this colour; the shader skips the coat tint for it
+  // (gbuffer.wgsl `vs`). Skin and hair took the coat colour before.
+  const skin: Vec3 = [-0.45, 0.30, 0.21];
+  const hair: Vec3 = [-0.06, 0.045, 0.035];
 
   for (const side of [-1, 1]) {
     const stride = side * 0.035;
@@ -39,7 +42,9 @@ export function pedestrianMesh(): Mesh {
   b.pushBox([0, 1.415, 0], [0.043, 0.055, 0.047], skin);
   b.pushCylinder([0, 1.46, 0], [0, PEDESTRIAN_HEIGHT, 0], 0.1, 8, skin,
     { capEnds: true, radiusTop: 0.09 });
-  // A small face projection makes the local forward direction legible nearby.
-  b.pushBox([0, 1.57, 0.097], [0.025, 0.027, 0.022], skin);
+  // Hair over the crown and back of the head marks the facing direction. The
+  // face box it replaces stuck 2 cm out of the head and read as a beak close up.
+  b.pushBox([0, 1.68, -0.01], [0.09, 0.018, 0.088], hair);
+  b.pushBox([0, 1.6, -0.065], [0.09, 0.07, 0.03], hair);
   return b.build();
 }
