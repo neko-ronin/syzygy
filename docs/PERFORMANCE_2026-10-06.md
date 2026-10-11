@@ -376,3 +376,33 @@ not measured (headless); submitted and completed rates agree.
 Not yet done: headed-Chrome confirmation, an adaptive-quality run, uploads split
 across frames for the largest chunks, and richer distant detail now that GPU
 headroom exists (~4.5 ms).
+
+## 2026-10-10 — adaptive run, upload interleave off-thread, residency range
+
+**Adaptive baseline** (`benchmarks/r14-adaptive`, adaptive from high): hero **37.3**, skyline **35.3**,
+flight **49.5**. The governor upgraded on "fps > 58", which a 60 Hz vsync cap always satisfies, climbed to
+ultra and held it at ~36 fps because its floor was 34; flight oscillated high ↔ ultra. Fixes in
+`governQuality`: floor 52 fps; never climb above the tier it took over at; a tier failing twice becomes
+the ceiling; skip two ticks (3 s) after a switch while its rebakes land.
+
+Found on the way:
+- **Stuck rebakes.** The rebake scan queued resident chunks past r + 1, whose worker results `applyBaked`
+  drops as flown past: 13 (hero) / 22 (skyline) chunks re-baked forever on a held camera. The worker-path
+  `rebakePending` also counted new-chunk bakes, contrary to its contract.
+- **Drawing past the stream radius.** `drawChunks` drew every resident chunk (an LRU wider than the view
+  distance the finite city never evicts), so after a tier drop the old tier's LOD 0 chunks were still
+  drawn; medium flight ran ~50 fps. Rebake, upload and draw now share radius + 1. Light gathering used
+  `320` m chunks where `chunkSize` is 256.
+- **Rebake storm simulation.** Each upload re-indexed every crowd obstacle; during async streaming the
+  rebuild is rate-limited to 250 ms (sync warm/capture stays exact). Storm simulation max 17–20 → 10–13 ms.
+- **UV stride.** `uploadMesh` read UVs at stride 3 (they are 2 per vertex): the last third of every mesh's
+  UVs were NaN. Invisible because no shader samples `uv`; self-test added (`__selftest.ts`, mutant fails).
+
+**Uploads.** The interleave moved into the bake worker (`Mesh.packed`); the main thread only creates
+buffers and writes them. Flight stream max 18 → **3.4 ms**, p95 1.7 → 1.0 (`benchmarks/r14-interleave`).
+Splitting writes across frames is not needed at this size.
+
+**Results** (headless, 1600 × 900): adaptive from high **60.0 / 60.0 / 60.0** (`r14-adaptive-final`,
+tier held high throughout); fixed high 60.0 / 60.0 / 58.9 (`r14-fixed-final`). Adaptive from ultra on
+flight: ultra fails, retries once, caps at high, 60 fps thereafter (`r14-storm-c`). Hero pair identical to
+`shots/2026-10-07T15-30-45` at 4% fuzz.

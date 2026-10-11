@@ -8,6 +8,7 @@
  * Mesh arrays are transferred, not copied.
  */
 import { City, defaultCityConfig } from '../world/citygen';
+import { interleaveMesh } from '../world/geometry';
 import { bakeChunk, type BakedChunk } from './citymesh';
 
 export type BakeRequest =
@@ -35,6 +36,9 @@ scope.onmessage = (e: MessageEvent<BakeRequest>) => {
     const baked = bakeChunk(chunk, m.lod, seed);
     const buffers = new Set<ArrayBuffer>();
     for (const mesh of [baked.opaque, baked.foliage]) {
+      // Interleave here: the loop was the bulk of a large chunk's main-thread upload.
+      mesh.packed = interleaveMesh(mesh);
+      buffers.add(mesh.packed.buffer as ArrayBuffer);
       for (const a of [mesh.positions, mesh.normals, mesh.uvs, mesh.colors, mesh.indices]) buffers.add(a.buffer as ArrayBuffer);
     }
     buffers.add(baked.walking.buffer as ArrayBuffer);

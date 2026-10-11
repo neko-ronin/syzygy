@@ -33,8 +33,9 @@ world performance at 60 FPS on this Mac, Chrome, 1600 × 900**. The
    hero 60.0, skyline 60.0, flight 59.5 submitted frames/s (from 42 / 37 / 32);
    see [PERFORMANCE](PERFORMANCE_2026-10-06.md) for each round. Done: sky LUT,
    depth-bounded light binning, alternating far cascades, worker chunk baking,
-   crowd CPU fixes. Open: headed-Chrome confirmation, adaptive run, split large
-   uploads, richer distant detail (now ~4.5 ms GPU headroom).
+   crowd CPU fixes. **2026-10-10:** adaptive run 60.0 / 60.0 / 60.0 after governor
+   and residency-range fixes; upload interleave moved off-thread (stream max 3.4 ms).
+   Open: headed-Chrome confirmation, richer distant detail.
 
 **Capture capacity:** marginal. The guard passed at 277 MB unused on 2026-10-07
 (minimum 250 MB, `WORKFLOW.md` §6.1); serialize captures and never force past it.

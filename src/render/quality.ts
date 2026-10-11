@@ -45,7 +45,7 @@ export const TIERS: Record<QualityTier, Omit<QualitySettings, 'tier'>> = {
 /**
  * Chunk distances at which the detail level steps up, in chunks (not metres).
  *
- * 1.6 chunks is ~510m at the default 320m chunk size, chosen so the street the
+ * 1.6 chunks is ~410m at the default 256m chunk size, chosen so the street the
  * camera is actually flying down keeps full detail while everything past the
  * first couple of blocks drops a level. Expressed in chunk units rather than
  * metres so it survives a chunk-size change.

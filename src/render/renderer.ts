@@ -287,6 +287,7 @@ export class Renderer {
   /** Warm-up and captures bake synchronously so residency is settled when they return. */
   streamSync = false;
   private residencyRevision = 0;
+  private obstacleBuiltAt = 0;
   private obstacleCache: { revision: number; obstacles: BakedChunk['obstacles'] } = { revision: -1, obstacles: [] };
   private walkingCache: { revision: number; parts: Map<string, Float32Array> } = { revision: -1, parts: new Map() };
   /**
@@ -1072,7 +1073,11 @@ export class Renderer {
     // the whole flight. The scan is a few hundred integer comparisons and runs
     // unconditionally — there is no cheaper way to notice the camera moved.
     for (const e of this.chunks.values()) {
-      if (e.lod === lodForDistance(chunkDistance(e.cx, e.cz, pcx, pcz), this.q)) continue;
+      const d = chunkDistance(e.cx, e.cz, pcx, pcz);
+      // Past the stream radius `applyBaked` drops the result as flown past, so
+      // queueing it re-baked the same chunks forever on a held camera (13 on
+      // hero, 22 on skyline) and pinned rebakePending, which the governor reads.
+      if (d > r + 1 || e.lod === lodForDistance(d, this.q)) continue;
       const key = this.chunkKey(e.cx, e.cz);
       if (this.rebakeQueued.has(key)) continue;
       this.rebakeQueued.add(key);
@@ -1096,7 +1101,12 @@ export class Renderer {
       baked = this.applyBaked(pcx, pcz, r, t0);
       this.dispatchBakes(pcx, pcz);
       if (baked) this.evictChunks(r);
-      this.stats.rebakePending = this.rebakeQueue.length + this.inflight.size + this.bakedReady.length;
+      // Rebakes only, per the field's contract; counting new-chunk bakes made it
+      // non-zero through all of flight.
+      let pending = this.rebakeQueue.length;
+      for (const j of this.inflight.values()) if (j.rebake) pending++;
+      for (const j of this.bakedReady) if (j.rebake) pending++;
+      this.stats.rebakePending = pending;
       return;
     }
 
@@ -1302,7 +1312,7 @@ export class Renderer {
     for (const e of this.chunks.values()) {
       produced += e.marketProduced;
       const d = Math.hypot(e.centre[0] - cam.position[0], e.centre[2] - cam.position[2]);
-      if (d > (r + 1) * 320) { rejectedFar += e.lights.length; continue; }
+      if (d > (r + 1) * this.city.cfg.chunkSize) { rejectedFar += e.lights.length; continue; }
       // NOT culled by day. The cull used to be here, and it was wrong on its own
       // terms rather than merely at the wrong threshold.
       //
@@ -1690,8 +1700,14 @@ export class Renderer {
       tris += this.ground.indexCount / 3;
     }
 
+    // Draw what streaming keeps: residency is an LRU cache wider than the view
+    // distance, and after a tier drop it held the old tier's LOD 0 chunks past
+    // the new radius, still drawn — medium flight ran slower than fixed high.
+    const cs = this.city.cfg.chunkSize, reach = this.q.viewDistance + 1;
+    const pcx = Math.floor(cam.position[0] / cs), pcz = Math.floor(cam.position[2] / cs);
     for (const e of this.chunks.values()) {
       if (!e.mesh || e.mesh.indexCount === 0) continue;
+      if (chunkDistance(e.cx, e.cz, pcx, pcz) > reach) continue;
       const vis = sphereInFrustum(planes, e.centre, e.radius);
       if (!vis) { culled++; continue; }
       e.lastUsed = this.frameIndex;
@@ -2435,7 +2451,15 @@ export class Renderer {
     if (signature(this.captureResidency()) !== signature(saved)) throw new Error('residency replay did not reproduce saved keys and LODs');
   }
   crowdObstacles() {
-    if (this.obstacleCache.revision !== this.residencyRevision) {
+    // Every upload bumps the revision and the crowd re-indexes all solids
+    // (~1.7 ms, more at LOD 0). A tier change uploads a chunk nearly every frame
+    // for ~10 s, so streaming rebuilds at most every 250 ms; crowd `recovery`
+    // already handles a solid appearing around a body. Synchronous (warm,
+    // capture) streaming stays exact so captures are deterministic.
+    const now = performance.now();
+    if (this.obstacleCache.revision !== this.residencyRevision &&
+        (this.streamSync || !this.baker || now - this.obstacleBuiltAt >= 250)) {
+      this.obstacleBuiltAt = now;
       this.obstacleCache = { revision: this.residencyRevision, obstacles: [...this.chunks.values()].flatMap((c) => c.obstacles) };
     }
     return this.obstacleCache;

@@ -144,6 +144,18 @@ class App {
   private screenshotRequested = false;
   private qualityOverride: QualityTier | null = null;
   private qualityHold = 0;
+  /**
+   * Highest tier index the governor may climb to: the tier it took over at
+   * (-1 = not yet taken over), lowered when a tier fails to hold. Never above
+   * the start tier, because a vsync-capped 60 fps cannot show headroom: the
+   * blind probe high → ultra cost flight 15 s under 40 fps (r14-adaptive4).
+   * ponytail: a tier that fails twice is capped for the session; add a slow re-probe
+   * once GPU timestamps can prove headroom.
+   */
+  private qualityCeiling = -1;
+  private readonly qualityFailed = new Set<number>();
+  /** Governor ticks (1.5 s each) to skip after a tier change while its rebakes land. */
+  private qualitySettle = 0;
   /** The last pose derived from live state, so `stats()` can report where it is standing. */
   private derivedPose: DerivedPoseResult | null = null;
   ready = false;
@@ -611,22 +623,39 @@ class App {
         this.renderer.setQuality(this.qualityOverride);
       }
       this.qualityHold = 0;
+      this.qualityCeiling = -1;
+      this.qualityFailed.clear();
       return;
     }
+    if (this.qualityCeiling < 0) this.qualityCeiling = cur;
 
-    if (fps < 34 && cur > 0) {
+    // The target is 60 fps, so pressure is anything clearly under it. The floor
+    // used to be 34: measured 2026-10-10 (benchmarks/r14-adaptive), the governor
+    // climbed high → ultra on vsync-capped 60 fps, settled at ultra's 36 fps
+    // because 36 was "fine", and flight oscillated high ↔ ultra. A vsync-capped
+    // rate cannot show headroom, so a tier that failed becomes a ceiling.
+    // A tier change re-bakes every resident chunk; that load is the switch, not
+    // the tier, and judging it demoted flight a second time (high → medium).
+    // A settle window rather than `rebakePending`: flight always has rebakes.
+    if (this.qualitySettle > 0) { this.qualitySettle--; this.qualityHold = 0; return; }
+    if (fps < 52 && cur > 0) {
       this.qualityHold++;
       if (this.qualityHold > 2) {
         const next = order[cur - 1];
+        // First failure: recover later (a dip may be transient). Second: ceiling.
+        if (this.qualityFailed.has(cur)) this.qualityCeiling = Math.min(this.qualityCeiling, cur - 1);
+        this.qualityFailed.add(cur);
         this.renderer.setQuality(next);
         this.qualityHold = 0;
+        this.qualitySettle = 2;
         toast(`quality → ${next} (${fps.toFixed(0)} fps)`);
       }
-    } else if (fps > 58 && cur < order.length - 1) {
+    } else if (fps > 58 && cur < this.qualityCeiling) {
       this.qualityHold--;
       if (this.qualityHold < -6) {
         this.renderer.setQuality(order[cur + 1]);
         this.qualityHold = 0;
+        this.qualitySettle = 2;
       }
     } else {
       this.qualityHold = 0;

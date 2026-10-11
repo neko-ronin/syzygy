@@ -10,7 +10,7 @@ import {
   City, GROUND_Y, PropKind, auditChunkLots, cityPlan, defaultCityConfig, footprintAabb,
   roadClearanceAt, sampleStreetPlan, type BuildingInstance, type CityChunk, type StreetSample,
 } from './citygen';
-import { MeshBuilder, meshTriangleCount, type Mesh } from './geometry';
+import { interleaveMesh, MeshBuilder, meshTriangleCount, VERTEX_FLOATS, type Mesh } from './geometry';
 import { bakeGroundDetail } from '../render/groundbake';
 import { bakeChunk } from '../render/citymesh';
 import { NavGraph, buildRailLines, buildZiplines, resampleSpline } from './networks';
@@ -672,6 +672,14 @@ export function runCitySelfTest(): string {
   L.push(`              ${faceVerts} unambiguous kerb-face vertices sit on the carriageway edge: p50 ${f2(faceP50)}m, p90 ${f2(faceP90)}m; ` +
     `${deckInCorridor}/${deckVerts} deck vertices inside a street corridor (worst ${f2(deckWorst)}m clear)`);
   L.push(`              chunk overhang ${outside} vertices, of which ${ownOutside} on raised/kerb surfaces (bundle includes another module's market detail; reported, not asserted)`);
+  // Vertex layout: every vertex keeps its own UV (a stride-3 read gave the last third NaN).
+  {
+    const n = 5, uvs = Float32Array.from({ length: n * 2 }, (_, k) => k);
+    const packed = interleaveMesh({ positions: new Float32Array(n * 3), normals: new Float32Array(n * 3), uvs, colors: new Float32Array(n * 4) });
+    for (let i = 0; i < n; i++) {
+      if (packed[i * VERTEX_FLOATS + 6] !== i * 2 || packed[i * VERTEX_FLOATS + 7] !== i * 2 + 1) { fail(`interleave: vertex ${i} uv wrong`); break; }
+    }
+  }
   L.push('');
   L.push(violations.length === 0
     ? 'VIOLATIONS   none — all invariants hold'

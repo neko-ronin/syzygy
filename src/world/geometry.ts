@@ -21,6 +21,32 @@ export interface Mesh {
   indexCount: number;
   boundsMin: Vec3;
   boundsMax: Vec3;
+  /** {@link interleaveMesh} output, when a worker already built it; upload skips the CPU loop. */
+  packed?: Float32Array;
+}
+
+/** Floats per interleaved vertex: pos(3) nrm(3) uv(2) col(3) em(1). */
+export const VERTEX_FLOATS = 12;
+
+/**
+ * The GPU vertex layout. Pure so the bake worker can run it off the main
+ * thread. UVs are 2 floats per vertex; they were read at stride 3, so every
+ * vertex past the first third got another vertex's UV and the last third NaN
+ * (unseen only because no shader samples `uv` yet).
+ */
+export function interleaveMesh(data: Pick<Mesh, 'positions' | 'normals' | 'uvs' | 'colors'>): Float32Array {
+  const n = data.positions.length / 3;
+  const hasEmissive = data.colors.length === n * 4;
+  const out = new Float32Array(n * VERTEX_FLOATS);
+  for (let i = 0; i < n; i++) {
+    const o = i * VERTEX_FLOATS, v3 = i * 3, v2 = i * 2, c4 = i * 4;
+    out[o] = data.positions[v3]; out[o + 1] = data.positions[v3 + 1]; out[o + 2] = data.positions[v3 + 2];
+    out[o + 3] = data.normals[v3]; out[o + 4] = data.normals[v3 + 1]; out[o + 5] = data.normals[v3 + 2];
+    out[o + 6] = data.uvs[v2]; out[o + 7] = data.uvs[v2 + 1];
+    out[o + 8] = data.colors[c4]; out[o + 9] = data.colors[c4 + 1]; out[o + 10] = data.colors[c4 + 2];
+    out[o + 11] = hasEmissive ? data.colors[c4 + 3] : 0;
+  }
+  return out;
 }
 
 /** Face bitmask for {@link MeshOpts.faces}. */

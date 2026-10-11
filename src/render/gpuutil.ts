@@ -4,6 +4,7 @@
 
 import type { GPUContext } from '../core/gpu';
 import { mat4 as m4, mat4identity as m4identity, m4invert, m4mul } from '../core/math';
+import { interleaveMesh } from '../world/geometry';
 
 /** Every visibility bit that can reach group 0. */
 export const SCENE_VIS =
@@ -147,36 +148,11 @@ export function uploadMesh(
     positions: Float32Array; normals: Float32Array; uvs: Float32Array;
     /** 4 floats per vertex: linear rgb + emissive mask. */
     colors: Float32Array; indices: Uint32Array;
-    boundsMin: readonly number[]; boundsMax: readonly number[];
+    boundsMin: readonly number[]; boundsMax: readonly number[]; packed?: Float32Array;
   },
 ): GpuMesh {
   const dev = ctx.device;
-  // Interleave: pos(3) nrm(3) uv(2) col(3) em(1) = 12 floats = 48 bytes.
-  const n = data.positions.length / 3;
-  const stride = 12;
-  const hasEmissive = data.colors.length === n * 4;
-  const inter = new Float32Array(n * stride);
-  for (let i = 0; i < n; i++) {
-    const o = i * stride;
-    // position / normal / uv are 3 / 3 / 2 floats per vertex; colour is 4
-    // (rgb + emissive mask). Using a 3-float stride for colour walks
-    // diagonally through the array and decorrelates the channels, which shows
-    // up as every surface in the scene getting an arbitrary saturated hue.
-    const v3 = i * 3;
-    const c4 = i * 4;
-    inter[o] = data.positions[v3];
-    inter[o + 1] = data.positions[v3 + 1];
-    inter[o + 2] = data.positions[v3 + 2];
-    inter[o + 3] = data.normals[v3];
-    inter[o + 4] = data.normals[v3 + 1];
-    inter[o + 5] = data.normals[v3 + 2];
-    inter[o + 6] = data.uvs[v3];
-    inter[o + 7] = data.uvs[v3 + 1];
-    inter[o + 8] = data.colors[c4];
-    inter[o + 9] = data.colors[c4 + 1];
-    inter[o + 10] = data.colors[c4 + 2];
-    inter[o + 11] = hasEmissive ? data.colors[c4 + 3] : 0;
-  }
+  const inter = (data.packed ?? interleaveMesh(data)) as Float32Array<ArrayBuffer>;
   const vbo = dev.createBuffer({
     label: `${label}:vbo`, size: inter.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
   });
