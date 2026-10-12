@@ -317,6 +317,20 @@ const POSES = [
     settle: 40,
   },
   {
+    // LEGIBILITY §4 asks for successive warm pools along the aisle. From 2.6 m a
+    // pool 15 m ahead is a sliver; from a first-floor balcony (6 m), looking at
+    // the aisle floor 40 m out, the run of pools reads. Same spot as 09-market-down.
+    name: '09-market-aisle-night',
+    label: 'market aisle from a first-floor balcony, night: successive warm pools',
+    position: [1.16, 6.0, 0.36],
+    lookAt: [1.16 + 0.2557 * 40, 0.8, 0.36 - 0.9668 * 40],
+    fov: 1.05, roll: 0,
+    time: 'night',
+    weather: { sky: 'night', cloudCover: 0.3, haze: 0.3 },
+    lens: { fov: 1.05, bloom: 0.8, exposure: 1.28, saturation: 1.18, vignette: 0.5 },
+    settle: 40,
+  },
+  {
     // R2 asks for the wide skyline at both phases, side by side: whether night
     // out-reads day is the owner's call from the pair, not from a mean.
     // Same camera, lens and weather; phase, exposure and bloom as 09-market-down.

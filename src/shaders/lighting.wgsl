@@ -21,6 +21,10 @@ const MAT_EMISSIVE: u32 = 5u;
 
 // ---------------------------------------------------------------- lights
 
+/** Ground pools (see the light loop): strength, and the highest a lamp may hang and still lay one. */
+const POOL_GAIN: f32 = 0.4;
+const POOL_MAX_DROP: f32 = 9.0;
+
 struct Light {
   posRadius : vec4f,   // xyz, w = radius
   colorInt  : vec4f,   // rgb, w = intensity
@@ -233,6 +237,7 @@ fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
   // The bin stores absolute light indices in `lights[]`, so there is no base to
   // add — `base` was reading `tl.lights[0]` and treating it as one.
   let cnt = min(tl.count, 96u);
+  let pools = lightsOn();
   for (var i = 0u; i < cnt; i++) {
     let li = lights[tl.lights[i]];
     let dv = li.posRadius.xyz - P;
@@ -245,6 +250,19 @@ fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
     let win = pow(clamp(1.0 - d2 / (r * r), 0.0, 1.0), 2.0);
     let atten = win / (1.0 + d2 * 0.05);
     color += brdf(N, V, Lp, albedo, rough, metal) * li.colorInt.rgb * li.colorInt.w * atten;
+
+    // Stylised warm pool (owner direction, 2026-10-12). A street-level lamp lays a
+    // soft disc of its light on the surface beneath it, sized by its height above
+    // that surface. Painterly, not physical: no inverse square and no N.L, which is
+    // what made a physical pool 15 m ahead a sliver at eye height and the aisle an
+    // even wash (R14 review, LEGIBILITY §4). It multiplies albedo, so paving joints
+    // stay visible inside it. Night only.
+    let drop = dv.y;
+    if (pools > 0.0 && N.y > 0.6 && drop > 0.4 && drop < POOL_MAX_DROP) {
+      let poolR = clamp(drop * 0.95, 1.4, 4.8);
+      let disc = 1.0 - smoothstep(poolR * 0.3, poolR, length(dv.xz));
+      color += albedo * li.colorInt.rgb * li.colorInt.w * disc * POOL_GAIN * pools;
+    }
   }
 
   color += emissive;

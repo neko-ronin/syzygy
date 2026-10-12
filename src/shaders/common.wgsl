@@ -399,3 +399,11 @@ fn octDecode(e: vec2f) -> vec3f {
   }
   return normalize(n);
 }
+
+/**
+ * How much authored light is on: 1 at dusk and night (sun sin-elevation under
+ * 0.02), 0 by mid-morning. Glowing windows read as dots in daylight and noon
+ * lanterns as flat white hexagons (D27).
+ * Shared by the G-buffer (emitters, windows) and lighting (ground pools).
+ */
+fn lightsOn() -> f32 { return 1.0 - smoothstep(0.02, 0.25, F.sunDir.y); }

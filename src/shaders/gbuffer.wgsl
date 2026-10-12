@@ -108,12 +108,6 @@ struct Facade {
   occlusion : f32,
 };
 
-/**
- * How much authored light is on: 1 at dusk and night (sun sin-elevation under
- * 0.02), 0 by mid-morning. Glowing windows read as dots in daylight and noon
- * lanterns as flat white hexagons (D27).
- */
-fn lightsOn() -> f32 { return 1.0 - smoothstep(0.02, 0.25, F.sunDir.y); }
 
 /**
  * Detail that survives distance. A 3.1 x 3.6 m window cell is ~4 px at 1 km and
