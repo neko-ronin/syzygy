@@ -11,13 +11,13 @@
  * functions with a `lod` bias that drops prop kinds and facade detail.
  */
 
-import { type Vec3, type Mat4, type Rng } from '../core/math';
+import { qRotate, type Vec3, type Mat4, type Rng } from '../core/math';
 import {
   MeshBuilder, type Mesh, FACE_ALL, type MeshOpts,
 } from '../world/geometry';
 import {
   type BuildingInstance, type Cable, type CityChunk, type PropInstance, PropKind,
-  cityPlan, GROUND_Y,
+  buildingPoint, cityPlan, GROUND_Y, towerTiers,
 } from '../world/citygen';
 import {
   districtAtField, districtPaletteLinear, districtStyle,
@@ -172,7 +172,6 @@ export function pushBuilding(
   const yBase = -b.halfExtents[1];
   const yRoof = b.halfExtents[1];
   const height = yRoof - yBase;
-  const lean = b.lean;
   const yaw = b.rotationY;
   const pal = dp.palette;
   const seed = b.windowSeed;
@@ -181,57 +180,33 @@ export function pushBuilding(
   const jit = 0.96 + 0.08 * ((Math.imul(seed | 0, 0x9e3779b1) >>> 0) / 4294967296);
   const base: Vec3 = [pal.base[0] * jit, pal.base[1] * jit, pal.base[2] * jit];
 
-  // Local → world for a point in the building's own frame.
-  const P = (lx: number, ly: number, lz: number): Vec3 => {
-    // Lean is a shear proportional to height above the BASE, so the tower
-    // rises straight out of the ground and tilts as it climbs. Normalising
-    // against the centre instead made every tower bow outwards at the bottom
-    // and inwards at the top, which is not what leaning means.
-    const t = (ly - yBase) / Math.max(height, 1);
-    const c = Math.cos(yaw), s = Math.sin(yaw);
-    const px = lx + lean[0] * t * b.halfExtents[1] * 2;
-    const pz = lz + lean[2] * t * b.halfExtents[1] * 2;
-    return [b.position[0] + px * c + pz * s, b.position[1] + ly, b.position[2] - px * s + pz * c];
-  };
+  // Local → world for a point in the building's own frame (lean shear from the
+  // base, then yaw): the same definition prop placement uses.
+  const P = (lx: number, ly: number, lz: number): Vec3 => buildingPoint(b, lx, ly, lz);
 
   const mat = dp.wallMat;
   const rough = mat === MAT.METAL ? METAL_ROUGH : mat === MAT.BRICK ? STONE + 0.1 : STONE;
 
   // --- stacked setbacks: the tower narrows in 1-3 steps toward the crown.
-  //
-  // Tier boundaries are fractions of the FULL height measured from the base and
-  // must be monotonic and land exactly on yRoof. The old arithmetic mixed a
-  // totalH-scaled intermediate step with a `top - position[1]` (= half height)
-  // last tier, so a 3-tier tower overshot its own roof and then emitted a
-  // negative-height crown.
-  const tiers = 1 + (rng.bool(0.72) ? 1 : 0) + (rng.bool(0.35) ? 1 : 0);
-  const TIER_SPLIT: Record<number, number[]> = { 1: [1], 2: [0.62, 1], 3: [0.5, 0.78, 1] };
-  const split = TIER_SPLIT[tiers] ?? [1];
-  let y0 = yBase;
-  let tx = hx, tz = hz;
+  // Tiers come from the building (`towerTiers`), not this chunk's RNG, so props,
+  // downpipes and pilasters placed by the generator stand on these walls.
+  const tiers = towerTiers(b);
   const totalH = height;
-  // Pilasters stand on the first tier's walls, so they stop where it does.
-  const tier0Top = tiers === 1 ? yRoof : yBase + height * split[0];
-  for (let t = 0; t < tiers; t++) {
-    const isLast = t === tiers - 1;
-    const y1 = isLast ? yRoof : yBase + height * split[t];
-    const shrink = isLast ? 0.72 + rng.next() * 0.16 : 0.80 + rng.next() * 0.15;
-    const nx = t === 0 ? tx : tx * shrink;
-    const nz = t === 0 ? tz : tz * shrink;
-    // Body of the tier, inset from the previous so the setback reads.
-    const inset = t === 0 ? 0 : 0.18;
-    pushBoxShell(bld, P, nx - inset, nz - inset, y0, y1, base, mat, rough, seed + t, lod, yaw,
+  for (let t = 0; t < tiers.length; t++) {
+    const T = tiers[t], isLast = t === tiers.length - 1;
+    pushBoxShell(bld, P, T.hx, T.hz, yBase + T.y0, yBase + T.y1, base, mat, rough, seed + t, lod, yaw,
       dp.style.reflectiveGlass ? FACADE_UV_REFLECTIVE : FACADE_UV);
     // Parapet lip on top of the tier.
     if (!isLast || lod < 1) {
       pushBoxShell(
-        bld, P, nx + 0.16, nz + 0.16, y1 - 0.0, y1 + (isLast ? 1.1 : 0.9),
+        bld, P, T.rimHx + 0.16, T.rimHz + 0.16, yBase + T.y1, yBase + T.y1 + (isLast ? 1.1 : 0.9),
         pal.trim, mat, rough * 0.9, seed + t + 40, 1, yaw,
       );
     }
-    y0 = y1;
-    tx = nx; tz = nz;
   }
+  const tx = tiers[tiers.length - 1].rimHx, tz = tiers[tiers.length - 1].rimHz;
+  // Pilasters stand on the first tier's walls, so they stop where it does.
+  const tier0Top = yBase + tiers[0].y1;
 
   // --- plinth: the first 8m is a different material, like a real base course.
   if (lod < 2) {
@@ -511,8 +486,17 @@ function pushProp(
   const px = p.position[0], py = p.position[1], pz = p.position[2];
   const s = p.scale;
   const c = p.color;
-  /** Prop-local point, then tint the district material by the prop's own hue. */
-  const P = (x: number, y: number, z: number): Vec3 => [px + x, py + y, pz + z];
+  /**
+   * Prop-local point (+z = out of the wall), rotated by the prop's own rotation.
+   * The rotation was never applied: every facade prop faced world +z, so awnings
+   * on -z walls pointed into the building and sheets on x walls stood out as fins.
+   */
+  const P = (x: number, y: number, z: number): Vec3 => {
+    const r = qRotate(p.rotation, [x, y, z]);
+    return [px + r[0], py + r[1], pz + r[2]];
+  };
+  /** The same rotation for boxes, which take a yaw (facade props are yaw-only or near it). */
+  const boxYaw = 2 * Math.atan2(p.rotation[1], p.rotation[3]);
   const tint = (base: Vec3, k: number): Vec3 => [
     base[0] * c[0] * k, base[1] * c[1] * k, base[2] * c[2] * k,
   ];
@@ -520,7 +504,7 @@ function pushProp(
 
   switch (p.kind) {
     case PropKind.Planter: {
-      bld.pushBox(P(0, 0, 0), [0.72 * s, 0.26 * s, 0.3 * s], tint(pal.base, 0.9), { faces: ALL_FACES });
+      bld.pushBox(P(0, 0, 0), [0.72 * s, 0.26 * s, 0.3 * s], tint(pal.base, 0.9), { faces: ALL_FACES, rotationY: boxYaw });
       if (lod < 2) {
         const n = 2 + Math.floor(rng.next() * 3);
         for (let i = 0; i < n; i++) {
@@ -559,7 +543,7 @@ function pushProp(
       break;
     }
     case PropKind.ACUnit: {
-      bld.pushBox(P(0, 0, 0), [0.46 * s, 0.4 * s, 0.36 * s], tint(pal.metal, 0.9), { faces: ALL_FACES });
+      bld.pushBox(P(0, 0, 0), [0.46 * s, 0.4 * s, 0.36 * s], tint(pal.metal, 0.9), { faces: ALL_FACES, rotationY: boxYaw });
       bld.pushCylinder(P(0, 0, 0), P(0, 0.4 * s, 0), 0.26 * s, 7, tint(pal.metal, 0.55), { capEnds: true });
       break;
     }
@@ -613,8 +597,8 @@ function pushProp(
       break;
     }
     case PropKind.Stair: {
-      bld.pushBox(P(0, 0, 0), [1.45 * s, 0.1 * s, 0.6 * s], tint(pal.metal, 0.8), { faces: ALL_FACES });
-      bld.pushBox(P(0, -1.0 * s, 0), [1.45 * s, 0.1 * s, 0.6 * s], tint(pal.metal, 0.8), { faces: ALL_FACES });
+      bld.pushBox(P(0, 0, 0), [1.45 * s, 0.1 * s, 0.6 * s], tint(pal.metal, 0.8), { faces: ALL_FACES, rotationY: boxYaw });
+      bld.pushBox(P(0, -1.0 * s, 0), [1.45 * s, 0.1 * s, 0.6 * s], tint(pal.metal, 0.8), { faces: ALL_FACES, rotationY: boxYaw });
       break;
     }
     case PropKind.Pipe: {
@@ -625,9 +609,24 @@ function pushProp(
       break;
     }
     case PropKind.Sign: {
-      bld.pushBox(P(0, 0, 0), [1.0 * s, 0.72 * s, 0.08 * s], tint(accent, 1.0), {
-        faces: ALL_FACES, emissive: 2.6,
+      // A blade sign: it projects from the wall on a bracket, so it reads in a
+      // street seen end-on, where a panel flat on the facade is a sliver.
+      bld.pushBox(P(0, 0, 0.62 * s), [0.05 * s, 0.6 * s, 0.48 * s], tint(accent, 1.0), {
+        faces: ALL_FACES, emissive: 2.6, rotationY: boxYaw,
       });
+      bld.pushTubeAlongPath([P(0, 0.66 * s, 0), P(0, 0.66 * s, 1.15 * s)], 0.025 * s, 3, tint(pal.metal, 0.6));
+      break;
+    }
+    case PropKind.Balcony: {
+      // Slab and a three-sided rail: the street-facade element sheets A, B and D
+      // carry and the R14 review found missing.
+      const w = 1.5 * s, d = 1.3 * s, h = 1.0 * s;
+      bld.pushBox(P(0, 0, d * 0.5), [w, 0.07 * s, d * 0.5], tint(pal.trim, 0.9), { faces: ALL_FACES, rotationY: boxYaw });
+      const rail = tint(pal.metal, 0.75);
+      bld.pushTubeAlongPath([P(-w, h, 0.02), P(-w, h, d), P(w, h, d), P(w, h, 0.02)], 0.03 * s, 4, rail);
+      if (lod < 1) {
+        for (const x of [-w, -w / 3, w / 3, w]) bld.pushTubeAlongPath([P(x, 0, d), P(x, h, d)], 0.022 * s, 3, rail);
+      }
       break;
     }
     case PropKind.Lantern: {
@@ -687,7 +686,7 @@ function pushProp(
       break;
     }
     default: {
-      bld.pushBox(P(0, 0, 0), [0.3 * s, 0.3 * s, 0.3 * s], tint(pal.metal, 0.9), { faces: ALL_FACES });
+      bld.pushBox(P(0, 0, 0), [0.3 * s, 0.3 * s, 0.3 * s], tint(pal.metal, 0.9), { faces: ALL_FACES, rotationY: boxYaw });
     }
   }
 }

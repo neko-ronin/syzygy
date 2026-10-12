@@ -272,6 +272,12 @@ export const qFromEulerYXZ = (yaw: number, pitch: number, roll: number): Vec4 =>
     cp * cy * cr + sp * sy * sr,
   ]);
 };
+/** Rotate `v` by unit quaternion `q` ([x, y, z, w]). */
+export const qRotate = (q: Vec4, v: Vec3): Vec3 => {
+  const [qx, qy, qz, qw] = q;
+  const tx = 2 * (qy * v[2] - qz * v[1]), ty = 2 * (qz * v[0] - qx * v[2]), tz = 2 * (qx * v[1] - qy * v[0]);
+  return [v[0] + qw * tx + (qy * tz - qz * ty), v[1] + qw * ty + (qz * tx - qx * tz), v[2] + qw * tz + (qx * ty - qy * tx)];
+};
 export const qslerp = (a: Vec4, b: Vec4, t: number): Vec4 => {
   let d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
   let bb: Vec4 = b;

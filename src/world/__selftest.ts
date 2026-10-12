@@ -7,7 +7,7 @@
 import { makeRng, type Vec3, type Vec4 } from '../core/math';
 import { DISTRICT_STYLES, waterDepthAt } from './districts';
 import {
-  City, GROUND_Y, PropKind, auditChunkLots, cityPlan, defaultCityConfig, footprintAabb,
+  City, GROUND_Y, PropKind, auditChunkLots, towerTiers, cityPlan, defaultCityConfig, footprintAabb,
   roadClearanceAt, sampleStreetPlan, type BuildingInstance, type CityChunk, type StreetSample,
 } from './citygen';
 import { interleaveMesh, MeshBuilder, meshTriangleCount, VERTEX_FLOATS, type Mesh } from './geometry';
@@ -111,7 +111,7 @@ const PROP_TRIS: Record<PropKind, number> = {
   [PropKind.Antenna]: 48, [PropKind.Dish]: 72, [PropKind.Stair]: 24,
   [PropKind.Pipe]: 10, [PropKind.Sign]: 12, [PropKind.Lantern]: 60,
   [PropKind.PottedTree]: 94, [PropKind.WaterTank]: 72, [PropKind.Crane]: 18,
-  [PropKind.Zipline]: 60, [PropKind.Cable]: 34,
+  [PropKind.Zipline]: 60, [PropKind.Cable]: 34, [PropKind.Balcony]: 60,
 };
 
 const CORNER_SIGNS: [number, number][] = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
@@ -684,6 +684,36 @@ export function runCitySelfTest(): string {
     pushBuilding(bld, tower, { ...profileFor(0), roofStyle: 'dome' }, makeRng(7), 0);
     const top = bld.build().boundsMax[1], limit = 2 * h + 13;   // parapet 1.1 + dome 2 + 9
     if (top > limit) fail(`tower geometry ${(top - 2 * h).toFixed(0)} m above its roof (dome crown allows 13)`);
+  }
+  // Facade props stand on the wall of the tier at their height (plinth-proud low
+  // down). Measured before the shared tower geometry: 32% on the wall, 39% buried,
+  // 29% floating (unrotated normal, tangent along world x, base footprint only).
+  {
+    const kinds = new Set([PropKind.ACUnit, PropKind.Planter, PropKind.LaundryLine, PropKind.VineCurtain, PropKind.Awning, PropKind.Sign, PropKind.Lantern]);
+    let n = 0, onWall = 0;
+    for (const [cx, cz] of [[0, -2], [0, 0], [1, -1], [-2, 3], [3, 5], [-1, 1]]) {
+      const ch = city.getChunk(cx, cz); if (!ch) continue;
+      for (const p of ch.props) {
+        if (!kinds.has(p.kind)) continue;
+        let best = Infinity, roof = false;
+        for (const b of ch.buildings) {
+          const yRel = p.position[1] - (b.position[1] - b.halfExtents[1]);
+          if (yRel < -1 || yRel > 2 * b.halfExtents[1] + 1) continue;
+          const tiers = towerTiers(b), T = tiers.find((t) => yRel < t.y1) ?? tiers[tiers.length - 1];
+          const proud = T === tiers[0] && yRel < Math.min(7.5, b.halfExtents[1] * 0.5) ? 0.28 : 0;
+          const dx = p.position[0] - b.position[0], dz = p.position[2] - b.position[2];
+          const c = Math.cos(b.rotationY), s2 = Math.sin(b.rotationY);
+          const lx = dx * c - dz * s2 - b.lean[0] * yRel, lz = dx * s2 + dz * c - b.lean[2] * yRel;
+          const ex = Math.abs(lx) - T.hx - proud, ez = Math.abs(lz) - T.hz - proud;
+          const d = Math.max(ex, ez) > 0 ? Math.hypot(Math.max(ex, 0), Math.max(ez, 0)) : Math.max(ex, ez);
+          if (Math.abs(d) < Math.abs(best)) { best = d; roof = yRel > 2 * b.halfExtents[1] - 0.5; }
+        }
+        if (!Number.isFinite(best) || roof) continue;
+        n++; if (best >= -0.3 && best <= 0.6) onWall++;
+      }
+    }
+    if (n < 500 || onWall / n < 0.99) fail(`facade props on their wall: ${onWall}/${n}`);
+    L.push(`facade props  ${onWall}/${n} on the wall of their tier`);
   }
   // Vertex layout: every vertex keeps its own UV (a stride-3 read gave the last third NaN).
   {

@@ -48,6 +48,7 @@ export interface BuildingInstance {
 export enum PropKind {
   Planter, VineCurtain, Awning, ACUnit, LaundryLine, Railing, Antenna, Dish,
   Stair, Pipe, Sign, Lantern, PottedTree, WaterTank, Crane, Zipline, Cable,
+  Balcony,
 }
 
 export interface PropInstance {
@@ -138,6 +139,7 @@ export const PROP_SIZE: Record<PropKind, Vec3> = {
   [PropKind.Crane]: [1.0, 6.0, 1.0],
   [PropKind.Zipline]: [12.0, 0.3, 0.3],
   [PropKind.Cable]: [6.0, 0.16, 0.16],
+  [PropKind.Balcony]: [1.5, 0.55, 1.3],
 };
 
 const quatRotAbs = (q: Vec4): number[] => {
@@ -711,30 +713,82 @@ export function auditChunkLots(plan: CityPlan, cfg: CityConfig, cx: number, cz: 
   return out;
 }
 
+/**
+ * A tower's setback tiers, decided from the building alone. They used to be rolled
+ * at bake time from the chunk's RNG, so the generator could not know where the
+ * upper walls were: facade props, downpipes and pilasters were placed against the
+ * base footprint and stood in the air beside every narrower tier. The generator
+ * (props) and the bake (shell) now read the same tiers. Local y from the base;
+ * `hx/hz` are a tier's wall, `rimHx/rimHz` its parapet line before the inset.
+ */
+export interface TowerTier { y0: number; y1: number; hx: number; hz: number; rimHx: number; rimHz: number }
+const TIER_SPLIT: Record<number, number[]> = { 1: [1], 2: [0.62, 1], 3: [0.5, 0.78, 1] };
+export function towerTiers(b: BuildingInstance): TowerTier[] {
+  const r = makeRng((b.windowSeed ^ 0x7e3a91d) >>> 0);
+  const tiers = 1 + (r.bool(0.72) ? 1 : 0) + (r.bool(0.35) ? 1 : 0);
+  const split = TIER_SPLIT[tiers], height = b.halfExtents[1] * 2;
+  const out: TowerTier[] = [];
+  let tx = b.halfExtents[0], tz = b.halfExtents[2], y0 = 0;
+  for (let t = 0; t < tiers; t++) {
+    const isLast = t === tiers - 1;
+    const shrink = isLast ? 0.72 + r.next() * 0.16 : 0.80 + r.next() * 0.15;
+    const nx = t === 0 ? tx : tx * shrink, nz = t === 0 ? tz : tz * shrink;
+    const inset = t === 0 ? 0 : 0.18;
+    const y1 = isLast ? height : height * split[t];
+    out.push({ y0, y1, hx: nx - inset, hz: nz - inset, rimHx: nx, rimHz: nz });
+    y0 = y1; tx = nx; tz = nz;
+  }
+  return out;
+}
+
+/**
+ * Building-local point to world: `ly` from the centre (as `position`), lean as a
+ * shear from the base, then the building's yaw. The one definition of where a
+ * building's surface is, shared by the shell bake and prop placement.
+ */
+export function buildingPoint(b: BuildingInstance, lx: number, ly: number, lz: number): Vec3 {
+  const hy = b.halfExtents[1], t = (ly + hy) / Math.max(hy * 2, 1);
+  const px = lx + b.lean[0] * t * hy * 2, pz = lz + b.lean[2] * t * hy * 2;
+  const c = Math.cos(b.rotationY), s = Math.sin(b.rotationY);
+  return [b.position[0] + px * c + pz * s, b.position[1] + ly, b.position[2] - px * s + pz * c];
+}
+
+/** First storeys of the base tier stand inside the plinth shell (citymesh), this much proud of the wall. */
+const PLINTH_PROUD = 0.28;
+/** Street-band props per building, beside the facade allowance (see placeProps). */
+const STREET_PROPS = 40;
+
 function placeProps(
   cfg: CityConfig, b: BuildingInstance, style: DistrictStyle, budget: number, r: Rng, out: PropInstance[],
 ): void {
   const th = b.rotationY;
-  const ct = Math.cos(th), st = Math.sin(th);
-  const hx = b.halfExtents[0], hz = b.halfExtents[2], hy = b.halfExtents[1];
+  const hy = b.halfExtents[1];
   const baseY = b.position[1] - hy;
   const roofY = b.position[1] + hy;
   const dense = style.clutterDensity * cfg.detail;
   const green = b.greenery;
   let n = 0;
 
-  const faceAt = (face: number, u: number, out2: number): Vec3 => {
-    const nx = face < 2 ? (face === 0 ? 1 : -1) : 0;
-    const nz = face < 2 ? 0 : (face === 2 ? 1 : -1);
-    const off = face < 2 ? hx : hz;
-    return [
-      b.position[0] + nx * off + ct * u,
-      out2,
-      b.position[2] + nz * off - st * u,
-    ];
+  // Props sit on the actual wall of the tier at their height (plinth-proud in
+  // the plinth band), with lean and yaw, via the same geometry as the bake. This
+  // used the base footprint, an unrotated normal and a tangent along world x on
+  // every face: 32% of facade props were on their wall, 39% buried, 29% floating.
+  const tiers = towerTiers(b);
+  const plinthTop = Math.min(7.5, hy * 2 * 0.25);
+  const tierAt = (worldY: number): TowerTier => tiers.find((T) => worldY - baseY < T.y1) ?? tiers[tiers.length - 1];
+  /** Half-width of face `face`'s wall at `worldY`, for along-wall jitter. */
+  const span = (face: number, worldY: number): number => { const T = tierAt(worldY); return face < 2 ? T.hz : T.hx; };
+  const faceAt = (face: number, u: number, worldY: number, out = 0): Vec3 => {
+    const T = tierAt(worldY);
+    const proud = T === tiers[0] && worldY - baseY < plinthTop ? PLINTH_PROUD : 0;
+    const off = (face < 2 ? T.hx : T.hz) + proud + out;
+    const sx = face === 0 ? 1 : face === 1 ? -1 : 0, sz = face === 2 ? 1 : face === 3 ? -1 : 0;
+    return buildingPoint(b, sx * off + (face < 2 ? 0 : u), worldY - b.position[1], sz * off + (face < 2 ? u : 0));
   };
+  // Local +z of a prop is its wall's outward normal. The x faces had the signs
+  // swapped, which went unseen because the bake never applied the rotation.
   const faceYaw = (face: number): number =>
-    face === 0 ? th - Math.PI / 2 : face === 1 ? th + Math.PI / 2 : face === 2 ? th : th + Math.PI;
+    face === 0 ? th + Math.PI / 2 : face === 1 ? th - Math.PI / 2 : face === 2 ? th : th + Math.PI;
 
   const put = (
     kind: PropKind, p: Vec3, face: number, scale: number, color: Vec3, tilt: boolean,
@@ -749,14 +803,46 @@ function placeProps(
     n++;
   };
 
-  // Facade: per-floor sill clutter on all four elevations.
+  // Street level: the first storeys of every face, where the camera is. One prop
+  // per floor on one random face left street walls bare (R14 vision review, no
+  // signs / balconies / AC / planting below the third storey). Slots across each
+  // wall; awnings and blade signs over the ground floor, AC units, planters,
+  // balconies and laundry above. Nothing below 3.4 m, so the footway stays clear.
+  // Its own allowance, like the roof's, so the tower above keeps its props.
   const floors = b.floors;
+  const fh = b.floorHeight;
+  const streetFloors = Math.min(4, floors);
+  // A quarter of the allowance per face: in one shared pool the first faces took
+  // it all (a 30 m wall has 16 slots over four storeys) and the others stayed bare.
+  for (let face = 0; face < 4; face++) {
+    const streetStart = n;
+    for (let f = 0; f < streetFloors && n - streetStart < STREET_PROPS / 4; f++) {
+      const sill = baseY + f * fh;
+      if (sill + 3 > roofY) break;
+      const half = span(face, sill + 1);
+      const slots = Math.max(1, Math.floor((half * 2) / 7));
+      for (let k = 0; k < slots && n - streetStart < STREET_PROPS / 4; k++) {
+        const u = ((k + 0.5) / slots - 0.5) * 2 * half * 0.86 + r.jitter(0.8);
+        const roll = r.next();
+        if (f === 0) {
+          if (roll < 0.55) put(PropKind.Awning, faceAt(face, u, baseY + 3.4), face, r.range(0.9, 1.5), style.palette.trim, true);
+          else if (roll < 0.55 + 0.3 * dense) put(PropKind.Sign, faceAt(face, u, baseY + 4.6), face, r.range(0.8, 1.3), style.palette.emissive, false);
+        } else if (roll < 0.26 * dense) put(PropKind.ACUnit, faceAt(face, u, sill + 1.05), face, r.range(0.8, 1.3), style.palette.metal, false);
+        else if (roll < 0.26 * dense + 0.2 * green) put(PropKind.Planter, faceAt(face, u, sill + 1.05), face, r.range(0.85, 1.4), style.palette.foliage, false);
+        else if (roll < 0.26 * dense + 0.2 * green + 0.16) put(PropKind.Balcony, faceAt(face, u, sill + 0.1), face, r.range(0.9, 1.2), style.palette.trim, false);
+        else if (roll < 0.26 * dense + 0.2 * green + 0.26) put(PropKind.LaundryLine, faceAt(face, u, sill + 2.2), face, r.range(0.9, 1.5), style.palette.secondary, true);
+      }
+    }
+  }
+
+  // Facade: per-floor sill clutter on all four elevations, above the street band.
+  const facadeStart = n;
   const facadeFloors = Math.min(floors, 60);
-  for (let f = 0; f < facadeFloors; f++) {
+  for (let f = streetFloors; f < facadeFloors; f++) {
     const y = baseY + f * b.floorHeight + 1.05;
     if (y > roofY - 1) break;
     const face = r.int(0, 3);
-    const halfW = face < 2 ? hz : hx;
+    const halfW = span(face, y);
     const roll = r.next();
     if (roll < 0.30 * dense) put(PropKind.ACUnit, faceAt(face, r.jitter(halfW * 0.7), y), face, r.range(0.8, 1.3), style.palette.metal, false);
     else if (roll < 0.30 * dense + 0.22 * green) put(PropKind.Planter, faceAt(face, r.jitter(halfW * 0.75), y), face, r.range(0.85, 1.4), style.palette.foliage, false);
@@ -764,28 +850,21 @@ function placeProps(
     else if (roll < 0.30 * dense + 0.22 * green + 0.20 + 0.14 * green) {
       put(PropKind.VineCurtain, faceAt(face, r.jitter(halfW * 0.7), y - 1.2), face, r.range(0.8, 1.6), style.palette.foliage, true);
     }
-    if (f % 4 === 0 && y < baseY + 26 && r.next() < 0.55) {
-      put(PropKind.Awning, faceAt(face, r.jitter(halfW * 0.6), baseY + 3.4), face, r.range(0.9, 1.5), style.palette.trim, true);
-    }
-    if (y < baseY + 7.5 && r.next() < 0.4 * dense) {
-      put(PropKind.Sign, faceAt(face, r.jitter(halfW * 0.5), y + 1.4), face, r.range(0.7, 1.6), style.palette.emissive, false);
-    }
     if (r.next() < 0.10 * dense) {
       put(PropKind.Lantern, faceAt(face, r.jitter(halfW * 0.8), y + 0.6), face, r.range(0.8, 1.5), style.palette.emissive, false);
     }
-    if (n >= budget) return;
+    if (n - facadeStart >= budget) return;
   }
 
-  // Corner downpipes: the vertical read of the facade, from the street to half
-  // height. The first setback can be as low as 50% (3-tier split) and tiers are
-  // rolled at bake time, so a taller pipe would stand beside a narrower tier.
+  // Corner downpipes: the vertical read of the facade, from the street to the
+  // first setback (a taller pipe would stand beside the narrower tier above).
   // Scale is LENGTH only (12 m units); the radius is fixed. It used to scale the
   // radius too and centre on mid-tower: 9 m wide dark slabs from 48% to 148% of
   // the half-height on 300 m towers.
-  const pipeLen = hy - 4;
-  if (n < budget && pipeLen >= 4 && r.next() < 0.75) {
+  const pipeLen = tiers[0].y1 - 6;
+  if (n - facadeStart < budget && pipeLen >= 4 && r.next() < 0.75) {
     const face = r.int(0, 3);
-    const halfW = face < 2 ? hz : hx;
+    const halfW = span(face, baseY);
     const p = faceAt(face, halfW * 0.94, baseY + 3 + pipeLen / 2);
     put(PropKind.Pipe, p, face, pipeLen / 12, style.palette.metal, false);
   }
@@ -794,7 +873,7 @@ function placeProps(
   const roofBudget = Math.max(2, Math.floor(budget * 0.35));
   const roofStart = n;
   for (let i = 0; i < 4 && n - roofStart < roofBudget; i++) {
-    const halfW = i < 2 ? hz : hx;
+    const halfW = span(i, roofY);
     if (r.next() < 0.55 + 0.3 * green) {
       put(PropKind.Railing, faceAt(i, 0, roofY + 0.5), i, Math.min(2.2, (halfW * 2) / 6), style.palette.metal, false);
     }
@@ -802,16 +881,18 @@ function placeProps(
   let guard = 0;
   while (n - roofStart < roofBudget && guard++ < 40) {
     const face = r.int(0, 3);
-    const halfW = face < 2 ? hz : hx;
+    const halfW = span(face, roofY);
     const roll = r.next();
-    const p = faceAt(face, r.jitter(halfW * 0.72), roofY + 0.4);
-    if (roll < 0.34 * green + 0.1) put(PropKind.Planter, p, face, r.range(1.0, 2.2), style.palette.foliage, false);
-    else if (roll < 0.55 * green + 0.16) put(PropKind.PottedTree, p, face, r.range(0.8, 1.6), style.palette.foliage, false);
-    else if (roll < 0.64) put(PropKind.WaterTank, p, face, r.range(0.9, 1.5), style.palette.metal, false);
-    else if (roll < 0.74 * dense) put(PropKind.ACUnit, p, face, r.range(0.9, 1.6), style.palette.metal, false);
-    else if (roll < 0.82) put(PropKind.Antenna, faceAt(face, r.jitter(halfW * 0.5), roofY + 4), face, r.range(0.7, 1.5), style.palette.metal, false);
-    else if (roll < 0.88) put(PropKind.Dish, faceAt(face, r.jitter(halfW * 0.5), roofY + 1.4), face, r.range(0.8, 1.4), style.palette.trim, false);
-    else if (roll < 0.93 && r.next() < 0.5) put(PropKind.Crane, faceAt(face, r.jitter(halfW * 0.3), roofY + 6), face, r.range(0.8, 1.4), style.accentColor, false);
+    // Set back from the roof edge by about the prop's own size: they sat on the
+    // wall plane, half over the parapet.
+    const u = r.jitter(halfW * 0.72);
+    if (roll < 0.34 * green + 0.1) put(PropKind.Planter, faceAt(face, u, roofY + 0.4, -1.2), face, r.range(1.0, 2.2), style.palette.foliage, false);
+    else if (roll < 0.55 * green + 0.16) put(PropKind.PottedTree, faceAt(face, u, roofY + 0.4, -1.8), face, r.range(0.8, 1.6), style.palette.foliage, false);
+    else if (roll < 0.64) put(PropKind.WaterTank, faceAt(face, u, roofY + 0.4, -2.6), face, r.range(0.9, 1.5), style.palette.metal, false);
+    else if (roll < 0.74 * dense) put(PropKind.ACUnit, faceAt(face, u, roofY + 0.4, -1.0), face, r.range(0.9, 1.6), style.palette.metal, false);
+    else if (roll < 0.82) put(PropKind.Antenna, faceAt(face, r.jitter(halfW * 0.5), roofY + 4, -1.5), face, r.range(0.7, 1.5), style.palette.metal, false);
+    else if (roll < 0.88) put(PropKind.Dish, faceAt(face, r.jitter(halfW * 0.5), roofY + 1.4, -1.2), face, r.range(0.8, 1.4), style.palette.trim, false);
+    else if (roll < 0.93 && r.next() < 0.5) put(PropKind.Crane, faceAt(face, r.jitter(halfW * 0.3), roofY + 6, -2.0), face, r.range(0.8, 1.4), style.accentColor, false);
     else if (roll < 0.98) put(PropKind.Stair, faceAt(face, halfW * 0.6, roofY - 1.6), face, r.range(0.9, 1.5), style.palette.metal, false);
   }
 }
@@ -975,11 +1056,13 @@ function buildChunk(plan: CityPlan, cfg: CityConfig, cx: number, cz: number): Ci
   const allowance = buildings.length > 0
     ? clamp(Math.floor(cfg.propsPerChunk / buildings.length), 3, 46)
     : 0;
-  for (let i = 0; i < buildings.length && props.length < cfg.propsPerChunk; i++) {
+  // The street band is on top of the per-building allowance, so the chunk cap is twice it.
+  const propCap = cfg.propsPerChunk * 2;
+  for (let i = 0; i < buildings.length && props.length < propCap; i++) {
     const b = buildings[i];
     placeProps(cfg, b, DISTRICT_STYLES[b.districtId], allowance, lotRng(i, cfg.seed, 77), props);
   }
-  if (props.length > cfg.propsPerChunk) props.length = cfg.propsPerChunk;
+  if (props.length > propCap) props.length = propCap;
 
   const cells = DISTRICT_CELL;
   const districtByCell = new Int8Array(cells * cells);
