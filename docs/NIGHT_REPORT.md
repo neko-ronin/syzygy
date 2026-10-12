@@ -245,6 +245,35 @@ Order is now setTime → setWeather → setLens.
 
 ---
 
+## 9. Re-measured 2026-10-11, after facades reached the screen
+
+Three defects that made this report's night dark have since been fixed elsewhere:
+every chunk shaded as street deck so `facade()` (windows, lit interiors,
+shopfronts) never ran (instance-bind leak, `686f515`); spheres, cylinders and
+ribbons were inside-out (`1ef3bd9`); window glow now follows the sun (D27).
+
+Captures at HEAD `2466fde`, `high`, 1600×900, composited frame; luma Rec.709 from
+the PNG; warm% = R > 1.4·B and R > 40.
+
+| Frame | meanLuma | p99.9 luma | hot% (>250) | warm% |
+|---|---|---|---|---|
+| `09-market-down` (night) | **27.72** (was 6.21) | 240.8 | 0.000 | **21.19** (aisle warm was 0.00) |
+| `09-market-down-day` | 142.66 | 240.8 | 0.000 | 3.56 |
+| `10-hero-walk-night` | 17.14 | 239.8 | 0.000 | 10.13 |
+| `10-hero-walk-day` | 97.41 | 240.9 | 0.000 | 20.65 |
+| `01-wide-skyline-night` (new pose) | 12.78 | 184.0 | 0.000 | 4.59 |
+| `01-wide-skyline` | 103.76 | 186.3 | 0.000 | 6.82 |
+
+**LEGIBILITY §4** on `09-market-down`, linear luminance by 20-row band, aisle
+centre strip x 700–900 and left paving x 200–400 (regions recorded because §4
+leaves them open): lantern cores luminous; warm pools reach the walking surface
+with paving joints visible inside them; near pool peak L 0.030 against cool
+pavement 0.002–0.004 (≈ 7–14×), far pool 0.017 against 0.004 (≈ 4×). Both exceed
+the proposed 1.5–3× band; **two** successive pools on the aisle centre, not the
+proposed three. Not tuned toward: R2 reserves the day/night judgement for the
+owner, from the same-camera pairs (`01-wide-skyline` / `-night`, `09-market-down`
+/ `-day`, the hero pair).
+
 ## Reproducing any of this
 
 ```bash

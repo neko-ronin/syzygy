@@ -423,3 +423,32 @@ the real deficit was not geometry: every tower was a flat prism at every distanc
 Cost: G-buffer 2.26 → 2.20 ms, span 12.34 → 12.22 ms (`r14-passes-facade`). Fixed high
 60.0 / 59.8 / 59.9, adaptive 60.0 / 60.0 / 60.0 (`r14-facade-fixed`, `r14-facade-adaptive`).
 The hero pair changes by design (facades, lit windows, glowing lanterns); paving is unchanged.
+
+## 2026-10-11 — post-merge benchmarks, headed Chrome, crowd obstacle locality
+
+**Crowd spikes.** A Node profile along the benchmark flight path (residency and LOD
+as the high tier, 250 ms obstacle limit) put flight's remaining simulation spikes on
+chunk crossings, where 19–32 chunks change LOD at once: obstacle indexing over every
+resident chunk 3.5–6.5 ms, walking surfaces 1.6–4 ms, update +1–3 ms. Obstacles now
+come only from chunks within 384 m of the camera (viewRadius ≤ 240 + pad +
+retirement lag): 0.6–1.0 ms per rebuild; frames over 8 ms on the path 32 → 11.
+
+**Benchmarks** at `2466fde` (post-merge: winding fix, pose fix, downpipes, kerbs,
+gutter, obstacle locality), 1600 × 900:
+
+| Run | hero | skyline | flight | flight sim p95 / max | flight >33 ms |
+|---|---|---|---|---|---|
+| fixed high, headless (`r14-2026-10-11-fixed`) | 59.99 | 60.00 | 59.99 | 5.0 / **7.0** ms (was 15.8) | 0 (was 2) |
+| adaptive from high, headless (`r14-2026-10-11-adaptive`) | 59.99 | 60.00 | 59.99 | 5.0 / 9.8 ms | 1 |
+| fixed high, **headed** Chrome 153 (`r14-2026-10-11-headed`) | 59.99 | 59.86 | 59.94 | — | 3 |
+
+Adaptive held `high` throughout. Headed completed frames match submitted (59.96 /
+59.80 / 59.92); display presentation is not measurable by this harness (queue
+retirement only), as its report states.
+
+**Motion shimmer.** A 30 m/s lateral pan of the skyline view, 40 screenshots at a
+fixed cadence, on HEAD and on the pre-facade build `a57253d`: the window grid moves
+with the camera as stable texture, no visible strobing. The temporal second
+difference is noise-limited (sky region 13–20 from tower edges sweeping across), and
+shows distant towers equal (18.6 vs 18.4) and near towers calmer (15.6 → 11.4: the
+floating pilasters and pipe slabs are gone).

@@ -145,9 +145,12 @@ populated street before.
 
 ## R2 — Fix the night
 
-**Status: in progress. Five mechanisms refuted with arithmetic; the cause is
-now MEASURED. One constant is proposed below, with its prediction written down
-first.**
+**Status: in progress — awaiting the owner's day/night judgement.** Re-measured
+2026-10-11 after facades and lit windows reached the screen: market night mean luma
+**27.7** (was 6.21), 21% warm pixels (aisle warm was 0.00); lantern cores and warm
+pools with visible joints, two pools on the aisle (§4 proposes three).
+[NIGHT_REPORT §9](NIGHT_REPORT.md). The same-camera pairs the OPEN entry asks for
+now exist, including the new `01-wide-skyline-night` pose. Earlier history below.
 Night measured **6.21 mean luma** before, **~11.4** after (noon measures
 **125.75**). Night is still not the brightest frame in the set, and there is
 still no warm pool on the aisle. Full measurements, controls and the dominant
