@@ -273,7 +273,23 @@ async function runRoute(browser, route, opts, lifecycle) {
     // Natural streaming only. No manual ticks, synchronous warm(), or screenshot readbacks.
     const warmMs = route === 'flight' ? 0 : opts.warmSeconds * 1000;
     const warmStart = Date.now();
-    if (warmMs) await page.waitForTimeout(warmMs);
+    // Cold boot: from the pose being set to nothing left to stream or re-bake,
+    // under natural streaming, with the frame pacing of that window. Polled; the
+    // measured window below is reset afterwards and is unaffected.
+    let streamSettled = null;
+    if (warmMs) {
+      await page.evaluate(() => window.__syzygy.performanceReset());
+      while (Date.now() - warmStart < warmMs) {
+        lifecycle.throwIfCancelled();
+        const st = await page.evaluate(() => { const s = window.__syzygy.stats(); return { resident: s.residentChunks, rebake: s.rebakePending, stream: s.streamPending }; });
+        if (!streamSettled && st.resident > 0 && st.rebake === 0 && st.stream === 0) {
+          const boot = summarize(await page.evaluate(() => window.__syzygy.performanceSnapshot()));
+          streamSettled = { ms: Date.now() - warmStart, residentChunks: st.resident, submittedFramesPerSecond: boot.submittedFramesPerSecond,
+            intervalsOver33ms: boot.submissionIntervalsOver33_33ms, simulationMaxMs: boot.cpuMs.simulation.max, streamMaxMs: boot.cpuMs.stream.max };
+        }
+        await page.waitForTimeout(200);
+      }
+    }
     const warmActualMs = Date.now() - warmStart;
     const start = await state(page);
     const observations = [];
@@ -315,7 +331,7 @@ async function runRoute(browser, route, opts, lifecycle) {
     // Instrumented runs carry their pass means and are marked as instrumented.
     const gpuPasses = opts.gpuPasses ? await page.evaluate(() => window.__syzygy.gpuPassTimes()) : null;
     const end = await state(page);
-    const run = { route, setup: setup.pose, startup: { navigationToReadyMs: readyMs, setupDurationMs: setup.durationMs, bootPrewarmChunks: 0, warmMs, warmActualMs },
+    const run = { route, setup: setup.pose, startup: { navigationToReadyMs: readyMs, setupDurationMs: setup.durationMs, bootPrewarmChunks: 0, warmMs, warmActualMs, streamSettled },
       routeDefinition: route === 'flight' ? { from, to, legSeconds: opts.seconds, reversal: true, metresPerSecond: Math.hypot(...from.map((v, i) => to[i] - v)) / opts.seconds,
         driver: 'wall-clock rAF pose trajectory; actor simulation active, no input or collision navigation', trajectory } : {
         stationaryCamera: true, normalHandheldMotion: true, simulationPaused: false, streamingActive: true },
