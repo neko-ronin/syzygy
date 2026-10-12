@@ -397,8 +397,8 @@ lit solids, and the near canopy underside is now in noon shade, so it reads dark
 **Night changes an owner-reviewed frame.** Round 7's "lit heads at the counter"
 was partly the inside-out cylinder heads, whose far inner wall faced the stall
 lamp. The heads are now shaded cylinders, lit on the lamp side, and the canopy
-underside's broad orange wash is a hotspot around the bulb. **Awaiting owner
-review.**
+underside's broad orange wash is a hotspot around the bulb. **Owner approved
+2026-10-11** after the merge into main (`1ef3bd9`).
 
 Checks: pinned tsc, Vite build, camera, capture replay, ground contract, perf,
 sim, separation, all seven world self-tests and three tool self-tests pass.

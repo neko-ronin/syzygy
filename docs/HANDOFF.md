@@ -46,9 +46,9 @@ world performance at 60 FPS on this Mac, Chrome, 1600 × 900**. The
 pose (PITFALLS §24) and inside-out spheres/cylinders/ribbons (street report Round 8; 35% of
 chunk triangles were wound against their normals). Before/after across market, hero, city and
 street-crowd poses: changes confined to poles, canopies, hanging cloth, shrubs, antennas and
-heads; city frames within run-to-run noise. **Needs the owner's eyes:** under the hero canopy
-the noon frame now shows its shaded underside (was the sunlit top, seen through an inside-out
-sheet), and at night the canopy shows a hotspot around the bulb instead of a broad wash.
+heads; city frames within run-to-run noise. Under the hero canopy the noon frame now shows its
+shaded underside (was the sunlit top, seen through an inside-out sheet), and at night a hotspot
+around the bulb instead of a broad wash. **Owner approved 2026-10-11** ("they look good").
 
 **Capture capacity:** marginal. The guard passed at 277 MB unused on 2026-10-07
 (minimum 250 MB, `WORKFLOW.md` §6.1); serialize captures and never force past it.

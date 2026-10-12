@@ -25,3 +25,7 @@ dist/
 # falls back to CURRENT-only columns when it is absent, which is a weaker
 # comparison, not a broken one. See docs/DECISIONS.md D22.
 shots/
+
+# Claude Code: launch.json is shared config; worktrees and local settings are per machine.
+.claude/worktrees/
+.claude/settings.local.json
