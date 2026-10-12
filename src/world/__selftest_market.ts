@@ -688,36 +688,36 @@ console.log(`        cords ${totStrings}  lanterns ${totLanterns}  lights ${totL
 console.log(`        ${(totCrates / Math.max(1, totStalls)).toFixed(2)} crates/stall, ${(totStrings / Math.max(1, totStalls)).toFixed(2)} cords/stall`);
 console.log(`  runs ${RUN_MIN_M}-${RUN_MAX_M} m, gaps ${GAP_MIN_M}-${GAP_MAX_M} m, pitch noise scale ${PITCH_NOISE_SCALE}, corridor scale 0.55, deck y ${GROUND_Y}`);
 
-console.log(`\nVIOLATIONS: ${violations.length === 0 ? 'none' : ''}`);
-for (const v of violations) console.log(`  - ${v}`);
-
-
 // ---- derived-pose subject visibility --------------------------------------
 // A pose that cannot see its own subject must refuse rather than ship an empty
 // street for a reviewer to score. Measured: with the real crowd spread the
 // corridor pose `street-crowd` is legal and its reported distance matches a
-// recomputation exactly; with a 5 m spread it is refused.
+// recomputation exactly. The blind control used to be this same centroid at a
+// 5 m spread, but it was only blind because the camera stood abreast of it (82
+// deg off-axis); from the corrected pose that crowd is 12 deg off-axis and fully
+// in frame. The control is now a 5 m crowd mid-block, 80 deg off the view axis
+// against a 42 deg half-frame, which the pose cannot see from any footway.
 {
   const SEED = 6191639;
   const real: Population = { n: 2454, cx: 1053, cz: 4, spread: 217, minY: 0.3, maxY: 0.3 };
-  const tight: Population = { ...real, spread: 5 };
+  const tight: Population = { ...real, cx: 1040, cz: -520, spread: 5 };
   for (const id of ['street-crowd', 'crowd-closeup'] as const) {
     const r = derivePose(id, real, SEED);
-    if (!r.ok) { console.log(`POSE ${id}: REFUSED a legal pose: ${r.reason}`); }
+    if (!r.ok) { fail(`POSE ${id}: REFUSED a legal pose: ${r.reason}`); }
     else {
       const d = Math.hypot(r.position[0] - real.cx, r.position[2] - real.cz);
       if (Math.abs(d - r.source.distanceToCrowd) > 0.15) {
-        console.log(`POSE ${id}: reported ${r.source.distanceToCrowd} but is ${d.toFixed(1)} m away`);
+        fail(`POSE ${id}: reported ${r.source.distanceToCrowd} but is ${d.toFixed(1)} m away`);
       }
-      if (!r.source.subjectInView) console.log(`POSE ${id}: ok but subjectInView false`);
+      if (!r.source.subjectInView) fail(`POSE ${id}: ok but subjectInView false`);
       if (r.source.eyeHeight < 0 || r.source.eyeHeight > 12) {
-        console.log(`POSE ${id}: eye ${r.source.eyeHeight} m is not a street pose`);
+        fail(`POSE ${id}: eye ${r.source.eyeHeight} m is not a street pose`);
       }
     }
   }
   // The refusal path must actually fire, or the check is decorative.
   const blind = derivePose('street-crowd', tight, SEED);
-  if (blind.ok) console.log('POSE blind-pose control did not refuse a pose whose crowd misses the corridor');
+  if (blind.ok) fail('POSE blind-pose control did not refuse a pose whose crowd misses the corridor');
 }
 
 
@@ -730,13 +730,37 @@ for (const v of violations) console.log(`  - ${v}`);
   const pop: Population = { n: 2547, cx: 1053, cz: 4, spread: 217, minY: 0.3, maxY: 0.3 };
   const r = derivePose('street-crowd', pop, SEED);
   if (!r.ok) {
-    console.log('POSE held-check: street-crowd refused outright, cannot test hold');
+    fail('POSE held-check: street-crowd refused outright, cannot test hold');
   } else {
     const [x, y, z] = r.position;
-    if (!poseIsHeld([x, y, z], r.position)) console.log('POSE held-check: camera exactly at the pose is not held');
-    if (!poseIsHeld([x + 1.5, y, z], r.position)) console.log('POSE held-check: 1.5 m drift should still count as held');
-    if (poseIsHeld([x + 3, y, z], r.position)) console.log('POSE held-check: 3 m drift must not count as held');
+    if (!poseIsHeld([x, y, z], r.position)) fail('POSE held-check: camera exactly at the pose is not held');
+    if (!poseIsHeld([x + 1.5, y, z], r.position)) fail('POSE held-check: 1.5 m drift should still count as held');
+    if (poseIsHeld([x + 3, y, z], r.position)) fail('POSE held-check: 3 m drift must not count as held');
     // The exact case that produced the empty street: 142 m away.
-    if (poseIsHeld([x + 142, y, z], r.position)) console.log('POSE held-check: 142 m drift must not count as held');
+    if (poseIsHeld([x + 142, y, z], r.position)) fail('POSE held-check: 142 m drift must not count as held');
   }
 }
+
+
+// ---- a corridor pose stands upstream of its subject, not abreast of it -----
+// `street-crowd` stood at the centroid's own foot-point, so the centroid's
+// projection on the view axis was ~0 and its sign was decided by which side of
+// the street the centroid fell on. Measured on seed 6191639 from the boot pose:
+// centroid (100, 0) on the far footway derived (along +4.1 m); after `c42abff`
+// the local-first crowd centred on the camera's own footway at (99, 20) and was
+// refused (along -0.2 m) while 2,550 bodies stood around the camera. Both sides
+// of the same street must derive, with the subject clearly ahead.
+{
+  const SEED = 6191639;
+  for (const [cx, cz, spread] of [[99, 20, 101], [100, 0, 107]]) {
+    const pop: Population = { n: 2550, cx, cz, spread, minY: 0.3, maxY: 0.3 };
+    const r = derivePose('street-crowd', pop, SEED);
+    if (!r.ok) { fail(`POSE street-crowd: centroid (${cx}, ${cz}) refused: ${r.reason}`); continue; }
+    const fx = r.lookAt[0] - r.position[0], fz = r.lookAt[2] - r.position[2];
+    const along = ((cx - r.position[0]) * fx + (cz - r.position[2]) * fz) / Math.hypot(fx, fz);
+    if (along < 10) fail(`POSE street-crowd: centroid (${cx}, ${cz}) is ${along.toFixed(1)} m ahead, abreast of the camera rather than in front of it`);
+  }
+}
+
+console.log(`\nVIOLATIONS: ${violations.length === 0 ? 'none' : ''}`);
+for (const v of violations) console.log(`  - ${v}`);

@@ -771,6 +771,39 @@ all buildings came back green (deck).
 before tuning the feature. Per-draw state (vertex buffer 1 here) persists across
 draws in a pass; every function that binds it must restore what its caller set.
 
+---
+
+## 24. The pose stood beside its subject, and the refusal blamed the wrong term
+
+**Symptom.** `derivePose('street-crowd')` refused with "crowd is 4.1 m off the view
+axis at -0.2 m, outside the 101.9 m reach", while 2,550 bodies stood around the
+camera. `__selftest_spread` threw, and `__selftest_density` printed `VIOLATIONS 1`
+with exit 0. `c42abff` recorded both as passing or pre-existing. Bisect: its parent
+`8fc332b` derives the pose.
+
+**Cause.** `street-crowd` had `back: 0`, so the camera stood at the centroid's own
+foot-point, abreast of its subject. The centroid's projection on the view axis was
+~0 by construction. Its sign depended on which footway the centroid fell on, because
+the view axis angles ~7° inward. The crowd changes in `c42abff` removed the 1-D birth
+line and centred the crowd on the camera's own footway (centroid z 0 → 20), which is
+correct under D26. That flipped `along` from +4.1 to -0.2 m. The message reported the
+reach, which perp 4.1 m satisfied; the failing term was `along > 0`.
+
+**Fix.** The corridor pose stands 30 m upstream, with position and lookAt translated.
+The refusal message names the term that failed. The market self-test asserts that
+centroids on both footways derive with the subject ≥ 10 m ahead. Its old blind
+control was blind only *because* of this defect: from the abreast camera it was
+82° off-axis, but from the corrected pose it is 12° off-axis with 48/48 samples in
+frame. The control was therefore replaced by a crowd 80° off-axis against a 42°
+half-frame. Mutations fail in both directions (back 0; check forced true).
+
+**Lessons.** A refusal whose printed numbers satisfy its own condition is reporting
+a different term. A negative control that only fails under the bug proves nothing
+after the fix; re-measure it. A suite that exits 0 on `VIOLATIONS 1` will be
+reported as passing; read the line. Bug wiki: `syzygy-ts-corridor-pose-abreast-001`.
+
+---
+
 ## Working norms that held up
 
 - **Measure before theorising.** Every bug above cost far less time to measure

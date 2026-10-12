@@ -326,7 +326,11 @@ overlapping placement.
 > Current state: the kerb reads (4.319x authored contrast, previously consumed by
 > nothing, now reaching the frame at 18–37 px instead of 0.45 px). **The crowd
 > still reads as a continuous band** — see `SPREAD VIOLATIONS 2` in
-> `__selftest_spread.ts`, and note the open defect beneath it: the neighbour
+> `__selftest_spread.ts`. *Superseded by measurement, 2026-10-07:* both spread
+> assertions now pass (z IQR 30.5 m, left share 34.8%). The crowd changes in
+> `c42abff` removed the line at birth (boot-pose z IQR 0.04 → 28.6 m). A refused
+> `street-crowd` pose hid that until it was fixed (`PITFALLS.md` §24). The
+> vision verdict below has not been re-taken. Note also the open defect beneath it: the neighbour
 > buffer holds no near neighbour for 100% of agents
 > ([`CROWD_DENSITY.md`](CROWD_DENSITY.md)). Vision verdict:
 > [`VISION_ROUND13.md`](VISION_ROUND13.md) — *"the crowd's collective silhouette

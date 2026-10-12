@@ -165,7 +165,12 @@ const SPECS: Record<DerivedPoseId, {
   eye: number; fov: number; aim: number; back: number; wide: boolean;
 }> = {
   // 2.4 m on a footway looking down the tangent. The shot this project has never had.
-  'street-crowd': { eye: 2.4, fov: 0.95, aim: 90, back: 0, wide: true },
+  // It stands `back` metres upstream of the centroid: at back 0 the camera was
+  // abreast of its subject, and whether the in-view check passed depended on
+  // which footway the centroid was on (bugs: syzygy-ts-corridor-pose-abreast-001).
+  // 30 m puts a centroid on the far footway of a ~25 m street inside the pose's
+  // own cone (tan(0.75 * fov) ~ 0.87).
+  'street-crowd': { eye: 2.4, fov: 0.95, aim: 90, back: 30, wide: true },
   // Close on the centroid itself, so the frame is about people rather than a road.
   'crowd-closeup': { eye: 2.4, fov: 0.75, aim: 26, back: 26, wide: false },
   // Facade height on the same footway, aimed across the street and up. The
@@ -549,8 +554,13 @@ export function derivePose(id: DerivedPoseId, pop: Population, seed: number): De
     // `01a-building-base` was supposed to show meeting the ground.
     lookAt = [px - nx * spec.aim, GROUND_Y + spec.aim * 0.65, pz - nz * spec.aim];
   } else {
-    position = [px, eye, pz];
-    lookAt = [chosen.px + tx * spec.aim, GROUND_Y + 2.2, chosen.pz + tz * spec.aim];
+    // Same shot, translated `back` metres upstream so the subject is ahead.
+    // ponytail: steps along a straight tangent, as crowd-closeup does; a bend or
+    // junction behind the subject can take the camera off the footway. Re-sample
+    // the street at the stepped point if that is ever measured.
+    const ox = chosen.px - tx * spec.back, oz = chosen.pz - tz * spec.back;
+    position = [px - tx * spec.back, eye, pz - tz * spec.back];
+    lookAt = [ox + tx * spec.aim, GROUND_Y + 2.2, oz + tz * spec.aim];
   }
 
   // Does this pose actually see its own subject?
@@ -594,7 +604,11 @@ export function derivePose(id: DerivedPoseId, pop: Population, seed: number): De
       id,
       reason: !eyePlausible
         ? `eye height ${eyeHeight} m above the deck is not a street pose (allowed 0-12 m)`
-        : `crowd is ${perp.toFixed(1)} m off the view axis at ${along.toFixed(1)} m, outside the ${(reach + pop.spread).toFixed(1)} m reach (spread ${pop.spread} m)`,
+        : along <= 0
+          // Name the term that failed: this used to report the reach even when
+          // the subject was well inside it and only behind the view plane.
+          ? `crowd centroid is ${(-along).toFixed(1)} m behind the view plane (${perp.toFixed(1)} m off-axis) — the pose faces away from its subject`
+          : `crowd is ${perp.toFixed(1)} m off the view axis at ${along.toFixed(1)} m, outside the ${(reach + Math.max(pop.spread, 1)).toFixed(1)} m reach (spread ${pop.spread} m)`,
       population: { ...pop },
     };
   }

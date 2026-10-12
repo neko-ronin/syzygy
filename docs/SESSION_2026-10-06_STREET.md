@@ -289,6 +289,10 @@ errors; grid `shots/compare/2026-10-07T13-19-23.png`), `13-20-52-01f-facade-base
 sim, density, separation, all seven world self-tests and three tool self-tests
 pass. `__selftest_spread` fails identically with these changes reverted
 ("crowd is 4.1 m off the view axis … outside the 101.9 m reach") — pre-existing.
+*Correction, 2026-10-07 (bisected):* pre-existing relative to the street changes
+only. It was introduced by the crowd changes in the same batch; `8fc332b` derives
+the pose. The density suite printed the same refusal as `VIOLATIONS 1` with exit
+0. Cause and fix: `PITFALLS.md` §24.
 **Owner verdict, 2026-10-07:** "I reviewed it. its satisfactory for these early
 stages." — covers Rounds 5–6 (cobble, kerb diagnostic, hero regression).
 
