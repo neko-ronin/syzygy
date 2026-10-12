@@ -331,6 +331,27 @@ const POSES = [
     settle: 40,
   },
   {
+    // Sheet B feature review: exposed scaffolding on a Glass Foxholes tower,
+    // aimed at the scaffold face from 60 m (picked from the per-building seed).
+    name: '12-scaffold-b',
+    label: 'sheet B: scaffolding, plank decks and tarps on a tower face, noon',
+    position: [157.5, 34.3, -9.9], lookAt: [118.9, 28.3, -55.9], fov: 1.0, roll: 0,
+    time: 'noon',
+    weather: { sky: 'clear', haze: 0.22 },
+    lens: { fov: 1.0, exposure: 0.92 },
+    settle: 30,
+  },
+  {
+    // Sheet D feature review: planted terrace bands and vines on a Verdant tower.
+    name: '13-terraces-d',
+    label: 'sheet D: planted terrace bands, shrubs and vine curtains, noon',
+    position: [4.2, 34.3, 275.6], lookAt: [-9.9, 28.3, 333.9], fov: 1.0, roll: 0,
+    time: 'noon',
+    weather: { sky: 'clear', haze: 0.22 },
+    lens: { fov: 1.0, exposure: 0.92 },
+    settle: 30,
+  },
+  {
     // R2 asks for the wide skyline at both phases, side by side: whether night
     // out-reads day is the owner's call from the pair, not from a mean.
     // Same camera, lens and weather; phase, exposure and bloom as 09-market-down.

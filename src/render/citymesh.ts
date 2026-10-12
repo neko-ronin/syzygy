@@ -11,7 +11,7 @@
  * functions with a `lod` bias that drops prop kinds and facade detail.
  */
 
-import { qRotate, type Vec3, type Mat4, type Rng } from '../core/math';
+import { makeRng, qRotate, type Vec3, type Mat4, type Rng } from '../core/math';
 import {
   MeshBuilder, type Mesh, FACE_ALL, type MeshOpts,
 } from '../world/geometry';
@@ -251,6 +251,124 @@ export function pushBuilding(
 
   // --- crown: whatever tops this district off.
   pushCrown(bld, P, tx, tz, yRoof, dp, rng, lod);
+}
+
+/**
+ * Reference-sheet features, decided per building from its own seed (no chunk RNG,
+ * so nothing else re-rolls) and built in the building's frame, so they sit on the
+ * real wall of the tier.
+ *
+ * Sheet B (cold-industrial): exposed scaffolding clinging to tower faces, plank
+ * decks, braces, tarp-covered bays. Sheet D (verdant): deep planted terrace bands
+ * with shrubs and vine curtains. Copper Stacks is in no reference section; a few
+ * of its towers take B's scaffolding, which fits its industrial brief and leaves
+ * its colour alone (D27).
+ */
+const SCAFFOLD_CHANCE: Record<string, number> = {
+  'rust-hangars': 0.35, 'glass-foxholes': 0.35, 'canal-district': 0.3, 'copper-stacks': 0.12,
+};
+const TERRACE_CHANCE: Record<string, number> = { 'botanical-dome': 0.6, 'verdant-canyon': 0.7, 'canal-district': 0.4 };
+const SCAFFOLD_DECK: Vec3 = [0.30, 0.22, 0.14];
+const TARPS: Vec3[] = [[0.14, 0.24, 0.34], [0.55, 0.28, 0.12], [0.22, 0.28, 0.20], [0.42, 0.40, 0.36]];
+
+/** A point `t` along face `face`, `d` out from its wall, at local height `ly` (from the centre). */
+function facePoint(b: BuildingInstance, face: number, wall: number, t: number, ly: number, d: number): Vec3 {
+  const nx = face === 0 ? 1 : face === 1 ? -1 : 0, nz = face === 2 ? 1 : face === 3 ? -1 : 0;
+  return buildingPoint(b, nx * (wall + d) + (face < 2 ? 0 : t), ly, nz * (wall + d) + (face < 2 ? t : 0));
+}
+
+export function pushScaffold(bld: MeshBuilder, b: BuildingInstance, dp: DistrictProfile, lod: number, lights?: BakedChunk['lights']): void {
+  const chance = SCAFFOLD_CHANCE[dp.style.key] ?? 0;
+  if (!chance || lod >= 2) return;
+  const r = makeRng((b.windowSeed ^ 0x5caff01d) >>> 0);
+  if (!r.bool(chance)) return;
+  const T = towerTiers(b)[0], hy = b.halfExtents[1], yBase = -hy;
+  // Above the plinth: it clings to the tower, as sheet B shows, and keeps the footway clear.
+  const y0 = yBase + Math.min(7.5, hy * 2 * 0.25) + 0.5;
+  const y1 = Math.min(yBase + T.y1 - 1, y0 + 18 + r.next() * 44);
+  if (y1 - y0 < 8) return;
+  const face = r.int(0, 3);
+  const half = face < 2 ? T.hz : T.hx, wall = face < 2 ? T.hx : T.hz;
+  const W = Math.min(half * 2 * (0.45 + r.next() * 0.4), 24);
+  const mid = r.jitter(Math.max(0, half - W / 2 - 0.5));
+  const bays = Math.max(2, Math.round(W / 2.4));
+  const ts = Array.from({ length: bays + 1 }, (_, i) => mid - W / 2 + (i * W) / bays);
+  const Q = (t: number, y: number, d: number): Vec3 => facePoint(b, face, wall, t, y, d);
+  // Dark, chunky members and saturated tarps: a thin pale lattice read as a
+  // ladder decal on the wall from 60 m (first capture).
+  const metal = tint3(dp.palette.metal, 0.45), dIn = 0.3, dOut = 2.3, lift = 2.0;
+  const levels = Math.floor((y1 - y0) / lift);
+  const tarp = TARPS[r.int(0, TARPS.length - 1)];
+  for (const t of ts) {
+    for (const d of lod < 1 ? [dIn, dOut] : [dOut]) bld.pushTubeAlongPath([Q(t, y0, d), Q(t, y1, d)], 0.09, 4, metal, { capEnds: false });
+  }
+  for (let k = 0; k <= levels; k++) {
+    const y = y0 + k * lift;
+    bld.pushTubeAlongPath([Q(ts[0], y, dOut), Q(ts[bays], y, dOut)], 0.07, 3, metal, { capEnds: false });
+    if (k % 2 === 0) {
+      // Plank deck with a toe board: the toe board is what reads face-on.
+      bld.pushQuad(Q(ts[0], y, dIn), Q(ts[bays], y, dIn), Q(ts[bays], y, dOut), Q(ts[0], y, dOut), SCAFFOLD_DECK, 1, { doubleSided: true });
+      bld.pushQuad(Q(ts[0], y, dOut), Q(ts[bays], y, dOut), Q(ts[bays], y + 0.35, dOut), Q(ts[0], y + 0.35, dOut), SCAFFOLD_DECK, 1, { doubleSided: true });
+      if (lights && lod < 1 && r.next() < 0.35) {
+        // A work lamp on the deck: sheet B's warmth is emissive points.
+        const lp = Q(ts[r.int(0, bays)], y + 1.4, dOut - 0.3);
+        bld.pushBox(lp, [0.18, 0.12, 0.18], [1.0, 0.7, 0.36], { emissive: 4.0, faces: FACE_ALL });
+        lights.push({ pos: lp, radius: 9, color: [1.0, 0.68, 0.34], intensity: 1.6 });
+      }
+    }
+    for (let i = 0; i < bays; i++) {
+      if (k < levels - 1 && k % 2 === 0 && r.next() < 0.3) {
+        const yt = y + lift * 2, tp = r.next() < 0.5 ? tarp : TARPS[r.int(0, TARPS.length - 1)];
+        bld.pushQuad(Q(ts[i], y + 0.35, dOut + 0.05), Q(ts[i + 1], y + 0.35, dOut + 0.05), Q(ts[i + 1], yt, dOut + 0.05), Q(ts[i], yt, dOut + 0.05), tp, 1, { doubleSided: true });
+      }
+      if (lod < 1 && k < levels && (i + k) % 3 === 0) {
+        bld.pushTubeAlongPath([Q(ts[i], y, dOut), Q(ts[i + 1], y + lift, dOut)], 0.05, 3, metal, { capEnds: false });
+      }
+    }
+  }
+}
+
+export function pushTerraces(bld: MeshBuilder, leafBld: MeshBuilder, b: BuildingInstance, dp: DistrictProfile, lod: number): void {
+  const chance = TERRACE_CHANCE[dp.style.key] ?? 0;
+  if (!chance || lod >= 2) return;
+  const r = makeRng((b.windowSeed ^ 0x7e44ace5) >>> 0);
+  if (!r.bool(chance)) return;
+  const T = towerTiers(b)[0], hy = b.halfExtents[1], yBase = -hy, fh = b.floorHeight;
+  const faces = [r.int(0, 3)];
+  if (r.bool(0.6)) faces.push(faces[0] ^ 1);
+  const every = 2 + r.int(0, 1);
+  const slabCol = tint3(dp.palette.secondary, 0.95), timber: Vec3 = [0.36, 0.22, 0.12];
+  for (const face of faces) {
+    const half = face < 2 ? T.hz : T.hx, wall = face < 2 ? T.hx : T.hz, w = half * 0.86;
+    // Ten bands at most per face: a 180 m tier would otherwise carry 25.
+    for (let f = 2, n = 0; n < 10 && yBase + (f + 1) * fh < yBase + T.y1; f += every, n++) {
+      const y = yBase + f * fh, depth = 2.6 + r.next() * 1.0;
+      const Q = (t: number, yy: number, d: number): Vec3 => facePoint(b, face, wall, t, yy, d);
+      // Slab with a deep fascia, and a timber soffit (sheet D's warm undersides).
+      bld.pushQuad(Q(-w, y, 0), Q(w, y, 0), Q(w, y, depth), Q(-w, y, depth), slabCol, 1, { doubleSided: true });
+      bld.pushQuad(Q(-w, y - 0.55, depth), Q(w, y - 0.55, depth), Q(w, y, depth), Q(-w, y, depth), slabCol, 1, { doubleSided: true });
+      bld.pushQuad(Q(-w, y - 0.5, 0), Q(-w, y - 0.5, depth), Q(w, y - 0.5, depth), Q(w, y - 0.5, 0), timber, 1, { doubleSided: true });
+      const leaf = LEAF_COLORS[r.int(0, LEAF_COLORS.length - 1)];
+      // A continuous planted edge: a row of shrub masses along the slab front.
+      // Near field only: at LOD 1 the shrub spheres took a botanical chunk from
+      // 30k to 42k triangles and flight GPU completion p95 to 23 ms. Distant
+      // terraces keep slab, fascia and vines, which carry the band.
+      for (let t = -w + 0.7; lod < 1 && t < w - 0.5; t += 1.3 + r.next() * 0.6) {
+        leafBld.pushSphere(Q(t, y + 0.55, depth - 0.6), 0.65 + r.next() * 0.45, 5, 3, tint3(leaf, 0.85 + r.next() * 0.3));
+      }
+      if (lod < 1 && r.next() < 0.5) {
+        // A small tree on some terraces.
+        const t = r.jitter(w * 0.7);
+        bld.pushCylinder(Q(t, y, depth * 0.5), Q(t, y + 2.2, depth * 0.5), 0.09, 4, [0.12, 0.08, 0.05]);
+        leafBld.pushSphere(Q(t, y + 2.7, depth * 0.5), 1.3, 6, 4, leaf);
+      }
+      // Vines spilling over the edge: narrow strips of mixed length, not sheets.
+      for (let k = 0, nv = 2 + r.int(0, 3); k < nv; k++) {
+        const t = r.jitter(w * 0.85), hw = 0.25 + r.next() * 0.35, drop = 1.2 + r.next() * 3.2;
+        leafBld.pushQuad(Q(t - hw, y, depth + 0.04), Q(t + hw, y, depth + 0.04), Q(t + hw, y - drop, depth + 0.04), Q(t - hw, y - drop, depth + 0.04), tint3(leaf, 0.8), 0.6, { doubleSided: true });
+      }
+    }
+  }
 }
 
 const NO_FACES = 0;
@@ -783,6 +901,8 @@ export function bakeChunk(chunk: CityChunk, lod: number, seed: number): BakedChu
   for (const b of chunk.buildings) {
     const dp = profileFor(b.districtId);
     pushBuilding(solid, b, dp, rng, lod);
+    pushScaffold(solid, b, dp, lod, lights);
+    pushTerraces(solid, leaf, b, dp, lod);
     // Ground footprint comes from the generator's actual occupied bounds.
     obstacles.push({ x: (b.aabbMin[0] + b.aabbMax[0]) * 0.5, z: (b.aabbMin[2] + b.aabbMax[2]) * 0.5,
       tx: 1, tz: 0, halfAlong: (b.aabbMax[0] - b.aabbMin[0]) * 0.5, halfAcross: (b.aabbMax[2] - b.aabbMin[2]) * 0.5,
