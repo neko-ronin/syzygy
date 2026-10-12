@@ -210,7 +210,12 @@ fn facade(
       metal = 0.0;
 
       // Interior lights. Roughly 40% lit, all warm (D28).
-      let lit = step(floorLitThreshold(floorIdx, bseed), hash21(cellId * 3.3 + vec2f(seed * 17.0, 9.0)));
+      // Office towers (the reflective districts) light whole floors or none, so at
+      // night they read as banded slabs against the punched dots of homes: district
+      // identity by pattern, since D28 keeps all window light amber.
+      let officeFloor = select(0.985, 0.03, hash11(floorIdx * 7.31 + bseed * 3.1) < 0.32);
+      let threshold = mix(floorLitThreshold(floorIdx, bseed), officeFloor, mirror);
+      let lit = step(threshold, hash21(cellId * 3.3 + vec2f(seed * 17.0, 9.0)));
       if (lit > 0.5) {
         // Warm light only (owner, D28): one amber, with one window in seven a
         // paler warm white. A hue-following cool share (b17563d) separated the

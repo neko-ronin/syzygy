@@ -205,6 +205,19 @@ export function pushBuilding(
     }
   }
   const tx = tiers[tiers.length - 1].rimHx, tz = tiers[tiers.length - 1].rimHz;
+  // A lit crown on tall towers: a warm band round the top parapet, so silhouettes
+  // carry against the night sky (R14: crowns dissolved into the navy). Per-vertex
+  // emissive, so it fades by day like every authored light (D27, D28).
+  if (height > 140 && lod < 2) {
+    // A lit top storey, 3 m: a thin parapet strip was 0.1 px at skyline range.
+    const yc = yRoof - 1.6, cx = tx + 0.06, cz = tz + 0.06;
+    const crown = { emissive: 2.6, doubleSided: true };
+    const amber: Vec3 = [1.0, 0.7, 0.36];
+    bld.pushQuad(P(-cx, yc - 1.5, cz), P(cx, yc - 1.5, cz), P(cx, yc + 1.5, cz), P(-cx, yc + 1.5, cz), amber, 1, crown);
+    bld.pushQuad(P(cx, yc - 1.5, -cz), P(-cx, yc - 1.5, -cz), P(-cx, yc + 1.5, -cz), P(cx, yc + 1.5, -cz), amber, 1, crown);
+    bld.pushQuad(P(cx, yc - 1.5, cz), P(cx, yc - 1.5, -cz), P(cx, yc + 1.5, -cz), P(cx, yc + 1.5, cz), amber, 1, crown);
+    bld.pushQuad(P(-cx, yc - 1.5, -cz), P(-cx, yc - 1.5, cz), P(-cx, yc + 1.5, cz), P(-cx, yc + 1.5, -cz), amber, 1, crown);
+  }
   // Pilasters stand on the first tier's walls, so they stop where it does.
   const tier0Top = yBase + tiers[0].y1;
 
@@ -269,6 +282,8 @@ const SCAFFOLD_CHANCE: Record<string, number> = {
 };
 const TERRACE_CHANCE: Record<string, number> = { 'botanical-dome': 0.6, 'verdant-canyon': 0.7, 'canal-district': 0.4 };
 const SCAFFOLD_DECK: Vec3 = [0.30, 0.22, 0.14];
+/** Sunlit terrace planting (sheet D measures ~(91,112,74) sRGB on its foliage). */
+const TERRACE_LEAF: Vec3[] = [[0.16, 0.30, 0.07], [0.20, 0.33, 0.08], [0.12, 0.26, 0.06], [0.24, 0.36, 0.10]];
 const TARPS: Vec3[] = [[0.14, 0.24, 0.34], [0.55, 0.28, 0.12], [0.22, 0.28, 0.20], [0.42, 0.40, 0.36]];
 
 /** A point `t` along face `face`, `d` out from its wall, at local height `ly` (from the centre). */
@@ -283,48 +298,64 @@ export function pushScaffold(bld: MeshBuilder, b: BuildingInstance, dp: District
   const r = makeRng((b.windowSeed ^ 0x5caff01d) >>> 0);
   if (!r.bool(chance)) return;
   const T = towerTiers(b)[0], hy = b.halfExtents[1], yBase = -hy;
-  // Above the plinth: it clings to the tower, as sheet B shows, and keeps the footway clear.
-  const y0 = yBase + Math.min(7.5, hy * 2 * 0.25) + 0.5;
-  const y1 = Math.min(yBase + T.y1 - 1, y0 + 18 + r.next() * 44);
-  if (y1 - y0 < 8) return;
   const face = r.int(0, 3);
   const half = face < 2 ? T.hz : T.hx, wall = face < 2 ? T.hx : T.hz;
-  const W = Math.min(half * 2 * (0.45 + r.next() * 0.4), 24);
-  const mid = r.jitter(Math.max(0, half - W / 2 - 0.5));
-  const bays = Math.max(2, Math.round(W / 2.4));
-  const ts = Array.from({ length: bays + 1 }, (_, i) => mid - W / 2 + (i * W) / bays);
   const Q = (t: number, y: number, d: number): Vec3 => facePoint(b, face, wall, t, y, d);
-  // Dark, chunky members and saturated tarps: a thin pale lattice read as a
-  // ladder decal on the wall from 60 m (first capture).
-  const metal = tint3(dp.palette.metal, 0.45), dIn = 0.3, dOut = 2.3, lift = 2.0;
-  const levels = Math.floor((y1 - y0) / lift);
-  const tarp = TARPS[r.int(0, TARPS.length - 1)];
-  for (const t of ts) {
-    for (const d of lod < 1 ? [dIn, dOut] : [dOut]) bld.pushTubeAlongPath([Q(t, y0, d), Q(t, y1, d)], 0.09, 4, metal, { capEnds: false });
-  }
-  for (let k = 0; k <= levels; k++) {
-    const y = y0 + k * lift;
-    bld.pushTubeAlongPath([Q(ts[0], y, dOut), Q(ts[bays], y, dOut)], 0.07, 3, metal, { capEnds: false });
-    if (k % 2 === 0) {
-      // Plank deck with a toe board: the toe board is what reads face-on.
-      bld.pushQuad(Q(ts[0], y, dIn), Q(ts[bays], y, dIn), Q(ts[bays], y, dOut), Q(ts[0], y, dOut), SCAFFOLD_DECK, 1, { doubleSided: true });
-      bld.pushQuad(Q(ts[0], y, dOut), Q(ts[bays], y, dOut), Q(ts[bays], y + 0.35, dOut), Q(ts[0], y + 0.35, dOut), SCAFFOLD_DECK, 1, { doubleSided: true });
-      if (lights && lod < 1 && r.next() < 0.35) {
-        // A work lamp on the deck: sheet B's warmth is emissive points.
-        const lp = Q(ts[r.int(0, bays)], y + 1.4, dOut - 0.3);
-        bld.pushBox(lp, [0.18, 0.12, 0.18], [1.0, 0.7, 0.36], { emissive: 4.0, faces: FACE_ALL });
-        lights.push({ pos: lp, radius: 9, color: [1.0, 0.68, 0.34], intensity: 1.6 });
+  // Sheet B is irregular: stacked segments of different widths and offsets,
+  // decks cantilevered past the frame, X-braces, sparse tarps and shacks lit
+  // from inside. A regular full-height lattice read as a ladder decal (R14).
+  const metal = tint3(dp.palette.metal, 0.45), lift = 2.0;
+  let y = yBase + Math.min(7.5, hy * 2 * 0.25) + 0.5;
+  const top = Math.min(yBase + T.y1 + (r.bool(0.4) ? 6 : -1), y + 22 + r.next() * 50);
+  let mid = r.jitter(half * 0.4);
+  for (let seg = 0; y + 6 < top && seg < 4; seg++) {
+    const h = Math.min(top - y, 8 + r.next() * 14);
+    const W = Math.min(half * 2 * (0.3 + r.next() * 0.45), 18);
+    mid = Math.max(-half + W / 2, Math.min(half - W / 2 + 2, mid + r.jitter(5)));
+    const bays = Math.max(2, Math.round(W / 2.4));
+    const ts = Array.from({ length: bays + 1 }, (_, i) => mid - W / 2 + (i * W) / bays);
+    const dOut = 1.8 + r.next() * 1.2, dIn = 0.3;
+    for (const t of ts) for (const d of lod < 1 ? [dIn, dOut] : [dOut]) bld.pushTubeAlongPath([Q(t, y, d), Q(t, y + h, d)], 0.1, 4, metal, { capEnds: false });
+    const levels = Math.max(1, Math.floor(h / lift));
+    for (let k = 0; k <= levels; k++) {
+      const yy = y + k * lift;
+      // Far field (LOD 1) keeps uprights, decks, shacks and lit windows: the read
+      // and the night points. Rails, braces and tarps are near-field only.
+      if (lod < 1) bld.pushTubeAlongPath([Q(ts[0], yy, dOut), Q(ts[bays], yy, dOut)], 0.07, 3, metal, { capEnds: false });
+      if (k % 2 === 0 || k === levels) {
+        // Some decks cantilever past the frame on outriggers.
+        const out = r.bool(0.3) ? dOut + 1.4 + r.next() * 1.6 : dOut;
+        bld.pushQuad(Q(ts[0], yy, dIn), Q(ts[bays], yy, dIn), Q(ts[bays], yy, out), Q(ts[0], yy, out), SCAFFOLD_DECK, 1, { doubleSided: true });
+        bld.pushQuad(Q(ts[0], yy, out), Q(ts[bays], yy, out), Q(ts[bays], yy + 0.4, out), Q(ts[0], yy + 0.4, out), SCAFFOLD_DECK, 1, { doubleSided: true });
+        if (out > dOut) for (const t of [ts[0], ts[bays]]) bld.pushTubeAlongPath([Q(t, yy - 1.6, dOut), Q(t, yy, out)], 0.06, 3, metal, { capEnds: false });
+        // A shack on the deck: a box with a warm lit window (sheet B's stacked rooms).
+        if (r.bool(0.35) && k < levels) {
+          const sw = 1.2 + r.next() * 1.4, sd = Math.min(out - dIn, 2.0), sh = 1.8 + r.next() * 0.8, t0 = mid + r.jitter(W / 2 - sw);
+          const c = TARPS[r.int(0, TARPS.length - 1)];
+          bld.pushBox(Q(t0, yy + sh / 2, dIn + sd / 2), [sw / 2, sh / 2, sd / 2], tint3(c, 0.8), { faces: FACE_ALL, rotationY: b.rotationY + (face < 2 ? Math.PI / 2 : 0) });
+          if (r.bool(0.7)) {
+            const wd = dIn + sd + 0.02;
+            bld.pushQuad(Q(t0 - 0.3, yy + sh * 0.45, wd), Q(t0 + 0.3, yy + sh * 0.45, wd), Q(t0 + 0.3, yy + sh * 0.75, wd), Q(t0 - 0.3, yy + sh * 0.75, wd), [1.0, 0.72, 0.4], 1, { emissive: 3.2 });
+          }
+        }
+        if (lights && lod < 1 && r.next() < 0.25) {
+          const lp = Q(ts[r.int(0, bays)], yy + 1.4, dOut - 0.3);
+          bld.pushBox(lp, [0.18, 0.12, 0.18], [1.0, 0.7, 0.36], { emissive: 4.0, faces: FACE_ALL });
+          lights.push({ pos: lp, radius: 9, color: [1.0, 0.68, 0.34], intensity: 1.6 });
+        }
+      }
+      for (let i = 0; i < bays && k < levels; i++) {
+        if (k % 2 === 0 && r.next() < 0.12 && lod < 1) {
+          const tp = TARPS[r.int(0, TARPS.length - 1)], yt = yy + lift * (1.4 + r.next() * 0.6);
+          bld.pushQuad(Q(ts[i], yy + 0.4, dOut + 0.06), Q(ts[i + 1], yy + 0.4, dOut + 0.06), Q(ts[i + 1], yt, dOut + 0.06), Q(ts[i], yt, dOut + 0.06), tp, 1, { doubleSided: true });
+        }
+        if ((i + k) % 2 === 0 && lod < 1) {
+          bld.pushTubeAlongPath([Q(ts[i], yy, dOut), Q(ts[i + 1], yy + lift, dOut)], 0.06, 3, metal, { capEnds: false });
+          bld.pushTubeAlongPath([Q(ts[i + 1], yy, dOut), Q(ts[i], yy + lift, dOut)], 0.06, 3, metal, { capEnds: false });
+        }
       }
     }
-    for (let i = 0; i < bays; i++) {
-      if (k < levels - 1 && k % 2 === 0 && r.next() < 0.3) {
-        const yt = y + lift * 2, tp = r.next() < 0.5 ? tarp : TARPS[r.int(0, TARPS.length - 1)];
-        bld.pushQuad(Q(ts[i], y + 0.35, dOut + 0.05), Q(ts[i + 1], y + 0.35, dOut + 0.05), Q(ts[i + 1], yt, dOut + 0.05), Q(ts[i], yt, dOut + 0.05), tp, 1, { doubleSided: true });
-      }
-      if (lod < 1 && k < levels && (i + k) % 3 === 0) {
-        bld.pushTubeAlongPath([Q(ts[i], y, dOut), Q(ts[i + 1], y + lift, dOut)], 0.05, 3, metal, { capEnds: false });
-      }
-    }
+    y += h;
   }
 }
 
@@ -337,35 +368,42 @@ export function pushTerraces(bld: MeshBuilder, leafBld: MeshBuilder, b: Building
   const faces = [r.int(0, 3)];
   if (r.bool(0.6)) faces.push(faces[0] ^ 1);
   const every = 2 + r.int(0, 1);
-  const slabCol = tint3(dp.palette.secondary, 0.95), timber: Vec3 = [0.36, 0.22, 0.12];
+  const slabCol = tint3(dp.palette.secondary, 0.95), timber: Vec3 = [0.42, 0.24, 0.11];
   for (const face of faces) {
     const half = face < 2 ? T.hz : T.hx, wall = face < 2 ? T.hx : T.hz, w = half * 0.86;
     // Ten bands at most per face: a 180 m tier would otherwise carry 25.
     for (let f = 2, n = 0; n < 10 && yBase + (f + 1) * fh < yBase + T.y1; f += every, n++) {
       const y = yBase + f * fh, depth = 2.6 + r.next() * 1.0;
       const Q = (t: number, yy: number, d: number): Vec3 => facePoint(b, face, wall, t, yy, d);
-      // Slab with a deep fascia, and a timber soffit (sheet D's warm undersides).
+      // Slab, a warm timber fascia (sheet D's timber edges; the soffit alone was
+      // unseen from above), its soffit, and the shadow it casts on the wall.
       bld.pushQuad(Q(-w, y, 0), Q(w, y, 0), Q(w, y, depth), Q(-w, y, depth), slabCol, 1, { doubleSided: true });
-      bld.pushQuad(Q(-w, y - 0.55, depth), Q(w, y - 0.55, depth), Q(w, y, depth), Q(-w, y, depth), slabCol, 1, { doubleSided: true });
-      bld.pushQuad(Q(-w, y - 0.5, 0), Q(-w, y - 0.5, depth), Q(w, y - 0.5, depth), Q(w, y - 0.5, 0), timber, 1, { doubleSided: true });
-      const leaf = LEAF_COLORS[r.int(0, LEAF_COLORS.length - 1)];
-      // A continuous planted edge: a row of shrub masses along the slab front.
-      // Near field only: at LOD 1 the shrub spheres took a botanical chunk from
-      // 30k to 42k triangles and flight GPU completion p95 to 23 ms. Distant
-      // terraces keep slab, fascia and vines, which carry the band.
-      for (let t = -w + 0.7; lod < 1 && t < w - 0.5; t += 1.3 + r.next() * 0.6) {
-        leafBld.pushSphere(Q(t, y + 0.55, depth - 0.6), 0.65 + r.next() * 0.45, 5, 3, tint3(leaf, 0.85 + r.next() * 0.3));
+      bld.pushQuad(Q(-w, y - 0.55, depth), Q(w, y - 0.55, depth), Q(w, y, depth), Q(-w, y, depth), timber, 1, { doubleSided: true });
+      if (lod < 1) {
+        bld.pushQuad(Q(-w, y - 0.5, 0), Q(-w, y - 0.5, depth), Q(w, y - 0.5, depth), Q(w, y - 0.5, 0), timber, 1, { doubleSided: true });
+        bld.pushQuad(Q(-w, y - 1.6, 0.03), Q(w, y - 1.6, 0.03), Q(w, y - 0.5, 0.03), Q(-w, y - 0.5, 0.03), tint3(dp.palette.base, 0.45), 1);
+      }
+      // A warm lamp strip under the fascia: a continuous line at night, at any distance.
+      bld.pushQuad(Q(-w, y - 0.62, depth - 0.15), Q(w, y - 0.62, depth - 0.15), Q(w, y - 0.55, depth - 0.15), Q(-w, y - 0.55, depth - 0.15), [1.0, 0.74, 0.42], 1, { emissive: 2.2, doubleSided: true });
+      // Sunlit yellow-green, not the street planters' shade green.
+      const leaf = tint3(TERRACE_LEAF[r.int(0, TERRACE_LEAF.length - 1)], 1);
+      // Irregular clumps of two or three masses: a row of equal blobs read as topiary.
+      for (let t = -w + 0.7; lod < 1 && t < w - 0.5; t += 1.0 + r.next() * 2.2) {
+        for (let k = 0, nk = 1 + r.int(0, 2); k < nk; k++) {
+          const rad = 0.4 + r.next() * 0.75;
+          leafBld.pushSphere(Q(t + r.jitter(0.6), y + rad * 0.8 + r.next() * 0.3, depth - 0.5 - r.next() * 0.9), rad, 5, 3, tint3(leaf, 0.75 + r.next() * 0.45));
+        }
       }
       if (lod < 1 && r.next() < 0.5) {
-        // A small tree on some terraces.
         const t = r.jitter(w * 0.7);
         bld.pushCylinder(Q(t, y, depth * 0.5), Q(t, y + 2.2, depth * 0.5), 0.09, 4, [0.12, 0.08, 0.05]);
         leafBld.pushSphere(Q(t, y + 2.7, depth * 0.5), 1.3, 6, 4, leaf);
       }
-      // Vines spilling over the edge: narrow strips of mixed length, not sheets.
-      for (let k = 0, nv = 2 + r.int(0, 3); k < nv; k++) {
-        const t = r.jitter(w * 0.85), hw = 0.25 + r.next() * 0.35, drop = 1.2 + r.next() * 3.2;
-        leafBld.pushQuad(Q(t - hw, y, depth + 0.04), Q(t + hw, y, depth + 0.04), Q(t + hw, y - drop, depth + 0.04), Q(t - hw, y - drop, depth + 0.04), tint3(leaf, 0.8), 0.6, { doubleSided: true });
+      // Vines spilling over the edge in narrow strands of mixed length: wide
+      // quads read as solid green panels.
+      for (let k = 0, nv = lod < 1 ? 4 + r.int(0, 6) : 0; k < nv; k++) {
+        const t = r.jitter(w * 0.9), hw = 0.08 + r.next() * 0.2, drop = 0.8 + r.next() * 3.6;
+        leafBld.pushQuad(Q(t - hw, y - 0.55, depth + 0.04), Q(t + hw, y - 0.55, depth + 0.04), Q(t + hw, y - 0.55 - drop, depth + 0.04), Q(t - hw, y - 0.55 - drop, depth + 0.04), tint3(leaf, 0.9), 0.6, { doubleSided: true });
       }
     }
   }
@@ -661,8 +699,14 @@ function pushProp(
       break;
     }
     case PropKind.ACUnit: {
-      bld.pushBox(P(0, 0, 0), [0.46 * s, 0.4 * s, 0.36 * s], tint(pal.metal, 0.9), { faces: ALL_FACES, rotationY: boxYaw });
-      bld.pushCylinder(P(0, 0, 0), P(0, 0.4 * s, 0), 0.26 * s, 7, tint(pal.metal, 0.55), { capEnds: true });
+      // A light enamel box with a dark grille and fan on its face: in district
+      // metal it read as a flat black square (R14 review).
+      bld.pushBox(P(0, 0, 0), [0.46 * s, 0.4 * s, 0.36 * s], [0.56, 0.55, 0.52], { faces: ALL_FACES, rotationY: boxYaw });
+      for (let k = -2; k <= 2; k++) {
+        const y = k * 0.13 * s;
+        bld.pushQuad(P(-0.4 * s, y - 0.025 * s, 0.37 * s), P(0.05 * s, y - 0.025 * s, 0.37 * s), P(0.05 * s, y + 0.025 * s, 0.37 * s), P(-0.4 * s, y + 0.025 * s, 0.37 * s), [0.08, 0.08, 0.085], 1);
+      }
+      bld.pushCylinder(P(0.24 * s, 0, 0.36 * s), P(0.24 * s, 0, 0.38 * s), 0.15 * s, 8, [0.12, 0.12, 0.13], { capEnds: true });
       break;
     }
     case PropKind.LaundryLine: {
