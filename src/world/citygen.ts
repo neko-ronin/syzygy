@@ -827,10 +827,15 @@ function placeProps(
         if (f === 0) {
           if (roll < 0.55) put(PropKind.Awning, faceAt(face, u, baseY + 3.4), face, r.range(0.9, 1.5), style.palette.trim, true);
           else if (roll < 0.55 + 0.3 * dense) put(PropKind.Sign, faceAt(face, u, baseY + 4.6), face, r.range(0.8, 1.3), style.palette.emissive, false);
+          // Wall lanterns by the shop doors. The per-floor loop placed the street's
+          // lanterns (bake-time lights) and now starts above this band: 58 -> 3
+          // below 16 m over six chunks, and the hero night lost its warm wall light.
+          else if (roll < 0.55 + 0.3 * dense + 0.07) put(PropKind.Lantern, faceAt(face, u, baseY + 2.9), face, r.range(0.8, 1.3), style.palette.emissive, false);
         } else if (roll < 0.26 * dense) put(PropKind.ACUnit, faceAt(face, u, sill + 1.05), face, r.range(0.8, 1.3), style.palette.metal, false);
         else if (roll < 0.26 * dense + 0.2 * green) put(PropKind.Planter, faceAt(face, u, sill + 1.05), face, r.range(0.85, 1.4), style.palette.foliage, false);
         else if (roll < 0.26 * dense + 0.2 * green + 0.16) put(PropKind.Balcony, faceAt(face, u, sill + 0.1), face, r.range(0.9, 1.2), style.palette.trim, false);
         else if (roll < 0.26 * dense + 0.2 * green + 0.26) put(PropKind.LaundryLine, faceAt(face, u, sill + 2.2), face, r.range(0.9, 1.5), style.palette.secondary, true);
+        else if (roll < 0.26 * dense + 0.2 * green + 0.275) put(PropKind.Lantern, faceAt(face, u, sill + 1.65), face, r.range(0.8, 1.5), style.palette.emissive, false);
       }
     }
   }
