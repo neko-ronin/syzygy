@@ -46,6 +46,13 @@ world performance at 60 FPS on this Mac, Chrome, 1600 × 900**. The
    band in place but sparse and absent from the hero facades; per-lantern pools and
    daytime district variety open. Cold boot 2.7–3.1 s to a fully streamed world.
    R2 night: owner-accepted 2026-10-11.
+   **2026-10-12 (owner direction):** warm-only light (D28; the hue-following window
+   colour is reverted); stylised warm ground pools under street-level lamps, night only,
+   with `09-market-aisle-night` (balcony height) showing the run of pools; reference-sheet
+   features: sheet B scaffolding (dark members, decks, tarps, warm work lamps) and sheet D
+   planted terrace bands, which also put planting on the hero frame's left facade.
+   Tried and reverted: bunting on power cables (they hang 20–260 m up; needs low-level
+   strings placed by the generator). Not yet independently reviewed.
 
 **2026-10-11 merge:** two worktrees' uncommitted 2026-10-07 fixes landed: the street-crowd
 pose (PITFALLS §24) and inside-out spheres/cylinders/ribbons (street report Round 8; 35% of
