@@ -215,16 +215,13 @@ fn facade(
       rough = mix(0.06 + 0.10 * kind, 0.30 + 0.08 * kind, mirror);
       metal = 0.0;
 
-      // Interior lights. Roughly 40% lit, warm with occasional cold/green.
+      // Interior lights. Roughly 40% lit, all warm (D28).
       let lit = step(floorLitThreshold(floorIdx, bseed), hash21(cellId * 3.3 + vec2f(seed * 17.0, 9.0)));
       if (lit > 0.5) {
-        // District identity at night: the colour temperature of a lit window
-        // follows the wall's hue, so teal / glass / canal towers burn mostly cool
-        // fluorescent and terracotta / market / concrete mostly amber. With one
-        // amber for all, the districts merged into one field of dots after dark
-        // (R14 vision review). Share of cool windows 14% -> 75% by hue.
-        let coolShare = mix(0.14, 0.75, clamp((base.b - base.r) * 4.0 + 0.3, 0.0, 1.0));
-        let warm = mix(vec3f(1.0, 0.72, 0.38), vec3f(0.62, 0.90, 1.0), step(1.0 - coolShare, kind));
+        // Warm light only (owner, D28): one amber, with one window in seven a
+        // paler warm white. A hue-following cool share (b17563d) separated the
+        // districts at night but the owner prefers the single amber world.
+        let warm = mix(vec3f(1.0, 0.72, 0.38), vec3f(1.0, 0.86, 0.66), step(0.86, kind));
         let bright = 0.35 + 3.2 * pow(hash21(cellId * 5.7 + seed), 3.0);
         // Fluorescent interiors are flatter; lamps read as a hot core.
         let core = 1.0 - smoothstep(0.0, 0.35, min(abs(fx - 0.5), abs(fy - 0.5)));

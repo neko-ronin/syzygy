@@ -883,7 +883,7 @@ export function bakeChunk(chunk: CityChunk, lod: number, seed: number): BakedChu
       }
       lights.push({
         pos: [(br.a[0] + br.b[0]) * 0.5, (br.a[1] + br.b[1]) * 0.5 + 0.5, (br.a[2] + br.b[2]) * 0.5],
-        radius: 16, color: [0.9, 0.92, 1.0], intensity: 1.1,
+        radius: 16, color: [1.0, 0.84, 0.62], intensity: 1.1,   // warm (D28); was cool white
       });
     }
   }

@@ -676,3 +676,20 @@ just enough to ground each tower as a banal building. Interior window glow fades
   facades reached the screen the noon lanterns saturated to flat white hexagons, which the R14
   vision review read as UI markers; night frames are pixel-identical (4% fuzz).
 - Frame-edge lens streaks: accepted for now.
+
+## D28 — A warm-lit world: artificial light stays amber
+
+**Owner direction, 2026-10-12**, after seeing night district identity done by window colour
+(teal towers cool blue-white, terracotta amber, `b17563d`): "I prefer the one amber
+lighting. Let's presume this world still uses warm lighting and stays away from
+blue-white light."
+
+### Consequences
+
+- Lit windows: one amber, with one in seven a paler warm white (was pale blue). The
+  hue-following cool share is reverted.
+- Other artificial lights made warm: skybridge lamps (were cool white), zipline trail
+  (cyan), blimp (blue).
+- Night district identity must come from something other than light temperature
+  (silhouette, density, signage, features), not from cool light.
+- The night sky and ambient stay as they are: this is about artificial light.

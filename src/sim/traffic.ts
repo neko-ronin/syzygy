@@ -1016,7 +1016,7 @@ export class TrafficSim {
       } else if (kind === 'zipline') {
         // Trailing light: a streak strung out behind the rider.
         importance = 2.2; radius = 16;
-        cr = 0.42; cg = 0.96; cb = 0.82;
+        cr = 1.0; cg = 0.70; cb = 0.36;   // warm (D28); was cyan
       } else if (kind === 'balloon') {
         // Burner flare, and only while it is actually climbing.
         importance = 1.5 + (v.velocity[1] > 0.2 ? 1.5 : 0);
@@ -1024,7 +1024,7 @@ export class TrafficSim {
         cr = 1.0; cg = 0.6; cb = 0.22;
       } else if (kind === 'blimp') {
         importance = 1.3; radius = 20;
-        cr = 0.48; cg = 0.72; cb = 1.0;
+        cr = 1.0; cg = 0.85; cb = 0.62;   // warm (D28); was blue
       } else {
         importance = 1.1; radius = 12;
         cr = 1.0; cg = 0.96; cb = 0.86;
