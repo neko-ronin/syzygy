@@ -873,8 +873,12 @@ chosen.
 
 ## R14 — A richer city at 60 FPS during continuous travel
 
-**Status: authorised, pending the street batch** · **Priority: highest after that
-batch** · Owner direction: improve richness/detail; optimise and re-architect
+**Status: performance clauses met; visual clauses open** (2026-10-11). Fixed and
+adaptive, held views and flight with reversal, headless and headed: 60 fps at 1600 × 900
+([PERFORMANCE](PERFORMANCE_2026-10-06.md)). Vision review: distance detail done; near
+street richness, district variety and night identity **more work needed**
+([VISION_2026-10-11_R14](VISION_2026-10-11_R14.md)). Cold boot not separately measured. ·
+**Priority: highest after that batch** · Owner direction: improve richness/detail; optimise and re-architect
 city-item placement where needed; adapt documented Spider-Man and Fortnite
 large-world techniques to this browser renderer.
 

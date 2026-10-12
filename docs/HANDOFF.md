@@ -39,8 +39,11 @@ world performance at 60 FPS on this Mac, Chrome, 1600 × 900**. The
    **Distant detail:** facades now reach the screen (an instance-bind leak shaded every
    building as paving), plant floors and per-floor night occupancy read at distance,
    floating pilasters removed. Owner reviewed 2026-10-10 and directed D27 (reflective
-   window grids on the teal towers, daylight-faded window glow); applied. Open:
-   headed-Chrome confirmation, vision review.
+   window grids on the teal towers, daylight-faded glow); applied. **2026-10-11:** headed
+   Chrome 59.99 / 59.86 / 59.94; adaptive 60 throughout; flight simulation max 7 ms.
+   Vision review ([VISION_2026-10-11_R14](VISION_2026-10-11_R14.md)): **more work
+   needed** — distance detail done; street-level clutter, district variety, per-lantern
+   pools and night district identity open.
 
 **2026-10-11 merge:** two worktrees' uncommitted 2026-10-07 fixes landed: the street-crowd
 pose (PITFALLS §24) and inside-out spheres/cylinders/ribbons (street report Round 8; 35% of
