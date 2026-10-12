@@ -128,6 +128,18 @@ const POSES = [
     settle: 30,
   },
   {
+    // R2 asks for the wide skyline at both phases, side by side: whether night
+    // out-reads day is the owner's call from the pair, not from a mean.
+    // Same camera, lens and weather; phase, exposure and bloom as 09-market-down.
+    name: '01-wide-skyline-night',
+    label: 'wide skyline, SAME camera as 01-wide-skyline, night',
+    position: [900, 120, 1400], lookAt: [0, 200, 0], fov: 1.12, roll: 0,
+    time: 'night',
+    weather: { sky: 'night', cloudCover: 0.34, haze: 0.22, aerialHaze: 0.4 },
+    lens: { tiltShift: 0.62, focusWidth: 0.34, fov: 1.12, exposure: 1.28, bloom: 0.8 },
+    settle: 30,
+  },
+  {
     // NOT a ground-contact check any more. This stands at (1833, 6, 1760),
     // about 1.2 km from the dense districts and inside a block with no
     // carriageway near it, so it cannot show whether a building meets the
