@@ -7,7 +7,7 @@
  * tonemaps at the very end and never works in sRGB.
  */
 
-import { fbm2, hexLinear, makeRng, noise2, smoothstep, v3lerp, v3scale, type Vec2, type Vec3 } from '../core/math';
+import { fbm2, hexLinear, makeRng, v3lerp, v3scale, type Vec2, type Vec3 } from '../core/math';
 
 export type WindowStyle =
   | 'grid' | 'ribbon' | 'mosaic' | 'shutter' | 'arcade'
@@ -87,7 +87,9 @@ export const DISTRICT_STYLES: DistrictStyle[] = [
   {
     id: 0, key: 'verdant-canyon', name: 'Verdant Canyon',
     palette: pal('#e9e4d6', '#d6cdb9', '#b08a66', '#9fc4bd', '#7c9070', '#6f6b5f', '#4f8a3c', '#7e8a86', '#2f6f6c', '#ffd9a0'),
-    heightRange: [130, 430], footprintRange: [15, 27],
+    // Mid-rise garden suburbs on the green belt (D29); at 130-430 m the outskirts
+    // walled off the downtown skyline from every outer viewpoint.
+    heightRange: [45, 150], footprintRange: [15, 27],
     leanAmount: 0.032, gapBias: 1.15, greenery: 0.92, cableDensity: 1.0, clutterDensity: 1.0,
     windowStyle: 'pergola', accentColor: hexLinear('#2f8f6a'), roofStyle: 'flat-garden',
     description: 'White concrete and warm timber, curtains of vine, planters on every sill.',
@@ -161,7 +163,8 @@ export const DISTRICT_STYLES: DistrictStyle[] = [
   {
     id: 9, key: 'canal-district', name: 'Canal District',
     palette: pal('#8b98a3', '#7e8b96', '#7f92a3', '#9cbdc9', '#7e8891', '#6e757d', '#68806a', '#7b8b93', '#2b606c', '#ffc880'),
-    heightRange: [45, 190], footprintRange: [15, 29],
+    // Quay warehouses are low (D29); at 45-190 m they walled the canal views.
+    heightRange: [25, 90], footprintRange: [15, 29],
     leanAmount: 0.036, gapBias: 1.2, greenery: 0.6, cableDensity: 0.9, clutterDensity: 0.9,
     windowStyle: 'grid', accentColor: hexLinear('#3f7f9a'), roofStyle: 'flat-garden',
     description: 'Warehouse conversions in blue-grey stone on the quay walls, mooring bollards, washing on the balconies.',
@@ -265,11 +268,11 @@ export interface DistrictField {
   /** Noise-space offset so different seeds give different city plans. */
   ox: number;
   oz: number;
-  /** Organic district table, permuted per seed. */
-  table: number[];
-  downtown: number[];
-  /** Radius of the tall core, metres. */
-  coreRadius: number;
+  /**
+   * Bearing (radians, atan2(z, x) from the origin) of the downtown wedge. It sits
+   * at a fixed relation to the market road, so it turns with the road per seed.
+   */
+  downtownBearing: number;
 }
 
 const fieldCache = new Map<number, DistrictField>();
@@ -298,10 +301,10 @@ export function districtField(seed: number): DistrictField {
     },
     ox: r.range(0, 900),
     oz: r.range(0, 900),
-    table: r.shuffle([...ORGANIC_DISTRICTS]),
-    downtown: [7, 3, 1],
-    coreRadius: r.range(460, 820),
+    downtownBearing: 0,
   };
+  // Downtown grew beside the market road, 50 degrees to its left (D29).
+  f.downtownBearing = Math.atan2(Math.sin(f.market.bearing), Math.cos(f.market.bearing)) - 0.88;
   if (fieldCache.size > 8) fieldCache.delete(fieldCache.keys().next().value as number);
   fieldCache.set(seed, f);
   return f;
@@ -323,37 +326,62 @@ export function districtAt(x: number, z: number, seed: number): number {
 }
 
 /** {@link districtAt} against a precomputed field — use this in hot loops. */
+/**
+ * The city plan as a history (DECISIONS D29), not a noise table. Every district
+ * appears, each where its story puts it. The old organic table picked from about
+ * 25 noise cells: terracotta-tiers and neon-arcology never appeared, copper-stacks
+ * took 38% of the land, and the downtown core blended into the outer table in
+ * concentric rings around the origin.
+ *
+ *   old town (terracotta-tiers, sheet C)  around the canal-market crossing, r < ~360 m
+ *   lantern bazaar                        both sides of the market road, out to ~1.15 km
+ *   downtown                              a +/-66 deg wedge beside the market road:
+ *     neon-arcology heart, copper-stacks body, glass-foxholes flanks and far edge
+ *   canal quarter (canal-district)        the quays, outside downtown
+ *   monastery hill (monastery-spire)      a small rise beside the old town
+ *   industrial belt (rust-hangars)        along the railway
+ *   suburbs / green belt                  terracotta and bazaar suburbs, then
+ *                                         verdant-canyon and botanical-dome outskirts
+ *
+ * Edges are domain-warped so the quarters read as grown, not drawn.
+ */
 export function districtAtField(f: DistrictField, x: number, z: number): number {
   const h = scratchHit;
   spineHit(f.canal, x, z, h);
-  if (h.dist < f.canal.width * 0.6) return CANAL_DISTRICT;
+  const dCanal = h.dist;
+  if (dCanal < f.canal.width * 0.6) return CANAL_DISTRICT;
   spineHit(f.market, x, z, h);
-  if (h.dist < f.market.width * 0.55) return MARKET_DISTRICT;
+  const dMarket = h.dist;
+  if (dMarket < f.market.width * 0.55) return MARKET_DISTRICT;
 
-  const fx = (x + f.ox) * 0.0015;
-  const fz = (z + f.oz) * 0.0015;
-  const q = fbm2(fx * 1.1 + 3.1, fz * 1.1 - 1.7, 3) + 0.35 * fbm2(fx * 2.7 - 8.2, fz * 2.7 + 2.6, 2);
-  const ux = Math.floor(fx + q * 0.9);
-  const uz = Math.floor(fz + q * 0.9);
-  const pick = noise2(ux * 12.9898 + 78.233, uz * 39.4256 + 11.71) * 0.5 + 0.5;
-  const core = smoothstep(f.coreRadius, f.coreRadius * 0.14, Math.hypot(x, z));
-  const cd = noise2(ux * 7.77 + 3.31, uz * 3.19 + 9.13) * 0.5 + 0.5;
+  const fx = (x + f.ox) * 0.0021, fz = (z + f.oz) * 0.0021;
+  const n1 = fbm2(fx + 3.1, fz - 1.7, 3), n2 = fbm2(fx * 1.3 - 8.2, fz * 1.3 + 2.6, 3);
+  const r = Math.hypot(x, z) + 150 * n1;
+  let th = Math.atan2(z, x) - f.downtownBearing + 0.3 * n2;
+  th = Math.atan2(Math.sin(th), Math.cos(th));
 
-  let id: number;
-  if (cd < core && core > 0.02) {
-    const t = cd / core;
-    id = f.downtown[Math.min(f.downtown.length - 1, Math.floor(t * f.downtown.length))];
-  } else {
-    const t = (cd - core) / (1 - core || 1e-6);
-    id = f.table[Math.min(f.table.length - 1, Math.floor(Math.min(0.999, Math.max(0, t)) * f.table.length))];
+  // The market road and its bazaar, from the old town outward.
+  if (dMarket < f.market.width * 0.55 + 115 + 45 * n2 && r < 1150) return 4;
+  if (r < 360) return 2;
+
+  if (Math.abs(th) < 1.3 && r < 1800) {
+    const hx = Math.cos(f.downtownBearing) * 900, hz = Math.sin(f.downtownBearing) * 900;
+    if (Math.hypot(x - hx, z - hz) * (1 + 0.25 * Math.sin(Math.atan2(z - hz, x - hx) * 3)) + 110 * n1 < 250) return 7;
+    return Math.abs(th) > 1.07 || r > 1620 ? 3 : 1;
   }
-
+  if (dCanal < f.canal.width * 0.6 + 105 + 35 * n1) return CANAL_DISTRICT;
   spineHit(f.rail, x, z, h);
-  if (h.dist < f.rail.width * 0.8) {
-    const side = noise2(ux * 3.7 + 21.3, uz * 5.1 - 4.9) > 0 ? 5 : 4;
-    if (pick < 0.55) id = side;
-  }
-  return id;
+  // The railway's industrial belt, wider where estates spread out beyond the suburbs.
+  if (h.dist < f.rail.width * 0.8 + 75 + 30 * n2 + (r > 1000 ? 110 : 0)) return 5;
+  const mb = f.downtownBearing + 2.45;
+  const mx = x - Math.cos(mb) * 640, mz = z - Math.sin(mb) * 640;
+  if (Math.hypot(mx * 0.8, mz * 1.25) + 140 * fbm2(fx * 3 + 1.3, fz * 3 - 7.1, 2) < 200) return 6;
+
+  // Suburbs (terracotta on one side, bazaar on the other), then the green belt
+  // in patches: garden suburbs (verdant) and glasshouse farms (botanical).
+  if (r < 1050 + 120 * n2) return th > 0 ? 2 : 4;
+  const n3 = fbm2(fx * 0.85 + 5.5, fz * 0.85 - 3.3, 3);
+  return n3 > 0.1 ? 0 : n3 < -0.12 ? 8 : (th > 0 ? 2 : 4);
 }
 
 /** Planar coordinates of a spine at distance `along` from its origin. */

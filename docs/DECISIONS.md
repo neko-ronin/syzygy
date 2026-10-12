@@ -693,3 +693,42 @@ blue-white light."
 - Night district identity must come from something other than light temperature
   (silhouette, density, signage, features), not from cool light.
 - The night sky and ambient stay as they are: this is about artificial light.
+
+## D29 — The city plan is a history: every district, where its story puts it
+
+**Owner direction, 2026-10-12:** "Changing district mix is back on the table. Fix this,
+incorporate all the districts tastefully. Keep in mind aesthetics in viewpoints, skyline,
+and plausible historical lore."
+
+**What was wrong.** The organic table picked districts from about 25 noise cells across the
+finite city: terracotta-tiers (sheet C's district) and neon-arcology (sheet A's) never
+appeared, copper-stacks took 38% of the land and almost every tall building, canal-district
+held only the water channel, and the downtown core blended into the outer table in
+concentric rings around the origin (a bull's-eye of white, yellow, green and red bands).
+
+**The story, as the plan encodes it** (`districtAtField`):
+
+1. **Old town (terracotta-tiers)** grew where the canal meets the market road. Kilns,
+   forges and lantern workshops: the fire-lit quarter of sheet C. r < ~360 m.
+2. **Lantern bazaar** lines the market road out from the old town, and fills the suburbs
+   on its west side.
+3. **Canal quarter** (canal-district): warehouse conversions on the quays, low (25-90 m).
+4. **Monastery hill** (monastery-spire): a small rise beside the old town; its needle
+   spires are the skyline's mid-ground accent.
+5. **Industrial belt** (rust-hangars) followed the railway, widening into estates past the
+   suburbs.
+6. **Downtown**, the boom: a +/-74 deg wedge 50 deg to the left of the market road
+   (it turns with the road per seed). Copper-stacks body (the teal towers, still the
+   largest tall district, D27), glass-foxholes flanks and far edge, the neon-arcology
+   megastructures at its heart.
+7. **Green belt**, the later reclamation: garden suburbs (verdant-canyon, now mid-rise
+   45-150 m) and glasshouse farms (botanical-dome) in ~500 m patches on the outskirts.
+
+Area shares (default seed): bazaar 18%, copper 17%, terracotta 16%, glass 10%, rust 10%,
+botanical 9%, verdant 9%, canal 7%, neon 2%, monastery 1%, market street 1%.
+
+**Viewpoints.** The outer review cameras sit south-east of the origin looking north-west:
+the plan puts low districts in front of them and downtown behind the old town, so the
+skyline reads low-historic foreground, spires mid-ground, towers behind. Verdant and
+canal heights were lowered for that reason (at 130-430 m and 45-190 m they walled every
+outer view).
