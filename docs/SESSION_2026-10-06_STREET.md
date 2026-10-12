@@ -338,8 +338,77 @@ counter, cobbles readable beside it, warm stalls and facades deeper in the stree
 Day unchanged apart from the bulb. **Owner verdict 2026-10-07:** satisfactory for this stage. Binning cost per
 (tile, light) rose (4 mat-vec + 8 corners); measure in the performance stage.
 
+## Round 8, 2026-10-07 — inside-out primitives (4 rounds, one change each)
+
+The Round 6 residue (85,944 untagged opaque, 64,360 foliage triangles opposing
+their normals) was attributed by wrapping every `MeshBuilder` method in a Vite
+SSR probe and scoring each emitted triangle against its call site. Every opposed
+triangle came from three builders; boxes, tubes and quads were clean, and nothing
+wrote vertices directly. Splits were exact, which pointed at the primitives, not
+the callers: `pushSphere` 100% opposed at every site, `pushCylinder` exactly 3:1
+(sides and top cap opposed, bottom cap right), `pushRibbonAlongPath` near 50/50
+with edge-on rows (its normal was the path tangent, in the ribbon's own plane).
+Foliage is not double-sided: it draws through the G-buffer pipeline with
+`cull: 'back'`, and is skipped by the shadow pass.
+
+Culled from the visible side, yes, but not missing: the cull dropped the near
+half and drew the far inner wall, so silhouettes stayed right and the shading
+came out inside-out. The shadow pass culls `front`, so it stored the sun-facing
+half, and the visible surface sat at occluder depth. Baseline
+`shots/2026-10-07T16-14-57` (this worktree): noon lanterns dark-topped, stall posts
+sky-blue, planter shrubs flat dark blobs. All captures pair `01g-kerb-face` (crowd 0
+carries over) with `09-market-down-day`. A solo market run spawns 2550 pedestrians
+and is not comparable.
+
+1. **`pushCylinder`**: side order reversed; the cap fan picks its order from
+   `dot(nrm, t)`. `16-18-21`: stall posts go from sky-blue to warm, sunlit frame colour.
+2. **`pushSphere`**: theta before phi. `16-19-22`: lanterns sunlit on top with a
+   shaded underside; one planter blob resolves into two lit shrubs.
+3. **Ribbon normal** is `-b`/`+b` per pass. `16-20-45`: canopy tops lit orange and
+   yellow; hanging strips darken to rust (vertical cloth under a high sun).
+4. **`pushQuad` honours `doubleSided`** (vine curtains, awnings, laundry,
+   A-frame boards, shelter roofs, blimp fins): same corners, negated normals, and
+   the Round 6 guard rewinds them, so the UVs are unchanged. The dead `pushPlane`
+   was deleted: its hand-made back quad had carried the front normal since Round 6.
+   No back-facing sheet is in frame, so this round is CPU-verified only.
+   +2 triangles per sheet, but the clutter throttle (`CLUTTER_TRIS`) measures real
+   `indexCount`, so street furniture respaces: +4 items and +418 triangles over 4
+   chunks, with chunk bounds identical. `16-23-03` also baked 73/96 chunks against
+   58–61 before, so its new left-hand towers are residency, not geometry.
+
+The census compares world-space winding with the normal, which measures mesh
+orientation, not per-view culling (`F1F2_GPU_HALF.md` §winding). The rasteriser
+confirms the sign convention twice: single-sided up-facing ground with
+`cross·up > 0` is visible from above, and a reversed convention would have made
+the sphere fix turn lit tops dark. The frames show the opposite.
+
+Census after: untagged opaque 4 (1.6–4.3 mm² Float32 slivers), foliage 0 of
+72,170. The ground contract now checks every triangle of the baked opaque,
+foliage and pedestrian meshes (RED at 27,451 of 77,358 before the fixes), plus a
+ribbon `|cos| > 0.9` check (the −0.05 tolerance hides in-plane normals) and a
+double-sided quad check. Each was seen failing before its fix. Reverting a
+single primitive also fails on its own: cylinder sides 10,722, cap order 2,553,
+sphere 14,290.
+
+Final frames: market `16-33-00` (59/96 chunks; the Round 4 towers are gone). Hero
+pair `16-31-53`, a replay of Round 7's `_scene.json` (camera 0.09 m / 0.013°),
+compared with `shots/2026-10-07T15-30-45`. Day: lanterns, posts and heads read as
+lit solids, and the near canopy underside is now in noon shade, so it reads dark.
+**Night changes an owner-reviewed frame.** Round 7's "lit heads at the counter"
+was partly the inside-out cylinder heads, whose far inner wall faced the stall
+lamp. The heads are now shaded cylinders, lit on the lamp side, and the canopy
+underside's broad orange wash is a hotspot around the bulb. **Awaiting owner
+review.**
+
+Checks: pinned tsc, Vite build, camera, capture replay, ground contract, perf,
+sim, separation, all seven world self-tests and three tool self-tests pass.
+`__selftest_spread` and `__selftest_density` both refuse the street-crowd pose
+("4.1 m off the view axis"), and refuse it identically with HEAD's
+`geometry.ts`, so this is pre-existing. Round 6 listed density as passing.
+
 ## Open work
 
 - Gutter value: still the darkest band (0.020/0.048 albedo), now beside a pale top.
-- Untagged/foliage winding audit (above).
+- Tagged ground: some junction kerb faces and gutters still carry edge-on
+  normals (cos ≈ −0.000, admitted by the contract's tolerance).
 - Final build/check suite, independent vision verdict, and root integration.

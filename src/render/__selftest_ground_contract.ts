@@ -3,13 +3,29 @@ import { City, defaultCityConfig, GROUND_Y } from '../world/citygen';
 import { deriveHeroWalk } from '../world/diagnosticposes';
 import { groundGrammarFor, groundSurfaceTag, decodeGroundSurfaceTag, GROUND_SURFACE_CLASSES, BAND_ORDER } from '../world/groundgrammar';
 import { COUNTER_TOP, marketGrammarFor } from '../world/marketgrammar';
-import { MeshBuilder } from '../world/geometry';
+import { MeshBuilder, type Mesh } from '../world/geometry';
 import { makeRng } from '../core/math';
 import { bakeChunk } from './citymesh';
 import { bakeMarketDetail, marketBakeState } from './marketbake';
+import { pedestrianMesh } from './pedestrianmesh';
 
 function requireThat(ok: unknown, message: string): asserts ok {
   if (!ok) throw new Error(message);
+}
+/**
+ * Cosine between triangle `t`'s winding normal and the authored normal at its
+ * first vertex. Sub-mm² Float32 slivers, whose sign upload can flip, read 1.
+ * The G-buffer culls back faces (ccw front), so below zero means the authored
+ * side is the culled one. -0.05 admits edge-on normals.
+ */
+function windingCos(m: Mesh, t: number): number {
+  const [a, b, c] = [0, 1, 2].map((k) => m.positions.subarray(m.indices[t + k] * 3, m.indices[t + k] * 3 + 3));
+  const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+  const g = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+  const n = m.normals.subarray(m.indices[t] * 3, m.indices[t] * 3 + 3);
+  const gl = Math.hypot(g[0], g[1], g[2]);
+  if (gl < 1e-3) return 1;
+  return (g[0] * n[0] + g[1] * n[1] + g[2] * n[2]) / (gl * (Math.hypot(n[0], n[1], n[2]) || 1));
 }
 const seed = 6191639;
 const city = new City(defaultCityConfig(seed));
@@ -67,20 +83,38 @@ for (let t = 0; t < baked.opaque.indices.length; t += 3) {
     requireThat(up > 0, 'both emitted road halves must face upward, matching their authored normal');
   }
   groundClasses.add(decoded.surface);
-  {
-    const [a, b, c] = vertices.map((i) => baked.opaque.positions.subarray(i * 3, i * 3 + 3));
-    const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-    const n = baked.opaque.normals.subarray(vertices[0] * 3, vertices[0] * 3 + 3);
-    const g = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
-    const cos = (g[0] * n[0] + g[1] * n[1] + g[2] * n[2]) / (Math.hypot(g[0], g[1], g[2]) * Math.hypot(n[0], n[1], n[2]) || 1);
-    // Tolerances admit edge-on normals and sub-pixel slivers whose sign
-    // Float32 upload can flip; opposed winding on real area still fails.
-    requireThat(cos > -0.05 || Math.hypot(g[0], g[1], g[2]) < 1e-3, `${decoded.surface} winding must face its authored normal, or the back-face cull hides it`);
-  }
+  requireThat(windingCos(baked.opaque, t) > -0.05, `${decoded.surface} winding must face its authored normal, or the back-face cull hides it`);
   const keys = vertices.map((i) => Array.from(baked.opaque.positions.subarray(i * 3, i * 3 + 3), (v) => v.toFixed(4)).join(','));
   (kerbTris[decoded.surface] ??= []).push({ keys, ys: vertices.map((i) => baked.opaque.positions[i * 3 + 1]) });
 }
 requireThat(groundClasses.has('carriageway') && groundClasses.has('paving') && groundClasses.has('kerb-face'), 'real road, walking and face geometry must carry distinct surface inputs');
+// Every primitive, not only tagged ground: spheres and cylinders were wound
+// inside-out, so the cull kept their far inner wall, lit from behind.
+for (const [name, m] of [['opaque', baked.opaque], ['foliage', baked.foliage], ['pedestrian', pedestrianMesh()]] as const) {
+  requireThat(m.indexCount > 0, `fixture must emit ${name} geometry`);
+  let opposed = 0;
+  for (let t = 0; t < m.indexCount; t += 3) if (windingCos(m, t) <= -0.05) opposed++;
+  requireThat(opposed === 0, `${name}: ${opposed} of ${m.indexCount / 3} triangles are wound against their normal, so the back-face cull hides their visible side`);
+}
+// The tolerance above admits edge-on normals, which is how a ribbon passed
+// with its normal along the path: hanging market cloth was lit as a floor.
+{
+  const rb = new MeshBuilder();
+  rb.pushRibbonAlongPath([[0, 3, 0], [1, 2.6, 0.2], [2, 2.5, 0.1], [3, 2.9, 0]], 0.8, [1, 1, 1]);
+  rb.pushRibbonAlongPath([[0, 3, 0], [0, 1, 0]], 0.5, [1, 1, 1], { up: [0, 0, 1] });
+  const ribbon = rb.build();
+  for (let t = 0; t < ribbon.indexCount; t += 3) requireThat(windingCos(ribbon, t) > 0.9, 'a ribbon normal must be its face normal, not the path tangent');
+}
+// Vine curtains, awnings and laundry ask for both sides; the foliage pass
+// culls back faces like every other, so one side must be real geometry.
+{
+  const qb = new MeshBuilder();
+  qb.pushQuad([0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0], [1, 1, 1], 1, { doubleSided: true });
+  const sheet = qb.build();
+  const nz = (t: number): number => sheet.normals[sheet.indices[t] * 3 + 2];
+  requireThat(sheet.indexCount === 12 && nz(0) * nz(6) < 0, 'a double-sided quad must emit a back face with the opposite normal');
+  for (let t = 0; t < 12; t += 3) requireThat(windingCos(sheet, t) > 0.9, 'each side of a double-sided quad must be wound toward its own normal');
+}
 // The kerb top must close the face's upper edge, not repeat the footway.
 const topVerts = new Set((kerbTris['kerb-top'] ?? []).flatMap((t) => t.keys));
 const pavingTris = new Set((kerbTris['paving'] ?? []).map((t) => [...t.keys].sort().join('|')));

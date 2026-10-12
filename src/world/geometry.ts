@@ -70,7 +70,7 @@ export interface MeshOpts {
   capEnds?: boolean;
   /** Top radius for cylinders/cones. */
   radiusTop?: number;
-  /** Emit the strip twice with opposite winding. */
+  /** Also emit the back face. Quads default to single-sided, ribbons to double. */
   doubleSided?: boolean;
   /** First UV coordinate offset, for atlas-style tiling. */
   uvOffset?: number;
@@ -183,6 +183,11 @@ export class MeshBuilder {
     else this.idx.push(base, base + 1, base + 2);
     if (away(a, c, d, n0)) this.idx.push(base, base + 3, base + 2);
     else this.idx.push(base, base + 2, base + 3);
+    // Same corners and UVs, negated normals: the guard above rewinds it.
+    if (opts.doubleSided) {
+      const back = ((ns ?? [n, n, n, n]) as readonly Vec3[]).map((v) => [-v[0], -v[1], -v[2]]) as [Vec3, Vec3, Vec3, Vec3];
+      this.pushQuad(a, b, c, d, color, uvScale, { ...opts, doubleSided: false, normals: back });
+    }
   }
 
   /** Axis-aligned (optionally yawed) box. UVs are metres-per-texel consistent. */
@@ -249,9 +254,12 @@ export class MeshBuilder {
       this.vert([from[0] + nA[0] * radius, from[1] + nA[1] * radius, from[2] + nA[2] * radius], nB, i / n * len * us, 0, color, e);
       this.vert([to[0] + nA[0] * rt, to[1] + nA[1] * rt, to[2] + nA[2] * rt], nB, i / n * len * us, len * us, color, e);
     }
+    // (from_i, to_{i+1}, to_i) faces +radial: cross(t, d/dangle) = -radial
+    // because w = t x u, so the axis-first order was inside-out and the cull
+    // showed every post's far inner wall.
     for (let i = 0; i < n; i++) {
       const a = base + i * 2;
-      this.idx.push(a, a + 1, a + 3, a, a + 3, a + 2);
+      this.idx.push(a, a + 3, a + 1, a, a + 2, a + 3);
     }
     if (opts.capEnds) {
       const capFan = (c: Vec3, nrm: Vec3, r: number): void => {
@@ -265,7 +273,12 @@ export class MeshBuilder {
             nrm, 0.5 + ca * 0.5, 0.5 + sa * 0.5, color, e,
           );
         }
-        for (let i = 0; i < n; i++) this.idx.push(b0, b0 + 1 + i + 1, b0 + 1 + i);
+        // Ring order runs u -> w, i.e. counter-clockwise about +t.
+        const up = v3dot(nrm, t) > 0;
+        for (let i = 0; i < n; i++) {
+          if (up) this.idx.push(b0, b0 + 1 + i, b0 + 2 + i);
+          else this.idx.push(b0, b0 + 2 + i, b0 + 1 + i);
+        }
       };
       if (rt > 1e-5) capFan(to, t, rt);
       capFan(from, [-t[0], -t[1], -t[2]], radius);
@@ -327,7 +340,9 @@ export class MeshBuilder {
       let run = 0;
       for (let i = 0; i < points.length; i++) {
         const f = frames[i];
-        const nrm: Vec3 = pass === 0 ? f.t : [-f.t[0], -f.t[1], -f.t[2]];
+        // The strip spans n and t, so its face normal is +/-b; pass 0's
+        // winding faces -b (cross(n, t)). This was the path tangent, edge-on.
+        const nrm: Vec3 = pass === 0 ? [-f.b[0], -f.b[1], -f.b[2]] : f.b;
         if (i > 0) run += Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1], points[i][2] - points[i - 1][2]);
         this.vert([points[i][0] - f.n[0] * hw, points[i][1] - f.n[1] * hw, points[i][2] - f.n[2] * hw], nrm, 0, run * us, color, e);
         this.vert([points[i][0] + f.n[0] * hw, points[i][1] + f.n[1] * hw, points[i][2] + f.n[2] * hw], nrm, 1, run * us, color, e);
@@ -360,36 +375,13 @@ export class MeshBuilder {
         );
       }
     }
+    // cross(d/dtheta, d/dphi) = +sin(phi) * n: theta before phi faces out.
+    // The phi-first order was inside-out, lit from behind under the sun.
     for (let r = 0; r < R; r++) {
       for (let s = 0; s < S; s++) {
         const a = base + r * (S + 1) + s;
-        this.idx.push(a, a + S + 1, a + 1, a + 1, a + S + 1, a + S + 2);
+        this.idx.push(a, a + 1, a + S + 1, a + 1, a + S + 2, a + S + 1);
       }
-    }
-  }
-
-  /** Single quad from an explicit right/up basis (default X/Z, i.e. horizontal). */
-  pushPlane(center: Vec3, halfW: number, halfH: number, color: Vec3, opts: MeshOpts = DEF_OPTS): void {
-    const right: Vec3 = opts.up ? v3norm(cross3([0, 1, 0], opts.up)) : [1, 0, 0];
-    const upv: Vec3 = opts.up ?? [0, 0, 1];
-    const n = v3norm(cross3(right, upv));
-    const us = opts.uvScale ?? 1;
-    const r = v3scaleV(right, halfW), u = v3scaleV(upv, halfH);
-    this.pushQuad(
-      [center[0] - r[0] - u[0], center[1] - r[1] - u[1], center[2] - r[2] - u[2]],
-      [center[0] + r[0] - u[0], center[1] + r[1] - u[1], center[2] + r[2] - u[2]],
-      [center[0] + r[0] + u[0], center[1] + r[1] + u[1], center[2] + r[2] + u[2]],
-      [center[0] - r[0] + u[0], center[1] - r[1] + u[1], center[2] - r[2] + u[2]],
-      color, us, { ...opts, normals: [n, n, n, n] },
-    );
-    if (opts.doubleSided !== false) {
-      this.pushQuad(
-        [center[0] - r[0] + u[0], center[1] - r[1] + u[1], center[2] - r[2] + u[2]],
-        [center[0] + r[0] + u[0], center[1] + r[1] + u[1], center[2] + r[2] + u[2]],
-        [center[0] + r[0] - u[0], center[1] + r[1] - u[1], center[2] + r[2] - u[2]],
-        [center[0] - r[0] - u[0], center[1] - r[1] - u[1], center[2] - r[2] - u[2]],
-        color, us, { ...opts, normals: [n, n, n, n] },
-      );
     }
   }
 
@@ -409,8 +401,6 @@ export class MeshBuilder {
     };
   }
 }
-
-const v3scaleV = (a: Vec3, s: number): Vec3 => [a[0] * s, a[1] * s, a[2] * s];
 
 /** Orthonormal frames along a polyline, minimising twist. */
 export function pathFrames(points: Vec3[], up: Vec3 = [0, 1, 0]): { t: Vec3; n: Vec3; b: Vec3 }[] {
