@@ -408,7 +408,13 @@ sim, separation, all seven world self-tests and three tool self-tests pass.
 
 ## Open work
 
-- Gutter value: still the darkest band (0.020/0.048 albedo), now beside a pale top.
-- Tagged ground: some junction kerb faces and gutters still carry edge-on
-  normals (cos ≈ −0.000, admitted by the contract's tolerance).
+- ~~Gutter value: still the darkest band (0.020/0.048 albedo), now beside a pale top.~~
+  **2026-10-11:** the two strips were swapped and overlapping, so the meeting line
+  was never drawn and the band was one flat GUTTER value. Fixed: 0-0.10 m meeting
+  line (0.030), 0.10-0.34 m gutter (0.075). Row profile across the kerb at
+  `01g-kerb-face`: road 98, gutter 75, line 54, kerb face (was one band at 67).
+- ~~Tagged ground: some junction kerb faces and gutters still carry edge-on
+  normals~~ **2026-10-11:** kerb-face normals come from the segment itself; gutter
+  strips are skipped on segments that run along the road normal. 0 edge-on over five
+  chunks (was 276 kerb faces, 552 gutter slivers); the contract now requires cos > 0.05.
 - Final build/check suite, independent vision verdict, and root integration.

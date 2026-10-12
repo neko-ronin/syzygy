@@ -157,7 +157,9 @@ const quatRotAbs = (q: Vec4): number[] => {
 export function propAabb(position: Vec3, rotation: Vec4, scale: number, kind: PropKind): [Vec3, Vec3] {
   const s = PROP_SIZE[kind];
   const m = quatRotAbs(rotation);
-  const hx = s[0] * scale, hy = s[1] * scale, hz = s[2] * scale;
+  // A pipe's scale is its length; its girth is fixed (see the downpipe placement).
+  const lat = kind === PropKind.Pipe ? 1 : scale;
+  const hx = s[0] * lat, hy = s[1] * scale, hz = s[2] * lat;
   const ex = Math.abs(m[0]) * hx + Math.abs(m[1]) * hy + Math.abs(m[2]) * hz;
   const ey = Math.abs(m[3]) * hx + Math.abs(m[4]) * hy + Math.abs(m[5]) * hz;
   const ez = Math.abs(m[6]) * hx + Math.abs(m[7]) * hy + Math.abs(m[8]) * hz;
@@ -774,12 +776,18 @@ function placeProps(
     if (n >= budget) return;
   }
 
-  // Corner downpipes run the full height — the vertical read of the facade.
-  if (n < budget && r.next() < 0.75) {
+  // Corner downpipes: the vertical read of the facade, from the street to half
+  // height. The first setback can be as low as 50% (3-tier split) and tiers are
+  // rolled at bake time, so a taller pipe would stand beside a narrower tier.
+  // Scale is LENGTH only (12 m units); the radius is fixed. It used to scale the
+  // radius too and centre on mid-tower: 9 m wide dark slabs from 48% to 148% of
+  // the half-height on 300 m towers.
+  const pipeLen = hy - 4;
+  if (n < budget && pipeLen >= 4 && r.next() < 0.75) {
     const face = r.int(0, 3);
     const halfW = face < 2 ? hz : hx;
-    const p = faceAt(face, halfW * 0.94, baseY + hy * 0.98);
-    put(PropKind.Pipe, p, face, hy / 12, style.palette.metal, false);
+    const p = faceAt(face, halfW * 0.94, baseY + 3 + pipeLen / 2);
+    put(PropKind.Pipe, p, face, pipeLen / 12, style.palette.metal, false);
   }
 
   // Rooftop: the solarpunk layer. Parapets, planters, canopies, trees, tanks.

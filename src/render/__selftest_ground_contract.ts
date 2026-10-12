@@ -83,7 +83,9 @@ for (let t = 0; t < baked.opaque.indices.length; t += 3) {
     requireThat(up > 0, 'both emitted road halves must face upward, matching their authored normal');
   }
   groundClasses.add(decoded.surface);
-  requireThat(windingCos(baked.opaque, t) > -0.05, `${decoded.surface} winding must face its authored normal, or the back-face cull hides it`);
+  // Tagged ground must face its normal clearly: edge-on (|cos| < 0.05) means the
+  // normal lies in the face, and junction kerbs were lit and wound by chance.
+  requireThat(windingCos(baked.opaque, t) > 0.05, `${decoded.surface} winding must face its authored normal, not lie edge-on in its plane`);
   const keys = vertices.map((i) => Array.from(baked.opaque.positions.subarray(i * 3, i * 3 + 3), (v) => v.toFixed(4)).join(','));
   (kerbTris[decoded.surface] ??= []).push({ keys, ys: vertices.map((i) => baked.opaque.positions[i * 3 + 1]) });
 }

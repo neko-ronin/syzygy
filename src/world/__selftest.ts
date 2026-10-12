@@ -290,6 +290,10 @@ export function runCitySelfTest(): string {
         fail('inverted prop aabb');
       }
       if (p.scale <= 0 || !finite(p.scale)) fail('bad prop scale');
+      // A downpipe is a pipe at any length: its girth must not scale with it.
+      if (p.kind === PropKind.Pipe && Math.max(p.aabbMax[0] - p.aabbMin[0], p.aabbMax[2] - p.aabbMin[2]) > 1) {
+        fail(`downpipe ${(p.aabbMax[0] - p.aabbMin[0]).toFixed(1)} m wide`);
+      }
     }
     for (const br of c.bridges) {
       bridges++;

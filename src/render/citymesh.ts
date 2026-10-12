@@ -619,7 +619,8 @@ function pushProp(
     }
     case PropKind.Pipe: {
       bld.pushTubeAlongPath(
-        [P(0, -6 * s, 0), P(0, 6 * s, 0)], 0.18 * s, 5, tint(pal.metal, 0.9),
+        // Scale is length only; a scaled radius made 9 m wide slabs on tall towers.
+        [P(0, -6 * s, 0), P(0, 6 * s, 0)], 0.18, 5, tint(pal.metal, 0.9),
       );
       break;
     }

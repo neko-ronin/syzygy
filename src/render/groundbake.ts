@@ -528,13 +528,18 @@ const METAL: Vec3 = [0.16, 0.17, 0.18];
  * the spec's three-metre bar. Value is a fraction of the darkest authored band
  * (asphalt, 0.150) so it stays the darkest thing on the ground at any district.
  */
-const GUTTER: Vec3 = [0.048, 0.052, 0.058];
+//
+// Lifted 2026-10-11 from [0.048, 0.052, 0.058] (~1/3 of asphalt): the Round 13
+// vision verdict read the near-black strip as a channel cut into the road
+// rather than the joint under a raised kerb ("the contrast is too isolating").
+// That strip was all GUTTER: it covered the meeting line (see the bake).
+const GUTTER: Vec3 = [0.075, 0.079, 0.086];
 /**
  * The kerb/road meeting line. Darker than the gutter by design: this is the
  * shadowed gap between two stones, and the gutter either side is the graded
  * shadow that makes it read as a joint rather than as a stripe.
  */
-const DEEP_JOINT: Vec3 = [0.020, 0.021, 0.024];
+const DEEP_JOINT: Vec3 = [0.030, 0.031, 0.035];   // was [0.020, 0.021, 0.024]; the 10 cm line stays crisp
 const DARK: Vec3 = [0.055, 0.058, 0.062];
 const TIMBER: Vec3 = [0.26, 0.17, 0.10];
 const LEAF: Vec3 = [0.075, 0.21, 0.055];
@@ -913,7 +918,16 @@ function emitTrace(
       // surface that has to read as a kerb; its authored tag admits it to the
       // ground shader independently of its normal, colour, or world height.
       const yLo = GROUND_Y, yHi = GROUND_Y + kh;
-      const face: Vec3 = [-anx * side, 0, -anz * side];
+      // The normal comes from the segment itself, not the road normal at `a`.
+      // At junctions the edge search jumps sideways, the segment runs ALONG the
+      // road normal, and `-an` was in the face's own plane: 276 kerb faces
+      // (354 m², five chunks) lit edge-on and wound by a coin toss.
+      const sdx = bxE2 - axE2, sdz = bzE2 - azE2, sLen = Math.hypot(sdx, sdz);
+      if (sLen < 1e-4) continue;
+      const alongNormal = Math.abs((sdx * anx + sdz * anz) / sLen);
+      let fnx = sdz / sLen, fnz = -sdx / sLen;
+      if (fnx * anx * side + fnz * anz * side > 0) { fnx = -fnx; fnz = -fnz; }
+      const face: Vec3 = [fnx, 0, fnz];
       bld.pushQuad(
         [axE2, yLo, azE2], [bxE2, yLo, bzE2], [bxE2, yHi, bzE2], [axE2, yHi, azE2],
         grammar.kerbAlbedo, 1, { normals: [face, face, face, face], surfaceTag: groundSurfaceTag('kerb-face', walkingFamily(grammar), kh) },
@@ -952,20 +966,29 @@ function emitTrace(
       const gDeep = 0.10;
       const gOut = 0.34;
       const lift = (d: number): number => GROUND_Y + 0.006 + d * 0.004;
-      bld.pushQuad(
-        [axE2 - anx * side * gDeep, lift(0), azE2 - anz * side * gDeep],
-        [bxE2 - bnx * side * gDeep, lift(0), bzE2 - bnz * side * gDeep],
-        [bxE2 - bnx * side * gOut, lift(1), bzE2 - bnz * side * gOut],
-        [axE2 - anx * side * gOut, lift(1), azE2 - anz * side * gOut],
-        DEEP_JOINT, 1, { normals: UP4, surfaceTag: groundSurfaceTag('gutter', grammar.pavement) },
-      );
-      bld.pushQuad(
-        [axE2 - anx * side * gOut, lift(1), azE2 - anz * side * gOut],
-        [bxE2 - bnx * side * gOut, lift(1), bzE2 - bnz * side * gOut],
-        [bxE2, lift(2), bzE2],
-        [axE2, lift(2), azE2],
-        GUTTER, 1, { normals: UP4, surfaceTag: groundSurfaceTag('gutter', grammar.pavement) },
-      );
+      // Offset along the road normal, a strip on a segment that runs along that
+      // normal folds into a vertical sliver (552 of them, 0.05 m² each, lit as
+      // floor). No joint to draw there.
+      // The strips were swapped and overlapping: DEEP spanned 0.10-0.34 m and
+      // GUTTER 0-0.34 m, 4 mm above it, so the meeting line was never visible
+      // and the "graded joint" was one flat strip (measured: a single value
+      // across the band). Now DEEP is the 0-0.10 m line at the kerb foot.
+      if (alongNormal <= 0.7) {
+        bld.pushQuad(
+          [axE2, lift(1), azE2],
+          [bxE2, lift(1), bzE2],
+          [bxE2 - bnx * side * gDeep, lift(1), bzE2 - bnz * side * gDeep],
+          [axE2 - anx * side * gDeep, lift(1), azE2 - anz * side * gDeep],
+          DEEP_JOINT, 1, { normals: UP4, surfaceTag: groundSurfaceTag('gutter', grammar.pavement) },
+        );
+        bld.pushQuad(
+          [axE2 - anx * side * gDeep, lift(0), azE2 - anz * side * gDeep],
+          [bxE2 - bnx * side * gDeep, lift(0), bzE2 - bnz * side * gDeep],
+          [bxE2 - bnx * side * gOut, lift(0), bzE2 - bnz * side * gOut],
+          [axE2 - anx * side * gOut, lift(0), azE2 - anz * side * gOut],
+          GUTTER, 1, { normals: UP4, surfaceTag: groundSurfaceTag('gutter', grammar.pavement) },
+        );
+      }
 
       if (lod > 0) continue;
 
