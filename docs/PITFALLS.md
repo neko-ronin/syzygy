@@ -804,6 +804,22 @@ reported as passing; read the line. Bug wiki: `syzygy-ts-corridor-pose-abreast-0
 
 ---
 
+## 25. Thirty-nine thousand props, and most of them inside the walls
+
+**Symptom:** a vision review found street walls bare: no AC units, signs, planting. The
+generator placed tens of thousands of each, and every count and budget looked healthy.
+
+**Cause:** three frames disagreed. Placement offset props along an unrotated wall
+normal, slid them along world x on every face (through the wall on x faces), and used
+the base footprint for every tier; the bake ignored each prop's rotation; tower tiers
+were rolled at bake time from the chunk RNG, so the generator could not know them.
+Measured: 32% of facade props on their wall, 39% buried, 29% floating.
+
+**Fix:** one definition of a building's surface (`towerTiers`, `buildingPoint`) used by
+both the shell bake and placement, and a self-test that every facade prop is on its
+tier's wall. **Catch it next time:** a count of emitted items is not evidence they are
+visible; measure where they are relative to what they attach to.
+
 ## Working norms that held up
 
 - **Measure before theorising.** Every bug above cost far less time to measure

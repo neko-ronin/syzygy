@@ -452,3 +452,19 @@ with the camera as stable texture, no visible strobing. The temporal second
 difference is noise-limited (sky region 13–20 from tower edges sweeping across), and
 shows distant towers equal (18.6 vs 18.4) and near towers calmer (15.6 → 11.4: the
 floating pilasters and pipe slabs are gone).
+
+## 2026-10-12 — cold boot, street band cost, final runs
+
+**Cold boot** (benchmark `startup.streamSettled`: pose set → nothing left to stream or
+re-bake, natural streaming): navigation → ready 0.6 s; hero 3.1 s / 141 chunks, skyline
+2.7 s / 90 chunks; 60 fps with 0 intervals over 33 ms during boot.
+
+**Street band.** Facade props now sit on their walls (32% before) and a street band dresses
+floors 0–3: LOD 0 chunks 92k → 107k triangles. At LOD 1 it first added ~6k triangles to
+each of ~130 chunks, drawn again by the shadow cascades: flight GPU completion p95 18 → 24
+ms, 9–11 intervals over 33 ms. Street-band kinds are now near-field only (LOD 1 32.6k,
+below the 32.9k before the band).
+
+**Final** (`9ea641e`, headless, 1600 × 900): fixed 59.99 / 60.00 / 59.96 (flight re-run
+after the lantern restore); adaptive 60.00 / 60.02 / 59.94, held `high`. One adaptive flight
+run measured 59.24 with 22 slow intervals; the re-run 59.94 / 2 (machine contention).

@@ -42,8 +42,10 @@ world performance at 60 FPS on this Mac, Chrome, 1600 × 900**. The
    window grids on the teal towers, daylight-faded glow); applied. **2026-10-11:** headed
    Chrome 59.99 / 59.86 / 59.94; adaptive 60 throughout; flight simulation max 7 ms.
    Vision review ([VISION_2026-10-11_R14](VISION_2026-10-11_R14.md)): **more work
-   needed** — distance detail done; street-level clutter, district variety, per-lantern
-   pools and night district identity open.
+   needed** — distance detail and (2026-10-12) night district identity done; street
+   band in place but sparse and absent from the hero facades; per-lantern pools and
+   daytime district variety open. Cold boot 2.7–3.1 s to a fully streamed world.
+   R2 night: owner-accepted 2026-10-11.
 
 **2026-10-11 merge:** two worktrees' uncommitted 2026-10-07 fixes landed: the street-crowd
 pose (PITFALLS §24) and inside-out spheres/cylinders/ribbons (street report Round 8; 35% of

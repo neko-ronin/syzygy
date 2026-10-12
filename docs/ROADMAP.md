@@ -145,7 +145,12 @@ populated street before.
 
 ## R2 — Fix the night
 
-**Status: in progress — awaiting the owner's day/night judgement.** Re-measured
+**Status: owner-accepted 2026-10-11** ("Everything looks good", having seen the
+same-camera day/night pairs for skyline, market and hero). The provisional "night
+must be the brightest frame" criterion is retired by that judgement. Open, from the
+R14 review: a distinct ground pool per lantern (LEGIBILITY §4); a radius/pitch
+attempt on 2026-10-12 darkened the foreground without visible pools and was
+reverted ([VISION_2026-10-11_R14](VISION_2026-10-11_R14.md)). Re-measured
 2026-10-11 after facades and lit windows reached the screen: market night mean luma
 **27.7** (was 6.21), 21% warm pixels (aisle warm was 0.00); lantern cores and warm
 pools with visible joints, two pools on the aisle (§4 proposes three).
