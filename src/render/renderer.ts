@@ -70,6 +70,8 @@ const BAKE_BUDGET_MS = 4;
 const MAX_INFLIGHT_BAKES = 2;
 /** Main-thread time for uploading finished bakes per frame; at least one always goes. */
 const UPLOAD_BUDGET_MS = 3;
+/** Crowd obstacles come from chunks within this of the camera: viewRadius 240 + pad 40 + retirement lag. */
+const CROWD_OBSTACLE_REACH_M = 384;
 
 // ---------------------------------------------------------------- resources
 
@@ -288,7 +290,10 @@ export class Renderer {
   streamSync = false;
   private residencyRevision = 0;
   private obstacleBuiltAt = 0;
+  private obstacleSig = '';
   private obstacleCache: { revision: number; obstacles: BakedChunk['obstacles'] } = { revision: -1, obstacles: [] };
+  /** Camera x/z at the last stream pass: the crowd lives around it (`crowdObstacles`). */
+  private crowdCentre: [number, number] = [0, 0];
   private walkingCache: { revision: number; parts: Map<string, Float32Array> } = { revision: -1, parts: new Map() };
   /**
    * Bumps only when a chunk carrying walking triangles arrives or leaves (LOD 0
@@ -1043,6 +1048,7 @@ export class Renderer {
     const pcx = Math.floor(cam.position[0] / cs);
     const pcz = Math.floor(cam.position[2] / cs);
     const r = this.q.viewDistance;
+    this.crowdCentre = [cam.position[0], cam.position[2]];
 
     if (this.pendingBakes.length === 0) {
       // Rebuild the priority list only when it's been drained, sorted by
@@ -2457,16 +2463,31 @@ export class Renderer {
     if (signature(this.captureResidency()) !== signature(saved)) throw new Error('residency replay did not reproduce saved keys and LODs');
   }
   crowdObstacles() {
-    // Every upload bumps the revision and the crowd re-indexes all solids
-    // (~1.7 ms, more at LOD 0). A tier change uploads a chunk nearly every frame
-    // for ~10 s, so streaming rebuilds at most every 250 ms; crowd `recovery`
-    // already handles a solid appearing around a body. Synchronous (warm,
-    // capture) streaming stays exact so captures are deterministic.
+    // Only chunks the crowd can reach. Agents live within `viewRadius` (<= 240 m)
+    // of the camera, plus the grid's 40 m pad and slice-retirement lag at flight
+    // speed. Indexing every resident chunk (~160) cost 3.5-6.5 ms on each chunk
+    // crossing in flight; this is ~20 chunks.
+    //
+    // Rebuilt when that set or any member's version changes, at most every
+    // 250 ms while streaming asynchronously (a tier change uploads nearly every
+    // frame for ~10 s; crowd `recovery` handles a solid appearing around a body).
+    // Synchronous (warm, capture) streaming stays exact so captures are
+    // deterministic.
+    const cs = this.city.cfg.chunkSize, half = cs / 2, reach2 = CROWD_OBSTACLE_REACH_M * CROWD_OBSTACLE_REACH_M;
+    const near: ChunkEntry[] = [];
+    let sig = '';
+    for (const e of this.chunks.values()) {
+      const ex = Math.max(0, Math.abs(this.crowdCentre[0] - (e.cx + 0.5) * cs) - half);
+      const ez = Math.max(0, Math.abs(this.crowdCentre[1] - (e.cz + 0.5) * cs) - half);
+      if (ex * ex + ez * ez > reach2) continue;
+      near.push(e);
+      sig += `${e.version},`;
+    }
     const now = performance.now();
-    if (this.obstacleCache.revision !== this.residencyRevision &&
-        (this.streamSync || !this.baker || now - this.obstacleBuiltAt >= 250)) {
+    if (sig !== this.obstacleSig && (this.streamSync || !this.baker || now - this.obstacleBuiltAt >= 250)) {
       this.obstacleBuiltAt = now;
-      this.obstacleCache = { revision: this.residencyRevision, obstacles: [...this.chunks.values()].flatMap((c) => c.obstacles) };
+      this.obstacleSig = sig;
+      this.obstacleCache = { revision: this.obstacleCache.revision + 1, obstacles: near.flatMap((c) => c.obstacles) };
     }
     return this.obstacleCache;
   }
