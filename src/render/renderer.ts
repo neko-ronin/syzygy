@@ -211,6 +211,12 @@ export interface RendererStats {
   frustumCulled: number;
   /** Resident chunks still baked at the wrong detail level. Non-zero while a tier change settles. */
   rebakePending: number;
+  /**
+   * Chunks inside the stream radius not yet resident: queued, baking or awaiting
+   * upload. `rebakePending` counts only wrong-detail chunks, so a warm that
+   * settled on it alone photographed a world 35 chunks short (aerial pose).
+   */
+  streamPending: number;
   /** Fraction of resident chunks at each detail level, index = lod. */
   lodHistogram: number[];
   /**
@@ -483,7 +489,7 @@ export class Renderer {
     },
     tileBins: { bins: 0, capacity: 0, maxPerTile: 0, refusedTiles: 0 },
     tier: 'high', bakeMs: 0, uploadMs: 0, frustumCulled: 0,
-    rebakePending: 0, lodHistogram: [0, 0, 0, 0],
+    rebakePending: 0, streamPending: 0, lodHistogram: [0, 0, 0, 0],
     captureMs: 0,
     shafts: { strength: 0, passRan: false, sunOnScreen: false, sunUv: [0, 0] },
     capturePhases: {
@@ -1113,6 +1119,10 @@ export class Renderer {
       for (const j of this.inflight.values()) if (j.rebake) pending++;
       for (const j of this.bakedReady) if (j.rebake) pending++;
       this.stats.rebakePending = pending;
+      let fresh = this.pendingBakes.length;
+      for (const j of this.inflight.values()) if (!j.rebake) fresh++;
+      for (const j of this.bakedReady) if (!j.rebake) fresh++;
+      this.stats.streamPending = fresh;
       return;
     }
 
@@ -1151,6 +1161,7 @@ export class Renderer {
     if (ms > 0.05) { this.bakeAccum = this.bakeAccum * 0.88 + ms * 0.12; this.stats.bakeMs = this.bakeAccum; }
     if (baked) this.evictChunks(r);
     this.stats.rebakePending = this.rebakeQueue.length;
+    this.stats.streamPending = this.pendingBakes.length;
   }
 
   private startBaker(): void {

@@ -80,6 +80,7 @@ export interface WarmReport {
   residentChunks: number;
   visibleChunks: number;
   rebakePending: number;
+  streamPending: number;
   lodHistogram: number[];
   triangles: number;
   tier: string;
@@ -265,21 +266,23 @@ class App {
     for (; ticks < maxTicks; ticks++) {
       this.tick(performance.now(), false);
       const s = this.renderer.stats;
-      if (s.residentChunks >= target && s.rebakePending === 0) { stopped = 'target'; break; }
+      // Settled means nothing left to stream as well as nothing to re-bake: a
+      // count target alone stopped the aerial pose 35 chunks short of its view.
+      if (s.residentChunks >= target && s.rebakePending === 0 && s.streamPending === 0) { stopped = 'target'; break; }
       if (performance.now() - t0 > maxMs) { stopped = 'ms-cap'; break; }
       // "No progress" means no new chunks *and* nothing left to re-bake. Without
       // the rebake clause a warm stops the moment residency plateaus while LODs
       // are still wrong for the camera, and reports `no-progress` as though the
       // world were settled — which is exactly the state that makes a capture
       // quietly low-detail.
-      if (s.residentChunks === last && s.rebakePending === 0) { if (++stall >= 8) { stopped = 'no-progress'; break; } }
+      if (s.residentChunks === last && s.rebakePending === 0 && s.streamPending === 0) { if (++stall >= 8) { stopped = 'no-progress'; break; } }
       else { stall = 0; last = s.residentChunks; }
     }
     const s = this.renderer.stats;
     const report: WarmReport = {
       target, ticks, ms: Math.round(performance.now() - t0), stopped,
       residentChunks: s.residentChunks, visibleChunks: s.visibleChunks,
-      rebakePending: s.rebakePending, lodHistogram: s.lodHistogram.slice(),
+      rebakePending: s.rebakePending, streamPending: s.streamPending, lodHistogram: s.lodHistogram.slice(),
       triangles: s.triangles, tier: s.tier,
     };
     this.lastWarm = report;

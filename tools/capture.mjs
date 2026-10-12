@@ -128,18 +128,6 @@ const POSES = [
     settle: 30,
   },
   {
-    // R2 asks for the wide skyline at both phases, side by side: whether night
-    // out-reads day is the owner's call from the pair, not from a mean.
-    // Same camera, lens and weather; phase, exposure and bloom as 09-market-down.
-    name: '01-wide-skyline-night',
-    label: 'wide skyline, SAME camera as 01-wide-skyline, night',
-    position: [900, 120, 1400], lookAt: [0, 200, 0], fov: 1.12, roll: 0,
-    time: 'night',
-    weather: { sky: 'night', cloudCover: 0.34, haze: 0.22, aerialHaze: 0.4 },
-    lens: { tiltShift: 0.62, focusWidth: 0.34, fov: 1.12, exposure: 1.28, bloom: 0.8 },
-    settle: 30,
-  },
-  {
     // NOT a ground-contact check any more. This stands at (1833, 6, 1760),
     // about 1.2 km from the dense districts and inside a block with no
     // carriageway near it, so it cannot show whether a building meets the
@@ -327,6 +315,20 @@ const POSES = [
     weather: { sky: 'clear', haze: 0.25 },
     lens: { fov: 1.05, bloom: 0.3, exposure: 0.92, saturation: 1.08, vignette: 0.34 },
     settle: 40,
+  },
+  {
+    // R2 asks for the wide skyline at both phases, side by side: whether night
+    // out-reads day is the owner's call from the pair, not from a mean.
+    // Same camera, lens and weather; phase, exposure and bloom as 09-market-down.
+    // LAST in the list: poses without `time` inherit the previous phase, and in
+    // second place it turned every later pose (01a, 05-aerial...) into night.
+    name: '01-wide-skyline-night',
+    label: 'wide skyline, SAME camera as 01-wide-skyline, night',
+    position: [900, 120, 1400], lookAt: [0, 200, 0], fov: 1.12, roll: 0,
+    time: 'night',
+    weather: { sky: 'night', cloudCover: 0.34, haze: 0.22, aerialHaze: 0.4 },
+    lens: { tiltShift: 0.62, focusWidth: 0.34, fov: 1.12, exposure: 1.28, bloom: 0.8 },
+    settle: 30,
   },
 ];
 
@@ -648,6 +650,8 @@ async function warmPose(page, chunks, maxTicks) {
         // tier's `viewDistance`, so it plateaus well below the warm target and
         // the comparison can never be satisfied.
         pending: st.rebakePending ?? 0,
+        // Chunks not yet resident at all; rebakePending never counted them.
+        streaming: st.streamPending ?? 0,
       };
     }).catch(() => null);
     // TWO conditions, and only the first is a precondition for a correct frame.
@@ -665,7 +669,7 @@ async function warmPose(page, chunks, maxTicks) {
     // capture this project has ever taken, and it has been read as a measurement
     // rather than as a symptom (PITFALLS.md §12).
     const lodOk = !!settled && settled.lod === 0;
-    const drained = !!settled && settled.pending === 0;
+    const drained = !!settled && settled.pending === 0 && settled.streaming === 0;
     if (lodOk && drained) return { ...report, passes: i + 1 };
     if (report?.stopped === 'target' && lodOk) return { ...report, passes: i + 1 };
     await sleep(60);
@@ -677,7 +681,7 @@ async function warmPose(page, chunks, maxTicks) {
       ? 'could not read the renderer state'
       : settled.lod !== 0
         ? `camera chunk is at LOD ${settled.lod}, not 0`
-        : `bake queue still holds ${settled.pending} chunk(s)`;
+        : `bake queue still holds ${settled.pending} rebake(s) and ${settled.streaming} unstreamed chunk(s)`;
     say(`    ! warm did not settle in 12 passes: ${why} ` +
       `(resident ${settled?.resident ?? report.residentChunks}, ` +
       `lod [${report.lodHistogram.join(',')}]) — the frame may be low-detail`);
