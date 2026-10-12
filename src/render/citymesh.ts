@@ -810,7 +810,12 @@ export function bakeChunk(chunk: CityChunk, lod: number, seed: number): BakedChu
     // Cheap LOD gate: drop the noisy kinds first.
     if (lod >= 1) {
       const k = p.kind;
-      if (k === PropKind.LaundryLine || k === PropKind.Awning || k === PropKind.Railing) continue;
+      // Street-band detail (balconies, blade signs) is near-field only: at LOD 1 it
+      // added ~6k triangles to each of ~130 chunks and the shadow passes, and GPU
+      // completion p95 rose 18 -> 24 ms in flight.
+      if (k === PropKind.LaundryLine || k === PropKind.Awning || k === PropKind.Railing ||
+          k === PropKind.Balcony || k === PropKind.Sign) continue;
+      if ((k === PropKind.ACUnit || k === PropKind.Planter) && p.position[1] < GROUND_Y + 16) continue;
       if (rng.next() < 0.55) continue;
     }
     if (lod >= 2 && rng.next() < 0.7) continue;
