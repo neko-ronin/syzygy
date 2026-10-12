@@ -109,6 +109,13 @@ struct Facade {
 };
 
 /**
+ * How much authored light is on: 1 at dusk and night (sun sin-elevation under
+ * 0.02), 0 by mid-morning. Glowing windows read as dots in daylight and noon
+ * lanterns as flat white hexagons (D27).
+ */
+fn lightsOn() -> f32 { return 1.0 - smoothstep(0.02, 0.25, F.sunDir.y); }
+
+/**
  * Detail that survives distance. A 3.1 x 3.6 m window cell is ~4 px at 1 km and
  * TAA averages it to a flat wall, so towers need structure at a lower spatial
  * frequency: a louvred mechanical floor every 8-13 storeys (per building) and
@@ -134,9 +141,7 @@ fn facade(
   world: vec3f, n: vec3f, base: vec3f, accent: vec3f, seed: f32,
   floorH: f32, detail: f32, mirror: f32,
 ) -> Facade {
-  // Interior light is a night feature: full at dusk and night (sun sin-elevation
-  // under 0.02), gone by mid-morning. Glowing windows read as dots in daylight.
-  let lightsOn = 1.0 - smoothstep(0.02, 0.25, F.sunDir.y);
+  let lights = lightsOn();
   // `mirror` 1: glass mirrors the cladding (teal/pastel towers), so the window
   // grid stays a near-imperceptible texture and the tower keeps its colour.
   // Work in a 2D frame on the wall: u = horizontal, v = height.
@@ -217,8 +222,8 @@ fn facade(
         let bright = 0.35 + 3.2 * pow(hash21(cellId * 5.7 + seed), 3.0);
         // Fluorescent interiors are flatter; lamps read as a hot core.
         let core = 1.0 - smoothstep(0.0, 0.35, min(abs(fx - 0.5), abs(fy - 0.5)));
-        emis = warm * bright * (0.55 + core * 0.9) * lightsOn;
-        alb = mix(alb, warm * 0.5, 0.4 * lightsOn);
+        emis = warm * bright * (0.55 + core * 0.9) * lights;
+        alb = mix(alb, warm * 0.5, 0.4 * lights);
       }
       // Blinds / curtains occlude part of the aperture.
       let blind = step(0.72, kind) * step(0.5, fract(fy * 6.0 + r));
@@ -253,14 +258,14 @@ fn facade(
         // Neon: saturated accent, gated by cell hash so only some are on.
         let on = step(0.42, hash21(vec2f(colIdx * 7.7, floorIdx * 2.1) + seed));
         let neon = mix(accent, vec3f(1.0, 0.35, 0.22), hash11(colIdx * 3.1 + seed));
-        emis += neon * signBand * on * (2.2 + 2.0 * hash11(colIdx * 9.1)) * mix(0.35, 1.0, lightsOn);
+        emis += neon * signBand * on * (2.2 + 2.0 * hash11(colIdx * 9.1)) * mix(0.35, 1.0, lights);
         alb = mix(alb, vec3f(0.03), signBand * 0.7);
       }
       // Window display, warmly lit from inside.
       let disp = step(0.42, gy) * (1.0 - step(0.70, gy));
       let glow = 0.25 + 0.75 * hash11(colIdx * 13.7 + floorIdx + seed);
       alb = mix(alb, mix(vec3f(0.04, 0.045, 0.05), vec3f(0.9, 0.72, 0.5) * glow, 0.55), disp * 0.85);
-      emis += vec3f(0.85, 0.66, 0.44) * disp * glow * 1.5 * mix(0.3, 1.0, lightsOn);
+      emis += vec3f(0.85, 0.66, 0.44) * disp * glow * 1.5 * mix(0.3, 1.0, lights);
       // Awning stripe.
       let aw = step(0.62, gy) * (1.0 - step(0.70, gy));
       let stripe = step(0.5, fract(u * 0.7 + shopKind * 3.0));
@@ -625,7 +630,9 @@ fn fs(i: VSOut) -> GOut {
   var base = i.color;
   var rough = i.rough;
   var metal = select(0.0, 0.85, i.matId == MAT_METAL);
-  var emis = i.color * i.emis;
+  // Authored emitters (lanterns 5.5, signs, beacons) keep 15% by day: at full
+  // strength a noon lantern saturated to a flat white hexagon.
+  var emis = i.color * i.emis * mix(0.15, 1.0, lightsOn());
   var ao = 1.0;
   var alpha = i.tint;
 

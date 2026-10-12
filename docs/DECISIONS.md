@@ -672,4 +672,7 @@ just enough to ground each tower as a banal building. Interior window glow fades
 - Other districts keep dark glass (terracotta's lit grid reads well and was not in scope).
 - Window glow follows `F.sunDir.y`: full at dusk and night, gone by mid-morning; shop displays and
   neon dim to ~1/3 by day.
+- 2026-10-11: authored per-vertex emitters (lanterns, signs, beacons) keep 15% by day. Once
+  facades reached the screen the noon lanterns saturated to flat white hexagons, which the R14
+  vision review read as UI markers; night frames are pixel-identical (4% fuzz).
 - Frame-edge lens streaks: accepted for now.
