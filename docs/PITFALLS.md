@@ -820,6 +820,21 @@ both the shell bake and placement, and a self-test that every facade prop is on 
 tier's wall. **Catch it next time:** a count of emitted items is not evidence they are
 visible; measure where they are relative to what they attach to.
 
+## 26. No time of day lights a −z face
+
+**Symptom:** a feature pose (scaffold, terraces) read flat and grey-green "in shade"
+at noon, and moving the clock did not help.
+
+**Cause:** `sunDirection` is `(cos az · ce, sin el, sin az · ce)` with elevation
+`sin(az) · 1.15 − 0.06`, so the sun is above the horizon only while `sin az > 0`: its
+whole path stays on the +z side. A face whose outward normal points −z never gets
+direct sun; at noon the sun is due +z, so ±x faces are only grazed (morning lights +x).
+
+**Fix:** pick the subject by its face normal (`towerTiers` + the face's local axis
+rotated by `rotationY`), not by position: pose 12 moved to a scaffold facing +z.
+**Catch it next time:** before tuning a material that "reads in shade", check the
+face normal against the sun path.
+
 ## Working norms that held up
 
 - **Measure before theorising.** Every bug above cost far less time to measure

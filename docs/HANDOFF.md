@@ -53,6 +53,13 @@ world performance at 60 FPS on this Mac, Chrome, 1600 × 900**. The
    planted terrace bands, which also put planting on the hero frame's left facade.
    Tried and reverted: bunting on power cables (they hang 20–260 m up; needs low-level
    strings placed by the generator). Not yet independently reviewed.
+   **2026-10-13 (review 4 fixes, `b751c69`):** downtown height envelope (a peak, not a
+   plateau) and the skyline poses moved over the old town onto it; ruins cut down in the
+   generator (props had floated over them), kiln-yard ember beds, ember-lit openings,
+   braziers, raised forge lights; scaffolds carry stacked bolted-on rooms (sheet B);
+   terraces overgrown (sheet D), the dark facade triangle (a vine quad on the wall plane)
+   removed; produce trays on market counters. A/B: no measurable cost. Street furniture
+   in the open middle of the market spine left out on purpose (STREET_SPEC §F).
 
 **2026-10-11 merge:** two worktrees' uncommitted 2026-10-07 fixes landed: the street-crowd
 pose (PITFALLS §24) and inside-out spheres/cylinders/ribbons (street report Round 8; 35% of

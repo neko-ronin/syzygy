@@ -468,3 +468,19 @@ below the 32.9k before the band).
 **Final** (`9ea641e`, headless, 1600 × 900): fixed 59.99 / 60.00 / 59.96 (flight re-run
 after the lantern restore); adaptive 60.00 / 60.02 / 59.94, held `high`. One adaptive flight
 run measured 59.24 with 22 slow intervals; the re-run 59.94 / 2 (machine contention).
+
+## 2026-10-13 — review 4 fixes (`b751c69`), same-window A/B
+
+Reports: `benchmarks/review4-ab/` (hero pass runs, base = `6301ae6`). The machine was loaded throughout (`opencode` at 80–90% CPU), so absolute numbers moved run
+to run; the comparison is interleaved against a worktree at `6301ae6`, same window.
+
+- **All routes, fixed high** (base / new, two pairs): hero 57.1 / 57.2 then 57.5 / 50.6;
+  skyline 60.0 / 60.0 twice; flight 58.4 / 58.7 then 58.5 / 56.6.
+- **Hero GPU passes** (`--gpu-passes`, four pairs, alternating which side runs first): span
+  base 14.89, 14.96, 17.79, 17.03 ms; new 14.94, 19.04, 15.20, 17.66 ms. Every slow run
+  rose on every pass at once (gbuffer, light binning, lighting together), on either side,
+  which is contention rather than content; best of each side 14.89 vs 14.94 ms.
+
+No measurable cost. The height envelope lowers mean building height 192 → 177 m (analytic
+0.43M → 0.41M triangles over 64 chunks); goods, braziers, fire lights and scaffold rooms add
+near-field geometry only. The benchmark keeps the old skyline camera, `(900, 120, 1400)`.
