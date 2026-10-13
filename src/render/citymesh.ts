@@ -453,8 +453,8 @@ const SCAFFOLD_DECK: Vec3 = [0.30, 0.22, 0.14];
 /** Sunlit terrace planting (sheet D measures ~(91,112,74) sRGB on its foliage). */
 const TERRACE_LEAF: Vec3[] = [[0.20, 0.33, 0.06], [0.26, 0.37, 0.07], [0.15, 0.28, 0.05], [0.30, 0.40, 0.09]];
 const TARPS: Vec3[] = [[0.14, 0.24, 0.34], [0.55, 0.28, 0.12], [0.22, 0.28, 0.20], [0.42, 0.40, 0.36]];
-/** Sheet B's bolted-on rooms: weathered sheet, rust-red panel, faded blue, timber. */
-const ROOMS: Vec3[] = [[0.40, 0.39, 0.37], [0.30, 0.35, 0.39], [0.50, 0.21, 0.15], [0.45, 0.36, 0.25], [0.24, 0.27, 0.29]];
+/** Sheet B's bolted-on rooms: slate sheet, faded blue, rust-red panel, timber, near-black, grey (pale ones read as primitives, review 5). */
+const ROOMS: Vec3[] = [[0.22, 0.24, 0.26], [0.17, 0.22, 0.27], [0.40, 0.15, 0.10], [0.33, 0.24, 0.16], [0.13, 0.15, 0.17], [0.30, 0.31, 0.30]];
 
 /** A point `t` along face `face`, `d` out from its wall, at local height `ly` (from the centre). */
 function facePoint(b: BuildingInstance, face: number, wall: number, t: number, ly: number, d: number): Vec3 {
@@ -529,7 +529,10 @@ export function pushScaffold(bld: MeshBuilder, b: BuildingInstance, dp: District
     // frame, wider and deeper than the decks, on struts back to the wall, each
     // with a lit window. The flush 2 m shacks hid behind the lattice (R14 review 4).
     for (let st = 0, stacks = 1 + r.int(0, 2); st < stacks; st++) {
-      let ry = y + lift * r.int(0, Math.max(0, Math.floor(h / lift) - 1)), rt = mid + r.jitter(W / 2);
+      // Not on the first lift of the first segment: a stack there swallowed the
+      // scaffold's foot and read as a kiosk (R14 review 5).
+      const lo = seg === 0 ? 2 : 0;
+      let ry = y + lift * r.int(lo, Math.max(lo, Math.floor(h / lift) - 1)), rt = mid + r.jitter(W / 2);
       for (let n = 0, high = 1 + r.int(0, 2); n < high && ry + 2.4 < top; n++) {
         const sw = 2.4 + r.next() * 2.2, sh = 2.4 + r.next() * 0.8, sd = 2.2 + r.next() * 1.6;
         const c = ROOMS[r.int(0, ROOMS.length - 1)], yaw = b.rotationY + (face < 2 ? Math.PI / 2 : 0);
@@ -593,8 +596,11 @@ export function pushTerraces(bld: MeshBuilder, leafBld: MeshBuilder, b: Building
       for (let k = 0, nt = lod < 1 ? (r.next() < 0.7 ? 1 : 0) + (w > 10 && r.next() < 0.5 ? 1 : 0) : 0; k < nt; k++) {
         const t = r.jitter(w * 0.75), th = 2.0 + r.next() * 1.2;
         bld.pushCylinder(Q(t, y, depth * 0.5), Q(t, y + th, depth * 0.5), 0.09, 4, [0.12, 0.08, 0.05]);
-        leafBld.pushSphere(Q(t, y + th + 0.5, depth * 0.5), 1.2 + r.next() * 0.4, 6, 4, tint3(leaf, 1.05));
-        leafBld.pushSphere(Q(t + r.jitter(0.9), y + th + 0.1, depth * 0.5 + r.jitter(0.6)), 0.8 + r.next() * 0.3, 5, 3, tint3(leaf, 0.85));
+        // A crown of several masses, not one ball on a stick (review 5).
+        for (let m = 0, nm = 4 + r.int(0, 2); m < nm; m++) {
+          const mr = m === 0 ? 1.1 + r.next() * 0.3 : 0.6 + r.next() * 0.45;
+          leafBld.pushSphere(Q(t + (m ? r.jitter(1.1) : 0), y + th + (m ? r.jitter(0.6) : 0.4), depth * 0.5 + (m ? r.jitter(0.8) : 0)), mr, 5, 3, tint3(leaf, 0.8 + r.next() * 0.35));
+        }
       }
       // Vines spilling over the edge in narrow strands of mixed length: wide
       // quads read as solid green panels.

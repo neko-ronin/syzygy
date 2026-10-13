@@ -835,6 +835,18 @@ rotated by `rotationY`), not by position: pose 12 moved to a scaffold facing +z.
 **Catch it next time:** before tuning a material that "reads in shade", check the
 face normal against the sun path.
 
+## 27. A crowd reshuffle reported as a regression
+
+**Symptom:** a before/after review found a pedestrian standing at the hero lens in the
+"after" frame and blamed the change under review.
+
+**Cause:** the crowd seeds agents frame by frame, so the near crowd differs between any two
+`--hero-pair` runs, on the same code too. Two independent runs are not a controlled pair.
+
+**Fix:** shoot the "after" hero pair from the "before" run's saved actors:
+`node tools/capture.mjs --hero-pair --scene=<before>/_scene.json`. Replayed, the pair
+differed only where the code changed.
+
 ## Working norms that held up
 
 - **Measure before theorising.** Every bug above cost far less time to measure

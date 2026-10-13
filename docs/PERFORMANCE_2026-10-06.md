@@ -484,3 +484,7 @@ to run; the comparison is interleaved against a worktree at `6301ae6`, same wind
 No measurable cost. The height envelope lowers mean building height 192 → 177 m (analytic
 0.43M → 0.41M triangles over 64 chunks); goods, braziers, fire lights and scaffold rooms add
 near-field geometry only. The benchmark keeps the old skyline camera, `(900, 120, 1400)`.
+
+**Crown and envelope scatter** (`MAX_FLOORS` 160 → 256, per-lot envelope ±20%; heart towers
+to 819 m): GPU span, two pairs against `6301ae6`: hero 14.25 / 14.21 → 14.40 / 14.40 ms;
+skyline 11.24 / 12.05 → 11.92 / 11.80 ms (gbuffer +0.2–0.35 ms). 59.1–60.1 fps throughout.

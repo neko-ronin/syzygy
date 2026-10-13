@@ -114,8 +114,12 @@ export const defaultCityConfig = (seed: number): CityConfig => ({
 });
 
 export const DISTRICT_CELL = 16;
-/** Hard ceiling on storeys, independent of how short the floor-to-floor is. */
-export const MAX_FLOORS = 160;
+/**
+ * Hard ceiling on storeys, independent of how short the floor-to-floor is. At
+ * 160 it silently capped towers at 512-736 m (160 x 3.2-4.6 m), below
+ * `maxHeight`, so the downtown crown could not rise above its shoulders.
+ */
+export const MAX_FLOORS = 256;
 /** Measured fraction of candidate lots that survive the street/courtyard tests. */
 const LOT_SURVIVAL = 0.11;
 /** Top of the quay / street deck. Everything is built up from here. */
@@ -606,7 +610,10 @@ function makeBuilding(
   // A height envelope falling away from the heart: the boost raised the median
   // but towers 1 km out still reached 666 m against 724 m at the heart, so the
   // skyline was a plateau. Soft knee, so order survives and nothing piles up.
-  const env = 300 + (cfg.maxHeight - 300) * Math.pow(smoothstep(1400, 0, dh), 1.5);
+  // Scattered per lot, from its own stream: one smooth envelope lined the tall
+  // towers up into a straight ramp at 07 (R14 review 5).
+  const env = (300 + (cfg.maxHeight - 300) * Math.pow(smoothstep(1400, 0, dh), 1.5))
+    * (0.8 + 0.4 * lotRng(ix, iz, 7).next());
   if (height > 0.7 * env) height = 0.7 * env + 0.3 * env * (1 - Math.exp(-(height - 0.7 * env) / (0.3 * env)));
   height = Math.max(9, Math.min(cfg.maxHeight, height));
 

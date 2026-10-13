@@ -60,6 +60,11 @@ world performance at 60 FPS on this Mac, Chrome, 1600 × 900**. The
    terraces overgrown (sheet D), the dark facade triangle (a vine quad on the wall plane)
    removed; produce trays on market counters. A/B: no measurable cost. Street furniture
    in the open middle of the market spine left out on purpose (STREET_SPEC §F).
+   Review 5: skyline **done (watch)**, D28 night and §4 pools done; sheets B, C, D and
+   near richness more work. Follow-up: `MAX_FLOORS` capped towers below `maxHeight`
+   (now 256, the heart crowns at 819 m), envelope scattered per lot, ruins blown out with
+   red fire gaps, darker scaffold rooms, fuller tree crowns. Hero pairs for review must
+   replay the base scene (PITFALLS §27).
 
 **2026-10-11 merge:** two worktrees' uncommitted 2026-10-07 fixes landed: the street-crowd
 pose (PITFALLS §24) and inside-out spheres/cylinders/ribbons (street report Round 8; 35% of
