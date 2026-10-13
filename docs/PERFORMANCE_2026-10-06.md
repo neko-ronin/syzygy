@@ -504,3 +504,19 @@ islands add 4.7–7.0k triangles each (13–20 islands, 58–99 pieces, LOD 0 on
 furniture there runs 11–18k: the throttle widens spacing past the budget rather than
 cutting off, by design.
 
+## 2026-10-13 — sheet D foliage, `garden` route
+
+No route saw the green belt (flight passes ~600 m off it at 220 m), so `benchmark.mjs`
+gained `--route=garden`: a held camera at pose 13's position. It is outside `--route=all`,
+so earlier "all" reports stay comparable. Reports: `benchmarks/sheet-d-foliage-ab/`, three
+interleaved pairs against `7e399b6`.
+
+- GPU span base / new: 11.00, 11.84, 11.66 / 12.05, 11.70, 11.98 ms; **about +0.4 ms**, most
+  of it shadow casting (cascades 2+3 alternate run to run, so their sum is the stable
+  figure: 2.74, 2.74, 3.09 / 3.23, 3.30, 3.20 ms). Every run 59.97–60.08/s.
+- Triangles, LOD 0: the densest green-belt chunk (1,4) foliage 194k -> 524k (23 of 31
+  buildings terraced); (0,4) 55k -> 116k; (1,3) 38k -> 69k. LOD 1 unchanged (leaf detail
+  is near-field only). The first pass, without a per-building budget, put 1.04M on (1,4)
+  and 139k on one 123 m tower; `TERRACE_HANG_BUDGET` scales ivy and hanging masses so a
+  building spends about 360 spheres on them, evenly over its bands.
+

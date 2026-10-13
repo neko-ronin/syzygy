@@ -452,6 +452,12 @@ const TERRACE_CHANCE: Record<string, number> = { 'botanical-dome': 0.6, 'verdant
 const SCAFFOLD_DECK: Vec3 = [0.30, 0.22, 0.14];
 /** Sunlit terrace planting (sheet D measures ~(91,112,74) sRGB on its foliage). */
 const TERRACE_LEAF: Vec3[] = [[0.20, 0.33, 0.06], [0.26, 0.37, 0.07], [0.15, 0.28, 0.05], [0.30, 0.40, 0.09]];
+/** Spheres a terraced building spends on ivy and hanging masses at most; see `pushTerraces`. */
+const TERRACE_HANG_BUDGET = 360;
+/** Wall ivy: darker and cooler than the sunlit terrace masses. */
+const IVY: Vec3[] = [[0.10, 0.22, 0.06], [0.13, 0.26, 0.07], [0.08, 0.19, 0.06]];
+/** Blooms on the odd terrace mass: warm pink and cream (sheet D's balcony flowers). */
+const TERRACE_FLOWER: Vec3[] = [[0.72, 0.30, 0.38], [0.80, 0.62, 0.50], [0.66, 0.22, 0.30]];
 const TARPS: Vec3[] = [[0.14, 0.24, 0.34], [0.55, 0.28, 0.12], [0.22, 0.28, 0.20], [0.42, 0.40, 0.36]];
 /** Sheet B's bolted-on rooms: slate sheet, faded blue, rust-red panel, timber, near-black, grey (pale ones read as primitives, review 5). */
 const ROOMS: Vec3[] = [[0.22, 0.24, 0.26], [0.17, 0.22, 0.27], [0.40, 0.15, 0.10], [0.33, 0.24, 0.16], [0.13, 0.15, 0.17], [0.30, 0.31, 0.30]];
@@ -554,59 +560,123 @@ export function pushScaffold(bld: MeshBuilder, b: BuildingInstance, dp: District
   }
 }
 
+/** A draped leaf mass hanging from (t, y): two abreast, tapering slowly as it falls. */
+function hangLeaves(leafBld: MeshBuilder, Q: (t: number, y: number, d: number) => Vec3, t: number, y: number, d: number, fall: number, leaf: Vec3, r: Rng): void {
+  let yy = y, rad = 0.6 + r.next() * 0.35;
+  for (let step = 0; yy > y - fall && rad > 0.24 && step < 12; step++) {
+    const c = tint3(leaf, 0.62 + r.next() * 0.2);
+    leafBld.pushSphere(Q(t - rad * 0.45, yy - rad * 0.5, d), rad, 5, 3, c);
+    leafBld.pushSphere(Q(t + rad * 0.5, yy - rad * 0.8, d - 0.1), rad * 0.85, 5, 3, c);
+    yy -= rad * 1.25; rad *= 0.9; t += r.jitter(0.3);
+  }
+}
+
 export function pushTerraces(bld: MeshBuilder, leafBld: MeshBuilder, b: BuildingInstance, dp: DistrictProfile, lod: number): void {
   const chance = TERRACE_CHANCE[dp.style.key] ?? 0;
   if (!chance || lod >= 2) return;
   const r = makeRng((b.windowSeed ^ 0x7e44ace5) >>> 0);
   if (!r.bool(chance)) return;
-  const T = towerTiers(b)[0], hy = b.halfExtents[1], yBase = -hy, fh = b.floorHeight;
+  const hy = b.halfExtents[1], yBase = -hy, fh = b.floorHeight;
   const faces = [r.int(0, 3)];
   if (r.bool(0.6)) faces.push(faces[0] ^ 1);
-  const every = 2 + r.int(0, 1);
+  const every = 2 + (r.bool(0.3) ? 1 : 0);
   const slabCol = tint3(dp.palette.secondary, 0.95), timber: Vec3 = [0.42, 0.24, 0.11];
-  for (const face of faces) {
-    const half = face < 2 ? T.hz : T.hx, wall = face < 2 ? T.hx : T.hz, w = half * 0.86;
-    // Ten bands at most per face: a 180 m tier would otherwise carry 25.
-    for (let f = 2, n = 0; n < 10 && yBase + (f + 1) * fh < yBase + T.y1; f += every, n++) {
-      const y = yBase + f * fh, depth = 2.6 + r.next() * 1.0;
+  // Every tier, not only the base: a setback tower left its upper tier bare above
+  // three planted bands (R14 review 5, pose 13). Eight bands at most per face.
+  const tiers = towerTiers(b), gap = fh * every;
+  // Ivy and hanging masses scale with face width x bands, which put 139k leaf
+  // triangles on one 123 m tower and 1.04M on chunk (1,4). Their density is
+  // scaled so a building spends about TERRACE_HANG_BUDGET spheres on them,
+  // evenly over every band (a running counter would starve the upper bands).
+  let planted = 0;
+  for (const T of tiers) for (const face of faces) {
+    const w = (face < 2 ? T.hz : T.hx) * 0.86;
+    planted += w * Math.min(8, Math.max(0, Math.floor((T.y1 / fh - Math.ceil(T.y0 / fh) - 3) / every) + 1));
+  }
+  const thin = Math.min(1, TERRACE_HANG_BUDGET / Math.max(1, planted * 3.2));
+  const bands = [0, 0, 0, 0];
+  for (const T of tiers) {
+    for (const face of faces) {
+      const half = face < 2 ? T.hz : T.hx, wall = face < 2 ? T.hx : T.hz, w = half * 0.86;
       const Q = (t: number, yy: number, d: number): Vec3 => facePoint(b, face, wall, t, yy, d);
-      // Slab, a warm timber fascia (sheet D's timber edges; the soffit alone was
-      // unseen from above), its soffit, and the shadow it casts on the wall.
-      bld.pushQuad(Q(-w, y, 0), Q(w, y, 0), Q(w, y, depth), Q(-w, y, depth), slabCol, 1, { doubleSided: true });
-      bld.pushQuad(Q(-w, y - 0.55, depth), Q(w, y - 0.55, depth), Q(w, y, depth), Q(-w, y, depth), timber, 1, { doubleSided: true });
       if (lod < 1) {
-        bld.pushQuad(Q(-w, y - 0.5, 0), Q(-w, y - 0.5, depth), Q(w, y - 0.5, depth), Q(w, y - 0.5, 0), timber, 1, { doubleSided: true });
-        bld.pushQuad(Q(-w, y - 1.6, 0.03), Q(w, y - 1.6, 0.03), Q(w, y - 0.5, 0.03), Q(-w, y - 0.5, 0.03), tint3(dp.palette.base, 0.45), 1);
-      }
-      // A warm lamp strip under the fascia: a continuous line at night, at any distance.
-      bld.pushQuad(Q(-w, y - 0.62, depth - 0.15), Q(w, y - 0.62, depth - 0.15), Q(w, y - 0.55, depth - 0.15), Q(-w, y - 0.55, depth - 0.15), [1.0, 0.74, 0.42], 1, { emissive: 2.2, doubleSided: true });
-      // Sunlit yellow-green, not the street planters' shade green.
-      const leaf = tint3(TERRACE_LEAF[r.int(0, TERRACE_LEAF.length - 1)], 1);
-      // Overgrown, not potted (sheet D): masses of mixed size, mostly small with
-      // the odd big one, stacked at different heights and spilling past the edge,
-      // lighter on top. Equal blobs at one height in single file read as topiary
-      // (R14 review 4).
-      for (let t = -w + 0.6; lod < 1 && t < w - 0.4; t += 0.8 + r.next() * 1.8) {
-        for (let k = 0, nk = 1 + r.int(0, 2); k < nk; k++) {
-          const rad = 0.35 + r.next() * r.next() * 1.2;
-          const lit = 0.75 + r.next() * 0.35 + (rad > 0.9 ? 0.2 : 0);
-          leafBld.pushSphere(Q(t + r.jitter(0.7), y + rad * 0.55 + r.next() * 0.7, 0.5 + r.next() * (depth - 0.2)), rad, 5, 3, tint3(leaf, lit));
+        // A garden on the tier's top edge (the setback or the roof), spilling over
+        // and hanging down the wall: the top floors of a tier sit above its last
+        // band and were bare.
+        const yt = yBase + T.y1, leaf = TERRACE_LEAF[r.int(0, TERRACE_LEAF.length - 1)];
+        for (let t = -w; t < w; t += 0.8 + r.next() * 1.2) {
+          const rad = 0.5 + r.next() * r.next() * 1.1;
+          leafBld.pushSphere(Q(t + r.jitter(0.4), yt + rad * 0.3, -0.4 + r.next() * 0.9), rad, 5, 3, tint3(leaf, 0.75 + r.next() * 0.35));
+          if (r.next() < 0.35 * thin) hangLeaves(leafBld, Q, t, yt - 0.2, 0.35, 1.0 + r.next() * r.next() * gap * 0.7, leaf, r);
         }
       }
-      for (let k = 0, nt = lod < 1 ? (r.next() < 0.7 ? 1 : 0) + (w > 10 && r.next() < 0.5 ? 1 : 0) : 0; k < nt; k++) {
-        const t = r.jitter(w * 0.75), th = 2.0 + r.next() * 1.2;
-        bld.pushCylinder(Q(t, y, depth * 0.5), Q(t, y + th, depth * 0.5), 0.09, 4, [0.12, 0.08, 0.05]);
-        // A crown of several masses, not one ball on a stick (review 5).
-        for (let m = 0, nm = 4 + r.int(0, 2); m < nm; m++) {
-          const mr = m === 0 ? 1.1 + r.next() * 0.3 : 0.6 + r.next() * 0.45;
-          leafBld.pushSphere(Q(t + (m ? r.jitter(1.1) : 0), y + th + (m ? r.jitter(0.6) : 0.4), depth * 0.5 + (m ? r.jitter(0.8) : 0)), mr, 5, 3, tint3(leaf, 0.8 + r.next() * 0.35));
+      for (let f = Math.ceil(T.y0 / fh) + 2; bands[face] < 8 && (f + 1) * fh < T.y1; f += every, bands[face]++) {
+        const y = yBase + f * fh, depth = 2.6 + r.next() * 1.0;
+        // Slab, a warm timber fascia (sheet D's timber edges; the soffit alone was
+        // unseen from above), its soffit, and the shadow it casts on the wall.
+        bld.pushQuad(Q(-w, y, 0), Q(w, y, 0), Q(w, y, depth), Q(-w, y, depth), slabCol, 1, { doubleSided: true });
+        bld.pushQuad(Q(-w, y - 0.55, depth), Q(w, y - 0.55, depth), Q(w, y, depth), Q(-w, y, depth), timber, 1, { doubleSided: true });
+        if (lod < 1) {
+          bld.pushQuad(Q(-w, y - 0.5, 0), Q(-w, y - 0.5, depth), Q(w, y - 0.5, depth), Q(w, y - 0.5, 0), timber, 1, { doubleSided: true });
+          bld.pushQuad(Q(-w, y - 1.6, 0.03), Q(w, y - 1.6, 0.03), Q(w, y - 0.5, 0.03), Q(-w, y - 0.5, 0.03), tint3(dp.palette.base, 0.45), 1);
         }
-      }
-      // Vines spilling over the edge in narrow strands of mixed length: wide
-      // quads read as solid green panels.
-      for (let k = 0, nv = lod < 1 ? 7 + r.int(0, 8) : 0; k < nv; k++) {
-        const t = r.jitter(w * 0.9), hw = 0.08 + r.next() * 0.24, drop = 0.8 + r.next() * r.next() * 5.5;
-        leafBld.pushQuad(Q(t - hw, y - 0.55, depth + 0.04), Q(t + hw, y - 0.55, depth + 0.04), Q(t + hw, y - 0.55 - drop, depth + 0.04), Q(t - hw, y - 0.55 - drop, depth + 0.04), tint3(leaf, 0.9), 0.6, { doubleSided: true });
+        // A warm lamp strip under the fascia: a continuous line at night, at any distance.
+        bld.pushQuad(Q(-w, y - 0.62, depth - 0.15), Q(w, y - 0.62, depth - 0.15), Q(w, y - 0.55, depth - 0.15), Q(-w, y - 0.55, depth - 0.15), [1.0, 0.74, 0.42], 1, { emissive: 2.2, doubleSided: true });
+        if (lod >= 1) continue;
+        // Sunlit yellow-green, not the street planters' shade green.
+        const leaf = tint3(TERRACE_LEAF[r.int(0, TERRACE_LEAF.length - 1)], 1);
+        // Overgrown, not potted (sheet D): big overlapping masses across the
+        // whole band, stacked and spilling over the fascia, lighter on top, the
+        // odd one in flower. Single-file blobs covered 9.4% of the facade against
+        // the sheet's ~40% (review 5): coverage comes from size, not count.
+        for (let t = -w + 0.5; t < w - 0.4; t += 0.9 + r.next() * 1.3) {
+          for (let k = 0, nk = 1 + r.int(0, 1); k < nk; k++) {
+            const rad = 0.7 + r.next() * r.next() * 1.5;
+            const lit = 0.75 + r.next() * 0.35 + (rad > 1.1 ? 0.15 : 0);
+            const c = Q(t + r.jitter(0.5), y + rad * 0.5 + r.next() * 0.6, 0.6 + r.next() * (depth - 0.3));
+            leafBld.pushSphere(c, rad, 5, 3, tint3(leaf, lit));
+            // The odd mass in flower: a few small blooms on its crown.
+            if (r.next() < 0.08) {
+              const fc = TERRACE_FLOWER[r.int(0, TERRACE_FLOWER.length - 1)];
+              for (let fl = 0; fl < 3; fl++) leafBld.pushSphere([c[0] + r.jitter(rad * 0.6), c[1] + rad * 0.75, c[2] + r.jitter(rad * 0.6)], 0.14 + r.next() * 0.08, 3, 4, fc);
+            }
+          }
+          // Spilling over the edge, hanging in front of the fascia.
+          if (r.next() < 0.45) {
+            const rad = 0.45 + r.next() * 0.5;
+            leafBld.pushSphere(Q(t + r.jitter(0.4), y - 0.25 - r.next() * 0.6, depth + 0.15 + r.next() * 0.35), rad, 5, 3, tint3(leaf, 0.7 + r.next() * 0.2));
+          }
+        }
+        for (let k = 0, nt = (r.next() < 0.7 ? 1 : 0) + (w > 10 && r.next() < 0.5 ? 1 : 0); k < nt; k++) {
+          const t = r.jitter(w * 0.75), th = 2.0 + r.next() * 1.2;
+          bld.pushCylinder(Q(t, y, depth * 0.5), Q(t, y + th, depth * 0.5), 0.09, 4, [0.12, 0.08, 0.05]);
+          // A crown of several masses, not one ball on a stick (review 5).
+          for (let m = 0, nm = 4 + r.int(0, 2); m < nm; m++) {
+            const mr = m === 0 ? 1.1 + r.next() * 0.3 : 0.6 + r.next() * 0.45;
+            leafBld.pushSphere(Q(t + (m ? r.jitter(1.1) : 0), y + th + (m ? r.jitter(0.6) : 0.4), depth * 0.5 + (m ? r.jitter(0.8) : 0)), mr, 5, 3, tint3(leaf, 0.8 + r.next() * 0.35));
+          }
+        }
+        // Hanging leaf masses draped over the fascia, two abreast and tapering
+        // slowly: the lime strip vines read as paint (review 5), single spheres
+        // in a line as beads. Some fall most of the way to the band below.
+        for (let k = 0, nc = Math.round(w * (0.25 + r.next() * 0.2) * thin); k < nc; k++) {
+          hangLeaves(leafBld, Q, r.jitter(w * 0.92), y - 0.5, depth + 0.1 + r.next() * 0.3, 1.2 + r.next() * r.next() * gap * 0.8, leaf, r);
+        }
+        // Ivy climbing the wall up from the slab toward the band above: domes half
+        // sunk into the wall, the cheapest cover per triangle. Darker, cooler green.
+        for (let k = 0, ni = Math.round(w * (0.2 + r.next() * 0.14) * thin); k < ni; k++) {
+          let tt = r.jitter(w * 0.95), yy = y + 0.3, rad = 0.8 + r.next() * 0.45;
+          const top = y + gap * (0.4 + r.next() * 0.55);
+          const c = tint3(IVY[r.int(0, IVY.length - 1)], 0.85 + r.next() * 0.3);
+          // Bounded by count: the climb is a geometric series (rad shrinks), so
+          // `yy < top` alone never ends when top is more than ~19 radii up (it
+          // hung the boot). Each step spreads sideways: a patch, not a column.
+          for (let step = 0; yy < top && step < 14; step++) {
+            leafBld.pushSphere(Q(tt, yy, 0.12), rad, 4, 4, c);
+            if (r.next() < 0.6) leafBld.pushSphere(Q(tt + (r.bool() ? 1 : -1) * rad * (1.0 + r.next() * 0.5), yy + r.jitter(0.3), 0.1), rad * (0.6 + r.next() * 0.3), 4, 4, c);
+            yy += rad * 1.3; tt += r.jitter(0.6); rad *= 0.95;
+          }
+        }
       }
     }
   }
