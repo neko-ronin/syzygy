@@ -17,7 +17,7 @@ import {
 } from '../world/geometry';
 import {
   type BuildingInstance, type Cable, type CityChunk, type PropInstance, PropKind,
-  buildingPoint, cityPlan, GROUND_Y, towerTiers,
+  buildingPoint, cityPlan, GROUND_Y, oldTownOf, towerTiers,
 } from '../world/citygen';
 import {
   districtAtField, districtPaletteLinear, districtStyle,
@@ -157,18 +157,7 @@ export function profileFor(id: number): DistrictProfile {
  * vertical rib pilasters that catch the sun and give the canyon its rhythm.
  */
 /** Exported for `__selftest.ts` only. */
-/**
- * The old town (sheet C, D29): the terracotta core at the canal-market crossing,
- * which is the world origin by construction of the plan. A kiln, forge and
- * lantern-workshop quarter, part of it burnt out in a great fire.
- */
-const OLD_TOWN_R = 400;
-function oldTown(b: BuildingInstance): { ruin: boolean; kiln: boolean } | null {
-  if (b.districtId !== 2 || Math.hypot(b.position[0], b.position[2]) > OLD_TOWN_R) return null;
-  const r = makeRng((b.windowSeed ^ 0x0f1e1a7e) >>> 0);
-  const ruin = r.bool(0.17);
-  return { ruin, kiln: !ruin && r.bool(0.6) };
-}
+const oldTown = (b: BuildingInstance): ReturnType<typeof oldTownOf> => oldTownOf(b.districtId, b.position[0], b.position[2], b.windowSeed);
 const EMBER: Vec3 = [1.0, 0.42, 0.13];
 
 /** Street-level fire: forge mouths glowing at the base, lighting the canyon from below. */
@@ -176,26 +165,58 @@ export function pushOldTownFire(bld: MeshBuilder, b: BuildingInstance, lights: B
   const ot = oldTown(b);
   if (!ot || lod >= 2) return;
   const r = makeRng((b.windowSeed ^ 0x6f0e6e5) >>> 0);
-  const hy = b.halfExtents[1], yb = -hy, T = towerTiers(b)[0];
+  const hy = b.halfExtents[1], yb = -hy, tiers = towerTiers(b), T = tiers[0];
   if (ot.ruin) {
-    // Smouldering inside the shell: an ember bed on the sunken floor.
-    const k = makeRng((b.windowSeed ^ 0x2b1a5e) >>> 0), top = yb + hy * 2 * (0.45 + k.next() * 0.3) - 2.5;
-    // Patches of embers among char: one bright sheet read as a skylight (R14 review 4).
+    // Smouldering on the fallen roof, inside the wall stubs (the generator cut
+    // the building down to the shell).
+    const k = makeRng((b.windowSeed ^ 0x2b1a5e) >>> 0), TL = tiers[tiers.length - 1], top = yb + TL.y1;
+    // Kiln yards in the roofless shell: ember beds among char, broken into cells
+    // (one flat sheet read as a skylight, R14 review 4), each bed a low fire light
+    // so the stubs and the neighbours' walls are lit from below.
+    const reach = Math.min(22, 9 + 0.5 * Math.max(TL.hx, TL.hz));
     for (let i = 0, n = 4 + k.int(0, 4); i < n; i++) {
-      const cx = k.jitter(T.hx * 0.6), cz = k.jitter(T.hz * 0.6), w = 0.6 + k.next() * 1.8, d = 0.6 + k.next() * 1.8;
-      const glow = 0.5 + k.next() * 1.3;
-      bld.pushQuad(buildingPoint(b, cx - w, top + 0.05, cz + d), buildingPoint(b, cx + w, top + 0.05, cz + d), buildingPoint(b, cx + w, top + 0.05, cz - d), buildingPoint(b, cx - w, top + 0.05, cz - d), [0.9, 0.22 + k.next() * 0.2, 0.05], 1, { emissive: glow, doubleSided: true });
+      const cx = k.jitter(TL.hx * 0.6), cz = k.jitter(TL.hz * 0.6), w = 1.2 + k.next() * 2.4, d = 1.2 + k.next() * 2.4;
+      // A dim red halo round the bed: the char floor catching its glow. Halo
+      // clamped to the shell; each bed a centimetre above the last so beds that
+      // overlap do not z-fight.
+      const y = top + 0.02 + i * 0.012;
+      const hx0 = Math.max(cx - w * 2.2, -TL.hx), hx1 = Math.min(cx + w * 2.2, TL.hx), hz0 = Math.max(cz - d * 2.2, -TL.hz), hz1 = Math.min(cz + d * 2.2, TL.hz);
+      bld.pushQuad(buildingPoint(b, hx0, y, hz1), buildingPoint(b, hx1, y, hz1), buildingPoint(b, hx1, y, hz0), buildingPoint(b, hx0, y, hz0),
+        [0.55, 0.12, 0.03], 1, { emissive: 0.35, doubleSided: true });
+      for (let gx = 0; gx < 3; gx++) {
+        for (let gz = 0; gz < 3; gz++) {
+          if (k.next() < 0.3) continue;
+          const heat = k.next() * k.next();
+          const x0 = cx - w + (gx + k.next() * 0.3) * (2 * w / 3), x1 = x0 + (0.5 + k.next() * 0.5) * (2 * w / 3);
+          const z0 = cz - d + (gz + k.next() * 0.3) * (2 * d / 3), z1 = z0 + (0.5 + k.next() * 0.5) * (2 * d / 3);
+          bld.pushQuad(buildingPoint(b, x0, y + 0.006, z1), buildingPoint(b, x1, y + 0.006, z1), buildingPoint(b, x1, y + 0.006, z0), buildingPoint(b, x0, y + 0.006, z0),
+            [1.0, 0.16 + 0.34 * heat, 0.03 + 0.06 * heat], 1, { emissive: 0.5 + 2.2 * heat, doubleSided: true });
+        }
+      }
+      if (lod < 1 && i < 3) lights.push({ pos: buildingPoint(b, cx, top + 1.2, cz), radius: reach, color: [1.0, 0.4, 0.12], intensity: 2.8 });
     }
-    if (lod < 1) lights.push({ pos: buildingPoint(b, 0, top + 2.5, 0), radius: 14, color: [1.0, 0.45, 0.15], intensity: 2.4 });
     return;
   }
-  if (!ot.kiln) return;
+  if (!ot.kiln) {
+    // A brazier on the footway: a fire basket on a post. The street's light is
+    // fire, not lamps (sheet C), and 2.8 m up it lays a pool on the paving.
+    const face = r.int(0, 3), half = face < 2 ? T.hz : T.hx, wall = face < 2 ? T.hx : T.hz;
+    const t = r.jitter(half * 0.7);
+    const Q = (y: number): Vec3 => facePoint(b, face, wall, t, y, 1.3);
+    bld.pushCylinder(Q(yb), Q(yb + 1.7), 0.06, 5, [0.16, 0.13, 0.11]);
+    bld.pushCylinder(Q(yb + 1.7), Q(yb + 2.1), 0.26, 7, [0.22, 0.16, 0.12], { radiusTop: 0.38, capEnds: true });
+    bld.pushCylinder(Q(yb + 2.1), Q(yb + 2.25), 0.36, 7, EMBER, { capEnds: true, emissive: 3.4 });
+    if (lod < 1) lights.push({ pos: Q(yb + 2.8), radius: 13, color: [1.0, 0.46, 0.16], intensity: 2.4 });
+    return;
+  }
   for (let n = 0, faces = 1 + r.int(0, 1); n < faces; n++) {
     const face = r.int(0, 3), half = face < 2 ? T.hz : T.hx, wall = (face < 2 ? T.hx : T.hz) + 0.3;
     const t = r.jitter(half * 0.6), hw = 1.1 + r.next() * 0.6, h = 2.2 + r.next() * 0.6;
     const Q = (tt: number, y: number, dd: number): Vec3 => facePoint(b, face, wall, tt, y, dd);
     bld.pushQuad(Q(t - hw, yb + 0.1, 0.02), Q(t + hw, yb + 0.1, 0.02), Q(t + hw, yb + h, 0.02), Q(t - hw, yb + h, 0.02), [1.0, 0.5, 0.16], 1, { emissive: 3.0, doubleSided: true });
-    if (lod < 1) lights.push({ pos: Q(t, yb + 1.4, 1.6), radius: 12, color: [1.0, 0.5, 0.18], intensity: 2.6 });
+    // Above the mouth and out over the footway, so its pool spreads on the paving
+    // (at 1.4 m it was a 1.4 m disc against the wall).
+    if (lod < 1) lights.push({ pos: Q(t, yb + h + 0.6, 2.2), radius: 14, color: [1.0, 0.5, 0.18], intensity: 2.6 });
   }
 }
 
@@ -320,8 +341,7 @@ export function pushBuilding(
   // Old-town brick is sooted toward grey (generations of kilns). Full-saturation
   // terracotta clipped to flat red under the dusk sun (R14 review 4).
   const sootBase: Vec3 = ot ? [base[0] * 0.62 + 0.38 * (base[0] * 0.3 + base[1] * 0.5 + base[2] * 0.2), base[1] * 0.62 + 0.38 * (base[0] * 0.3 + base[1] * 0.5 + base[2] * 0.2), base[2] * 0.62 + 0.38 * (base[0] * 0.3 + base[1] * 0.5 + base[2] * 0.2)] : base;
-  const ruinTop = ot?.ruin ? height * (0.45 + makeRng((b.windowSeed ^ 0x2b1a5e) >>> 0).next() * 0.3) : Infinity;
-  const tiers = towerTiers(b).filter((T) => T.y0 < ruinTop - 3).map((T) => ({ ...T, y1: Math.min(T.y1, ruinTop - 2.5) }));
+  const tiers = towerTiers(b);
   const totalH = height;
   for (let t = 0; t < tiers.length; t++) {
     const T = tiers[t], isLast = t === tiers.length - 1;
@@ -367,7 +387,7 @@ export function pushBuilding(
     bld.pushQuad(P(-cx, yc - 1.5, -cz), P(-cx, yc - 1.5, cz), P(-cx, yc + 1.5, cz), P(-cx, yc + 1.5, -cz), amber, 1, crown);
   }
   // Pilasters stand on the first tier's walls, so they stop where it does.
-  const tier0Top = yBase + Math.min(tiers[0].y1, ruinTop);
+  const tier0Top = yBase + tiers[0].y1;
 
   // --- plinth: the first 8m is a different material, like a real base course.
   if (lod < 2) {
@@ -431,8 +451,10 @@ const SCAFFOLD_CHANCE: Record<string, number> = {
 const TERRACE_CHANCE: Record<string, number> = { 'botanical-dome': 0.6, 'verdant-canyon': 0.7, 'canal-district': 0.4 };
 const SCAFFOLD_DECK: Vec3 = [0.30, 0.22, 0.14];
 /** Sunlit terrace planting (sheet D measures ~(91,112,74) sRGB on its foliage). */
-const TERRACE_LEAF: Vec3[] = [[0.16, 0.30, 0.07], [0.20, 0.33, 0.08], [0.12, 0.26, 0.06], [0.24, 0.36, 0.10]];
+const TERRACE_LEAF: Vec3[] = [[0.20, 0.33, 0.06], [0.26, 0.37, 0.07], [0.15, 0.28, 0.05], [0.30, 0.40, 0.09]];
 const TARPS: Vec3[] = [[0.14, 0.24, 0.34], [0.55, 0.28, 0.12], [0.22, 0.28, 0.20], [0.42, 0.40, 0.36]];
+/** Sheet B's bolted-on rooms: weathered sheet, rust-red panel, faded blue, timber. */
+const ROOMS: Vec3[] = [[0.40, 0.39, 0.37], [0.30, 0.35, 0.39], [0.50, 0.21, 0.15], [0.45, 0.36, 0.25], [0.24, 0.27, 0.29]];
 
 /** A point `t` along face `face`, `d` out from its wall, at local height `ly` (from the centre). */
 function facePoint(b: BuildingInstance, face: number, wall: number, t: number, ly: number, d: number): Vec3 {
@@ -470,7 +492,7 @@ export function pushScaffold(bld: MeshBuilder, b: BuildingInstance, dp: District
       // Far field (LOD 1) keeps uprights, decks, shacks and lit windows: the read
       // and the night points. Rails, braces and tarps are near-field only.
       if (lod < 1) bld.pushTubeAlongPath([Q(ts[0], yy, dOut), Q(ts[bays], yy, dOut)], 0.07, 3, metal, { capEnds: false });
-      if (k % 2 === 0 || k === levels) {
+      if (k === 0 || k === levels || r.next() < 0.4) {
         // Some decks cantilever past the frame on outriggers.
         const out = r.bool(0.3) ? dOut + 1.4 + r.next() * 1.6 : dOut;
         bld.pushQuad(Q(ts[0], yy, dIn), Q(ts[bays], yy, dIn), Q(ts[bays], yy, out), Q(ts[0], yy, out), SCAFFOLD_DECK, 1, { doubleSided: true });
@@ -493,7 +515,7 @@ export function pushScaffold(bld: MeshBuilder, b: BuildingInstance, dp: District
         }
       }
       for (let i = 0; i < bays && k < levels; i++) {
-        if (k % 2 === 0 && r.next() < 0.12 && lod < 1) {
+        if (r.next() < 0.06 && lod < 1) {
           const tp = TARPS[r.int(0, TARPS.length - 1)], yt = yy + lift * (1.4 + r.next() * 0.6);
           bld.pushQuad(Q(ts[i], yy + 0.4, dOut + 0.06), Q(ts[i + 1], yy + 0.4, dOut + 0.06), Q(ts[i + 1], yt, dOut + 0.06), Q(ts[i], yt, dOut + 0.06), tp, 1, { doubleSided: true });
         }
@@ -501,6 +523,28 @@ export function pushScaffold(bld: MeshBuilder, b: BuildingInstance, dp: District
           bld.pushTubeAlongPath([Q(ts[i], yy, dOut), Q(ts[i + 1], yy + lift, dOut)], 0.06, 3, metal, { capEnds: false });
           bld.pushTubeAlongPath([Q(ts[i + 1], yy, dOut), Q(ts[i], yy + lift, dOut)], 0.06, 3, metal, { capEnds: false });
         }
+      }
+    }
+    // Rooms bolted on over generations (sheet B): stacks of boxes hung off the
+    // frame, wider and deeper than the decks, on struts back to the wall, each
+    // with a lit window. The flush 2 m shacks hid behind the lattice (R14 review 4).
+    for (let st = 0, stacks = 1 + r.int(0, 2); st < stacks; st++) {
+      let ry = y + lift * r.int(0, Math.max(0, Math.floor(h / lift) - 1)), rt = mid + r.jitter(W / 2);
+      for (let n = 0, high = 1 + r.int(0, 2); n < high && ry + 2.4 < top; n++) {
+        const sw = 2.4 + r.next() * 2.2, sh = 2.4 + r.next() * 0.8, sd = 2.2 + r.next() * 1.6;
+        const c = ROOMS[r.int(0, ROOMS.length - 1)], yaw = b.rotationY + (face < 2 ? Math.PI / 2 : 0);
+        const rd = dIn + sd / 2 + r.next() * 0.8;
+        bld.pushBox(Q(rt, ry + sh / 2, rd), [sw / 2, sh / 2, sd / 2], tint3(c, 0.85 + r.next() * 0.3), { faces: FACE_ALL, rotationY: yaw });
+        // A thin roof sheet with an overhang.
+        bld.pushBox(Q(rt, ry + sh + 0.06, rd + 0.15), [sw / 2 + 0.25, 0.06, sd / 2 + 0.3], tint3(c, 0.55), { faces: FACE_ALL, rotationY: yaw });
+        const front = rd + sd / 2 + 0.02;
+        for (let wn = 0, wins = sw > 3.4 ? 2 : 1; wn < wins; wn++) {
+          if (!r.bool(0.75)) continue;
+          const wt = rt + (wins === 2 ? (wn - 0.5) * sw * 0.45 : 0);
+          bld.pushQuad(Q(wt - 0.35, ry + sh * 0.42, front), Q(wt + 0.35, ry + sh * 0.42, front), Q(wt + 0.35, ry + sh * 0.74, front), Q(wt - 0.35, ry + sh * 0.74, front), [1.0, 0.72, 0.4], 1, { emissive: 3.0 });
+        }
+        if (n === 0) for (const e of [-sw / 2 + 0.2, sw / 2 - 0.2]) bld.pushTubeAlongPath([Q(rt + e, ry - 2.2, 0.05), Q(rt + e, ry, rd + sd / 2 - 0.2)], 0.06, 3, metal, { capEnds: false });
+        ry += sh + 0.12; rt += r.jitter(1.4);
       }
     }
     y += h;
@@ -535,22 +579,27 @@ export function pushTerraces(bld: MeshBuilder, leafBld: MeshBuilder, b: Building
       bld.pushQuad(Q(-w, y - 0.62, depth - 0.15), Q(w, y - 0.62, depth - 0.15), Q(w, y - 0.55, depth - 0.15), Q(-w, y - 0.55, depth - 0.15), [1.0, 0.74, 0.42], 1, { emissive: 2.2, doubleSided: true });
       // Sunlit yellow-green, not the street planters' shade green.
       const leaf = tint3(TERRACE_LEAF[r.int(0, TERRACE_LEAF.length - 1)], 1);
-      // Irregular clumps of two or three masses: a row of equal blobs read as topiary.
-      for (let t = -w + 0.7; lod < 1 && t < w - 0.5; t += 1.0 + r.next() * 2.2) {
+      // Overgrown, not potted (sheet D): masses of mixed size, mostly small with
+      // the odd big one, stacked at different heights and spilling past the edge,
+      // lighter on top. Equal blobs at one height in single file read as topiary
+      // (R14 review 4).
+      for (let t = -w + 0.6; lod < 1 && t < w - 0.4; t += 0.8 + r.next() * 1.8) {
         for (let k = 0, nk = 1 + r.int(0, 2); k < nk; k++) {
-          const rad = 0.4 + r.next() * 0.75;
-          leafBld.pushSphere(Q(t + r.jitter(0.6), y + rad * 0.8 + r.next() * 0.3, depth - 0.5 - r.next() * 0.9), rad, 5, 3, tint3(leaf, 0.75 + r.next() * 0.45));
+          const rad = 0.35 + r.next() * r.next() * 1.2;
+          const lit = 0.75 + r.next() * 0.35 + (rad > 0.9 ? 0.2 : 0);
+          leafBld.pushSphere(Q(t + r.jitter(0.7), y + rad * 0.55 + r.next() * 0.7, 0.5 + r.next() * (depth - 0.2)), rad, 5, 3, tint3(leaf, lit));
         }
       }
-      if (lod < 1 && r.next() < 0.5) {
-        const t = r.jitter(w * 0.7);
-        bld.pushCylinder(Q(t, y, depth * 0.5), Q(t, y + 2.2, depth * 0.5), 0.09, 4, [0.12, 0.08, 0.05]);
-        leafBld.pushSphere(Q(t, y + 2.7, depth * 0.5), 1.3, 6, 4, leaf);
+      for (let k = 0, nt = lod < 1 ? (r.next() < 0.7 ? 1 : 0) + (w > 10 && r.next() < 0.5 ? 1 : 0) : 0; k < nt; k++) {
+        const t = r.jitter(w * 0.75), th = 2.0 + r.next() * 1.2;
+        bld.pushCylinder(Q(t, y, depth * 0.5), Q(t, y + th, depth * 0.5), 0.09, 4, [0.12, 0.08, 0.05]);
+        leafBld.pushSphere(Q(t, y + th + 0.5, depth * 0.5), 1.2 + r.next() * 0.4, 6, 4, tint3(leaf, 1.05));
+        leafBld.pushSphere(Q(t + r.jitter(0.9), y + th + 0.1, depth * 0.5 + r.jitter(0.6)), 0.8 + r.next() * 0.3, 5, 3, tint3(leaf, 0.85));
       }
       // Vines spilling over the edge in narrow strands of mixed length: wide
       // quads read as solid green panels.
-      for (let k = 0, nv = lod < 1 ? 4 + r.int(0, 6) : 0; k < nv; k++) {
-        const t = r.jitter(w * 0.9), hw = 0.08 + r.next() * 0.2, drop = 0.8 + r.next() * 3.6;
+      for (let k = 0, nv = lod < 1 ? 7 + r.int(0, 8) : 0; k < nv; k++) {
+        const t = r.jitter(w * 0.9), hw = 0.08 + r.next() * 0.24, drop = 0.8 + r.next() * r.next() * 5.5;
         leafBld.pushQuad(Q(t - hw, y - 0.55, depth + 0.04), Q(t + hw, y - 0.55, depth + 0.04), Q(t + hw, y - 0.55 - drop, depth + 0.04), Q(t - hw, y - 0.55 - drop, depth + 0.04), tint3(leaf, 0.9), 0.6, { doubleSided: true });
       }
     }
@@ -825,17 +874,20 @@ function pushProp(
       break;
     }
     case PropKind.VineCurtain: {
-      // A hanging sheet of foliage — the solarpunk signature.
+      // Vines hanging down the wall — the solarpunk signature. Strands of mixed
+      // length, hung clear of the wall: one sheet on the wall plane read as a
+      // flat green board, and where the lean tilted it into the wall, a dark
+      // triangle (R14 review 4).
       const h = 3.1 * s, w = 1.7 * s;
       const drop = h * rng.range(0.4, 1.0);
-      bld.pushQuad(
-        P(-w, h, 0), P(w, h, 0), P(w, -drop, 0), P(-w, -drop, 0),
-        tint(leaf, 0.85), 0.6, { doubleSided: true },
-      );
+      for (let t = -w; t < w; t += 0.3 + rng.next() * 0.35) {
+        const hw = 0.08 + rng.next() * 0.16, z = 0.22 + rng.next() * 0.12, low = -drop * rng.range(0.25, 1.0);
+        bld.pushQuad(P(t - hw, h, z), P(t + hw, h, z), P(t + hw, low, z), P(t - hw, low, z), tint(leaf, 0.7 + rng.next() * 0.4), 0.6, { doubleSided: true });
+      }
       if (lod < 1) {
         for (let i = 0; i < 3; i++) {
           bld.pushSphere(
-            P(rng.jitter(w * 0.8), rng.range(-drop * 0.7, h * 0.6), rng.jitter(0.1)),
+            P(rng.jitter(w * 0.8), rng.range(-drop * 0.7, h * 0.6), 0.3 + rng.jitter(0.1)),
             rng.range(0.2, 0.5) * s, 5, 3, tint(leaf, 1.15),
           );
         }

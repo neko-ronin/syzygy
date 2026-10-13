@@ -603,7 +603,18 @@ function makeBuilding(
   const boost = 0.86 + 0.3 * (cluster * 0.5 + 0.5) + 0.18 * arterial + core;
   const [lo, hi] = style.heightRange;
   let height = (lo + (hi - lo) * Math.pow(r.next(), 2.6)) * boost;
+  // A height envelope falling away from the heart: the boost raised the median
+  // but towers 1 km out still reached 666 m against 724 m at the heart, so the
+  // skyline was a plateau. Soft knee, so order survives and nothing piles up.
+  const env = 300 + (cfg.maxHeight - 300) * Math.pow(smoothstep(1400, 0, dh), 1.5);
+  if (height > 0.7 * env) height = 0.7 * env + 0.3 * env * (1 - Math.exp(-(height - 0.7 * env) / (0.3 * env)));
   height = Math.max(9, Math.min(cfg.maxHeight, height));
+
+  // A burnt-out old-town shell (sheet C) is cut down here, not at bake time, so
+  // props, roof furniture, skybridges and cables all see the ruin's real height:
+  // cut at bake time, they floated where the lost storeys had been.
+  const windowSeed = lotHash(ix, iz, 3);
+  if (oldTownOf(districtId, wx, wz, windowSeed)?.ruin) height *= 0.45 + makeRng((windowSeed ^ 0x2b1a5e) >>> 0).next() * 0.3;
 
   const floorHeight = r.range(3.2, 4.6);
   let floors = Math.max(2, Math.round(height / floorHeight));
@@ -642,7 +653,7 @@ function makeBuilding(
     floors,
     floorHeight,
     greenery,
-    windowSeed: lotHash(ix, iz, 3),
+    windowSeed,
     aabbMin: [wx - ex - pad, GROUND_Y, wz - ez - pad],
     aabbMax: [wx + ex + pad, GROUND_Y + height, wz + ez + pad],
   };
@@ -758,6 +769,20 @@ export function buildingPoint(b: BuildingInstance, lx: number, ly: number, lz: n
   const px = lx + b.lean[0] * t * hy * 2, pz = lz + b.lean[2] * t * hy * 2;
   const c = Math.cos(b.rotationY), s = Math.sin(b.rotationY);
   return [b.position[0] + px * c + pz * s, b.position[1] + ly, b.position[2] - px * s + pz * c];
+}
+
+/**
+ * The old town (sheet C, D29): the terracotta core at the canal-market crossing,
+ * which is the world origin by construction of the plan. A kiln, forge and
+ * workshop quarter, part of it burnt out in a great fire; the roofless shells
+ * are kiln yards now.
+ */
+const OLD_TOWN_R = 400;
+export function oldTownOf(districtId: number, x: number, z: number, windowSeed: number): { ruin: boolean; kiln: boolean } | null {
+  if (districtId !== 2 || Math.hypot(x, z) > OLD_TOWN_R) return null;
+  const r = makeRng((windowSeed ^ 0x0f1e1a7e) >>> 0);
+  const ruin = r.bool(0.17);
+  return { ruin, kiln: !ruin && r.bool(0.6) };
 }
 
 /** First storeys of the base tier stand inside the plinth shell (citymesh), this much proud of the wall. */
@@ -882,6 +907,8 @@ function placeProps(
   }
 
   // Rooftop: the solarpunk layer. Parapets, planters, canopies, trees, tanks.
+  // A ruin's roof has fallen in; its embers are baked with the shell.
+  if (oldTownOf(b.districtId, b.position[0], b.position[2], b.windowSeed)?.ruin) return;
   const roofBudget = Math.max(2, Math.floor(budget * 0.35));
   const roofStart = n;
   for (let i = 0; i < 4 && n - roofStart < roofBudget; i++) {

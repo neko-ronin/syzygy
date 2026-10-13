@@ -122,7 +122,11 @@ const POSES = [
   {
     name: '01-wide-skyline',
     label: 'wide skyline, tower tops in haze',
-    position: [900, 120, 1400], lookAt: [0, 200, 0], fov: 1.12, roll: 0,
+    // Over the old town onto the downtown peak, 1.5 km out (D29): the old camera,
+    // (900, 120, 1400), sat 2.6 km out on the same axis and saw 1.6 km of garden
+    // suburbs, so the teal climax was a pale ghost (R14 review 4). The benchmark
+    // keeps the old camera for comparability.
+    position: [323, 150, 506], lookAt: [-491, 280, -754], fov: 1.12, roll: 0,
     weather: { sky: 'clear', cloudCover: 0.34, haze: 0.22, aerialHaze: 0.4, godRays: 0.55 },
     lens: { tiltShift: 0.62, focusWidth: 0.34, fov: 1.12 },
     settle: 30,
@@ -331,11 +335,13 @@ const POSES = [
     settle: 40,
   },
   {
-    // Sheet B feature review: exposed scaffolding on a rust-hangar block, aimed
-    // at the scaffold face from 40 m (picked from the per-building seed, D29 plan).
+    // Sheet B feature review: a scaffold with rooms bolted on, on a 440 m Copper
+    // Stacks tower, from 38 m and 25 degrees off its face (picked from the
+    // per-building seed, D29 plan). The face points +z, into the sun: the sun
+    // path never reaches a -z face, and the old rust-hangar face read flat in shade.
     name: '12-scaffold-b',
-    label: 'sheet B: scaffolding, decks, shacks and tarps on a rust-hangar face, noon',
-    position: [-290.2, 14, 201.6], lookAt: [-289.3, 16, 241.6], fov: 1.0, roll: 0,
+    label: 'sheet B: a scaffold with bolted-on rooms on a Copper Stacks tower, noon',
+    position: [-300.8, 14, -484.1], lookAt: [-287.3, 30, -519.7], fov: 1.0, roll: 0,
     time: 'noon',
     weather: { sky: 'clear', haze: 0.22 },
     lens: { fov: 1.0, exposure: 0.92 },
@@ -345,9 +351,11 @@ const POSES = [
     // Sheet D feature review: planted terrace bands and vines on a garden-suburb
     // (verdant-canyon) block, from 45 m, looking slightly up (D29 plan).
     name: '13-terraces-d',
-    label: 'sheet D: planted terrace bands, shrubs and vine curtains, noon',
+    label: 'sheet D: planted terrace bands, shrubs and vine curtains, morning',
     position: [288.8, 14, 1013.0], lookAt: [243.9, 30, 1015.1], fov: 1.0, roll: 0,
-    time: 'noon',
+    // Morning: the sun is due +z at noon, which only grazes this east face and
+    // left its planting grey-green in sky shade (R14 review 4).
+    time: 'morning',
     weather: { sky: 'clear', haze: 0.22 },
     lens: { fov: 1.0, exposure: 0.92 },
     settle: 30,
@@ -366,13 +374,13 @@ const POSES = [
     settle: 36,
   },
   {
-    // Sheet C at night, from 50 m onto three burnt-out shells beside the alley
-    // of 14-old-town-c: ember beds, jagged wall stubs, kiln mouths, street forges.
+    // Sheet C at night: two burnt-out shells, (166, 231) and (165, 271), beside
+    // the alley of 14-old-town-c, from 55 m over the north-west. Their jagged
+    // tops, ember-lit openings and glowing beds read against lit neighbours; the
+    // steep aerial onto the largest ruin, (353, -128), was 63% black.
     name: '15-old-town-ruins-night',
-    label: 'sheet C: old-town ruins and kilns from the rooftops, night',
-    // Steeply onto the largest ruin, (353, -128): 43 m across, 28 of 52 m left
-    // standing, so its fallen roof and ember beds face the camera.
-    position: [372, 72, -62], lookAt: [353, 22, -128], fov: 1.05, roll: 0,
+    label: 'sheet C: old-town ruins (kiln yards) among lit neighbours, night',
+    position: [108, 55, 332], lookAt: [185, 26, 245], fov: 1.05, roll: 0,
     time: 'night',
     weather: { sky: 'night', cloudCover: 0.3, haze: 0.3 },
     lens: { fov: 1.05, bloom: 0.8, exposure: 1.28, saturation: 1.18, vignette: 0.5 },
@@ -386,7 +394,7 @@ const POSES = [
     // second place it turned every later pose (01a, 05-aerial...) into night.
     name: '01-wide-skyline-night',
     label: 'wide skyline, SAME camera as 01-wide-skyline, night',
-    position: [900, 120, 1400], lookAt: [0, 200, 0], fov: 1.12, roll: 0,
+    position: [323, 150, 506], lookAt: [-491, 280, -754], fov: 1.12, roll: 0,
     time: 'night',
     weather: { sky: 'night', cloudCover: 0.34, haze: 0.22, aerialHaze: 0.4 },
     lens: { tiltShift: 0.62, focusWidth: 0.34, fov: 1.12, exposure: 1.28, bloom: 0.8 },

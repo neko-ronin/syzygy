@@ -32,7 +32,7 @@
  * "steam" that can exist without a shader term behind it.
  */
 
-import type { Vec3 } from '../core/math';
+import { makeRng, type Vec3 } from '../core/math';
 import { GROUND_Y } from '../world/citygen';
 import { MeshBuilder, yawFromDir } from '../world/geometry';
 import type { GroundBakeCtx } from '../world/groundgrammar';
@@ -175,6 +175,32 @@ function bakeCrate(bld: MeshBuilder, s: MarketStall, c: MarketCrate, baseY: numb
   );
 }
 
+/** Fruit and veg, warm-led like the rest of sheet A, with one green. */
+const PRODUCE: Vec3[] = [[0.85, 0.36, 0.05], [0.62, 0.07, 0.04], [0.86, 0.66, 0.08], [0.28, 0.48, 0.07], [0.36, 0.10, 0.22], [0.80, 0.52, 0.30]];
+const TRAY: Vec3 = [0.36, 0.24, 0.13];
+
+/**
+ * Goods on the counter: shallow trays heaped with produce wherever the crates
+ * leave it free. The counter read as a bare grey slab in the hero's near field
+ * (R14 review 4). Bake-time dressing, from the stall's own seed.
+ */
+function bakeGoods(bld: MeshBuilder, s: MarketStall): void {
+  const r = makeRng((Math.round(s.along * 97) * 2 + (s.side > 0 ? 1 : 0)) ^ 0x600d5);
+  const yaw = yawFromDir(s.tx, s.tz), half = s.pitch * 0.42, top = GROUND_Y + COUNTER_TOP;
+  const at = (along: number, lat: number, y: number): Vec3 =>
+    [s.cx + s.nx * (s.counter + lat) + s.tx * along, y, s.cz + s.nz * (s.counter + lat) + s.tz * along];
+  for (let t = -half + 0.3; t < half - 0.25; t += 0.5 + r.next() * 0.3) {
+    if (s.crates.some((c) => c.stack === 0 && Math.abs(c.lateral - s.counter) < 0.6 && Math.abs(c.along - t) < Math.max(c.half[0], c.half[2]) + 0.28)) continue;
+    if (r.next() < 0.15) continue;
+    bld.pushBox(at(t, 0, top + 0.03), [0.21, 0.03, 0.19], TRAY, { rotationY: yaw });
+    const c = PRODUCE[r.int(0, PRODUCE.length - 1)];
+    for (let k = 0, n = 3 + r.int(0, 2); k < n; k++) {
+      const rad = 0.07 + r.next() * 0.035;
+      bld.pushSphere(at(t + r.jitter(0.12), r.jitter(0.1), top + 0.06 + rad * (k < 3 ? 0.8 : 1.9)), rad, 3, 4, [c[0] * (0.85 + r.next() * 0.25), c[1] * (0.85 + r.next() * 0.25), c[2]]);
+    }
+  }
+}
+
 /** A lit firebox under a grille. The mouth a plume would rise from; see header. */
 function bakeVent(bld: MeshBuilder, s: MarketStall): void {
   if (!s.vent) return;
@@ -288,7 +314,7 @@ export function bakeMarketDetail(bld: MeshBuilder, ctx: GroundBakeCtx, emitted =
     bakeCanopy(bld, s);
     // A `bare` stall is a counter and crates in the open: no roof and no frame.
     if (detailed && s.module !== 'bare') bakeRigging(bld, s, result.obstacles);
-    if (detailed) bakeCounter(bld, s, result.obstacles);
+    if (detailed) { bakeCounter(bld, s, result.obstacles); bakeGoods(bld, s); }
     // Crates ride the counter, not the floor, so a stack reads as goods on a
     // table rather than as a heap in the road.
     let ground = GROUND_Y + COUNTER_TOP;

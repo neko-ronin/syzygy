@@ -667,13 +667,17 @@ fn fs(i: VSOut) -> GOut {
       // Amber, from a grey-weighted albedo: multiplying the red brick alone
       // clipped it to flat poster red (R14 review 4).
       let lit = mix(r.albedo, vec3f(dot(r.albedo, vec3f(0.3, 0.5, 0.2))), 0.6);
-      r.emissive += lit * vec3f(1.0, 0.62, 0.28) * 2.2 * exp(-rise / 11.0) * spot * lightsOn();
+      r.emissive += lit * vec3f(1.0, 0.62, 0.28) * 2.2 * exp(-rise / 15.0) * spot * lightsOn();
     } else if (tag >= 3.0) {
-      // Burnt out (sheet C): no light behind any window, openings charred black,
-      // soot in vertical streaks.
+      // Burnt out (sheet C): soot in vertical streaks, openings charred black. The
+      // shells are kiln yards now, so about one opening in five glows ember red
+      // from the fires inside instead of lamp amber (unlit black read as a hole).
       let soot = 0.55 + 0.45 * fbm2(vec2f(dot(i.world.xz, vec2f(0.7, 0.7)) * 0.9, i.world.y * 0.06), 3);
       r.albedo = r.albedo * clamp(soot, 0.25, 1.0);
-      r.emissive = vec3f(0.0);
+      let ax = select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 0.0, 1.0), abs(n.x) > 0.5);
+      let cell = floor(vec2f(dot(i.world, ax) / 3.1, i.world.y / 3.6));
+      let fire = step(0.5, hash21(cell * 1.37 + vec2f(i.seed * 3.1, 5.0))) * max(r.emissive.r, max(r.emissive.g, r.emissive.b));
+      r.emissive = vec3f(1.0, 0.3, 0.06) * fire * 0.9;
       r.roughness = 0.9;
     }
     base = r.albedo; rough = r.roughness; metal = r.metallic; emis = r.emissive; ao = r.occlusion;
