@@ -752,6 +752,15 @@ lantern-workshop quarter, part of it burnt out in a great fire:
 Review poses: `14-old-town-c` (22 m up an old-town alley at dusk) and
 `15-old-town-ruins-night` (rooftops onto three ruins at night).
 
+**Fire at street level (2026-10-13, review 5).** The ruins' kiln yards sat on their cut-down
+tops, 20-40 m above a near-black street. They are now brick-kerbed ember beds against two
+or three faces at street level, each with a low fire light, plus fire seen through the
+ground-floor openings; the stubs keep one dim, unlit smoulder. A ruin's plinth carries the
+ruin tag (it kept lit shop displays and neon). Old-town alleys carry braziers, firewood and
+kiln stock (D30's lived kit), footway braziers lay their own light, post braziers and forge
+mouths stand on a street-facing (local z) face, and old-town walls take two props a floor
+with more wall lamps.
+
 ## D30 — A lived-in street: furniture where people use it, not only at the edges
 
 **Owner direction, 2026-10-13:** "Change the rule for furniture. It's time to make the

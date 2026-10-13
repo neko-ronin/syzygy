@@ -520,3 +520,12 @@ interleaved pairs against `7e399b6`.
   and 139k on one 123 m tower; `TERRACE_HANG_BUDGET` scales ivy and hanging masses so a
   building spends about 360 spheres on them, evenly over its bands.
 
+## 2026-10-13 — sheet C ground fire, same-window A/B
+
+Reports: `benchmarks/sheet-c-ground-fire-ab/` (hero, two interleaved pairs against
+`496e1e9`; the hero stands ~400 m from the old town). GPU span base / new: 14.31, 14.59 /
+14.77, 14.08 ms: no measurable cost. Light binning rose 0.82, 0.85 -> 1.10, 1.05 ms on both
+pairs (footway braziers now carry a fire light, ruins have two or three street-level
+yards with two lights each). Furniture over the self-test's 8 chunks: 148 items, 9.3k
+triangles, 17.8 lamps (old-town alleys now carry the lived kit at 0.4 of the street rate).
+

@@ -1376,6 +1376,10 @@ function emitTrace(
               if (CLUTTER_KINDS[d] === 'lamp-post' && lights.length - res.clutter.stallLights < maxLights) {
                 lights.push({ pos: [px, yHi + 4.6, pz], radius: 13, color: [1.0, 0.72, 0.42], intensity: 2.6 });
               }
+              // A brazier's fire lays its own pool (sheet C: the street is lit by fire).
+              if (name === 'brazier' && lights.length - res.clutter.stallLights < maxLights) {
+                lights.push({ pos: [px, yHi + 1.4, pz], radius: 12, color: [1.0, 0.46, 0.16], intensity: 2.4 });
+              }
             }
           }
         }

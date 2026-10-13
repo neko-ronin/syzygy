@@ -326,7 +326,7 @@ const DISTRICT_GROUND: readonly DistrictGround[] = [
     pavement: 'terracotta-tile', kerb: 'stone', marking: 'none',
     kerbHeight: 0.18, footwayWidth: 4.0, clutterDensity: 5.6,
     clutter: ['planter-row', 'planter', 'railing', 'potted-palm', 'lamp-bracket'],
-    lived: ['brazier', 'firewood', 'kiln-stock', 'doorstep-pots'],
+    lived: ['brazier', 'brazier', 'brazier', 'firewood', 'kiln-stock', 'doorstep-pots'],
     shopfrontDensity: 0.45, wetnessBias: 0.40, polish: 0.40, kerbTone: 2.4, kerbChroma: 1.05,
   },
   // 3 glass-foxholes — cold, reflective, swept. B-like: rails, signs, brackets.
@@ -431,7 +431,7 @@ const valueScaled = (c: Vec3, targetValue: number): Vec3 => {
  * a residential street even in the same block, and a service alley has no
  * footway at all. Applied after the district lookup, never before.
  */
-function sharpenForKind(g: GroundGrammar, kind: RoadKind): void {
+function sharpenForKind(g: GroundGrammar, kind: RoadKind, lived: readonly string[]): void {
   switch (kind) {
     case 'artery':
       // Wide, fast, marked, swept. Less furniture, wider carriageway feel.
@@ -446,13 +446,19 @@ function sharpenForKind(g: GroundGrammar, kind: RoadKind): void {
       // District default, unchanged. Present so the switch is exhaustive.
       break;
     case 'alley':
-      // No kerb, no footway, no paint, no furniture. A gap between buildings.
+      // No kerb, no footway, no paint. Drains, and the district's things people
+      // leave against the wall (D30): the old-town alley of pose 14 is sheet C's
+      // canyon and had no brazier, firewood or kiln stock in it. Without a lived
+      // kit, a quarter of the street rate, as before.
       g.kerb = 'flush';
       g.marking = 'none';
       g.kerbHeight *= 0.5;
       g.footwayWidth *= 0.3;
-      g.clutterDensity *= 0.25;
-      g.clutter = [clutterIndex('drain-cover'), clutterIndex('manhole')].filter((i) => i >= 0);
+      // 0.4 of the street rate with a lived kit: at the full rate the alleys' many
+      // metres pushed every chunk past the furniture budget and the throttle thinned
+      // the streets' lamp brackets (20.6 -> 16.9 lamps a chunk).
+      g.clutterDensity *= lived.length === 0 ? 0.25 : 0.4;
+      g.clutter = ['drain-cover', 'manhole', ...lived].map(clutterIndex).filter((i) => i >= 0);
       break;
     case 'market':
       // Carriageway given over to trading. Cobbles, bollards in place of a kerb,
@@ -528,7 +534,7 @@ export function groundGrammarFor(districtId: number, kind: RoadKind): GroundGram
   // applied against the raw palette value rather than the banded carriageway
   // value, which put rust-hangars' kerb at 0.20x its own road — darker than
   // the carriageway, the exact opposite of what a kerb is.
-  sharpenForKind(g, kind);
+  sharpenForKind(g, kind, src.lived);
 
   // THE WIRING. `palette.ground` is the 6th hex argument of `pal()` in
   // districts.ts and has been read by nothing in the repository until here.

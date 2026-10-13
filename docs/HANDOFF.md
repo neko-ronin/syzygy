@@ -48,6 +48,13 @@ the world natural and lived in: furniture is no longer edge-only.
   measured clear-route self-test (DECISIONS D30 "As built"). In the eye-height frames the
   dense crowd hides most seated-height furniture; the tree crowns and parasols carry, and
   `09-market-aisle-night` (6 m) sees over heads. Awaiting review 6.
+- Item 2 **built** (`496e1e9`): sheet D terraces on every tier, ivy, hanging masses, rim
+  gardens; facade foliage 7.5% -> 22.3% on the session's probe (review scale ~28%), +0.4 ms
+  on the new `--route=garden`. Per-building leaf budget (`TERRACE_HANG_BUDGET`).
+- Item 3 **built**: fire at street level around the ruins, burnt plinths, brazier light
+  pools, old-town alleys and walls furnished. Pose 15's near-black share barely moved
+  (most of it is the open deck in the foreground); pose 14's alley braziers sit under the
+  crowd. Awaiting review 6.
 - Self-tests: `vite-node` is **not** in `node_modules`; `npx vite-node` asks to download
   the latest from the registry. Run the cached copy instead:
   `~/.npm/_npx/f2342a4b64a2bc92/node_modules/.bin/vite-node <file>` (6.0.0, the one earlier

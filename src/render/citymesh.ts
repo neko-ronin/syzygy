@@ -167,40 +167,52 @@ export function pushOldTownFire(bld: MeshBuilder, b: BuildingInstance, lights: B
   const r = makeRng((b.windowSeed ^ 0x6f0e6e5) >>> 0);
   const hy = b.halfExtents[1], yb = -hy, tiers = towerTiers(b), T = tiers[0];
   if (ot.ruin) {
-    // Smouldering on the fallen roof, inside the wall stubs (the generator cut
-    // the building down to the shell).
     const k = makeRng((b.windowSeed ^ 0x2b1a5e) >>> 0), TL = tiers[tiers.length - 1], top = yb + TL.y1;
-    // Kiln yards in the roofless shell: ember beds among char, broken into cells
-    // (one flat sheet read as a skylight, R14 review 4), each bed a low fire light
-    // so the stubs and the neighbours' walls are lit from below.
-    const reach = Math.min(22, 9 + 0.5 * Math.max(TL.hx, TL.hz));
-    for (let i = 0, n = 4 + k.int(0, 4); i < n; i++) {
-      const cx = k.jitter(TL.hx * 0.6), cz = k.jitter(TL.hz * 0.6), w = 1.2 + k.next() * 2.4, d = 1.2 + k.next() * 2.4;
-      // A dim red halo round the bed: the char floor catching its glow. Halo
-      // clamped to the shell; each bed a centimetre above the last so beds that
-      // overlap do not z-fight.
-      const y = top + 0.02 + i * 0.012;
-      const hx0 = Math.max(cx - w * 2.2, -TL.hx), hx1 = Math.min(cx + w * 2.2, TL.hx), hz0 = Math.max(cz - d * 2.2, -TL.hz), hz1 = Math.min(cz + d * 2.2, TL.hz);
-      bld.pushQuad(buildingPoint(b, hx0, y, hz1), buildingPoint(b, hx1, y, hz1), buildingPoint(b, hx1, y, hz0), buildingPoint(b, hx0, y, hz0),
-        [0.55, 0.12, 0.03], 1, { emissive: 0.35, doubleSided: true });
-      for (let gx = 0; gx < 3; gx++) {
-        for (let gz = 0; gz < 3; gz++) {
-          if (k.next() < 0.3) continue;
-          const heat = k.next() * k.next();
-          const x0 = cx - w + (gx + k.next() * 0.3) * (2 * w / 3), x1 = x0 + (0.5 + k.next() * 0.5) * (2 * w / 3);
-          const z0 = cz - d + (gz + k.next() * 0.3) * (2 * d / 3), z1 = z0 + (0.5 + k.next() * 0.5) * (2 * d / 3);
-          bld.pushQuad(buildingPoint(b, x0, y + 0.006, z1), buildingPoint(b, x1, y + 0.006, z1), buildingPoint(b, x1, y + 0.006, z0), buildingPoint(b, x0, y + 0.006, z0),
-            [1.0, 0.16 + 0.34 * heat, 0.03 + 0.06 * heat], 1, { emissive: 0.5 + 2.2 * heat, doubleSided: true });
+    // One dim smoulder left on the stubs for the silhouette, unlit. The kiln
+    // yards that were up here put the fire on the ruin roofs, 20-40 m above a
+    // street that stayed near-black (R14 review 5, pose 15).
+    bld.pushQuad(buildingPoint(b, -TL.hx * 0.5, top + 0.02, TL.hz * 0.5), buildingPoint(b, TL.hx * 0.5, top + 0.02, TL.hz * 0.5),
+      buildingPoint(b, TL.hx * 0.5, top + 0.02, -TL.hz * 0.5), buildingPoint(b, -TL.hx * 0.5, top + 0.02, -TL.hz * 0.5),
+      [0.55, 0.12, 0.03], 1, { emissive: 0.3, doubleSided: true });
+    // Kiln yards at street level against one or two faces: brick-kerbed ember
+    // beds broken into cells (one flat sheet read as a skylight, review 4), each
+    // a low fire light, so the paving, the ruin's foot and the neighbours' walls
+    // are lit from the ground. Raised 0.28 m on their kerbs so a footway never
+    // swallows them.
+    // Two or three faces: on one random face, both ruins in pose 15 turned their
+    // fire away from the camera.
+    const order = k.shuffle([0, 1, 2, 3]);
+    for (let yi = 0, yards = 2 + (k.bool(0.5) ? 1 : 0); yi < yards; yi++) {
+      const face = order[yi], half = face < 2 ? T.hz : T.hx, wall = face < 2 ? T.hx : T.hz;
+      const Q = (t: number, y: number, d: number): Vec3 => facePoint(b, face, wall, t, y, d);
+      const yaw = b.rotationY + (face < 2 ? Math.PI / 2 : 0);
+      for (let i = 0, n = 2 + k.int(0, 1); i < n; i++) {
+        // Spread along the face: independent draws stacked three beds on one spot.
+        const t = half * 0.75 * (((i + 0.5) / n) * 2 - 1) + k.jitter(half * 0.12), d = 1.5 + k.next() * 1.4, w = 0.8 + k.next() * 1.2, dd = 0.45 + k.next() * 0.35, y = yb + 0.28;
+        bld.pushBox(Q(t, yb + 0.14, d), [w + 0.12, 0.14, dd + 0.12], [0.16, 0.08, 0.05], { faces: FACE_ALL, rotationY: yaw });
+        for (let g = 0; g < 4; g++) {
+          if (k.next() < 0.2) continue;
+          const heat = k.next() * k.next(), t0 = t - w + (g + k.next() * 0.2) * (w / 2), t1 = t0 + (0.6 + k.next() * 0.4) * (w / 2);
+          bld.pushQuad(Q(t0, y + 0.005, d - dd), Q(t1, y + 0.005, d - dd), Q(t1, y + 0.005, d + dd), Q(t0, y + 0.005, d + dd),
+            [1.0, 0.16 + 0.34 * heat, 0.03 + 0.06 * heat], 1, { emissive: 0.8 + 2.4 * heat, doubleSided: true });
         }
+        if (lod < 1 && i < 2) lights.push({ pos: Q(t, yb + 1.3, d), radius: 14, color: [1.0, 0.4, 0.12], intensity: 2.8 });
       }
-      if (lod < 1 && i < 3) lights.push({ pos: buildingPoint(b, cx, top + 1.2, cz), radius: reach, color: [1.0, 0.4, 0.12], intensity: 2.8 });
+      // The shell burning inside, seen through its ground-floor openings.
+      for (let m = 0, nm = 2 + k.int(0, 1); m < nm; m++) {
+        const t = k.jitter(half * 0.75), hw = 0.6 + k.next() * 0.5, h = 2.0 + k.next() * 0.6;
+        bld.pushQuad(Q(t - hw, yb + 0.1, 0.04), Q(t + hw, yb + 0.1, 0.04), Q(t + hw, yb + h, 0.04), Q(t - hw, yb + h, 0.04),
+          [1.0, 0.36, 0.1], 1, { emissive: 2.6, doubleSided: true });
+      }
     }
     return;
   }
   if (!ot.kiln) {
     // A brazier on the footway: a fire basket on a post. The street's light is
-    // fire, not lamps (sheet C), and 2.8 m up it lays a pool on the paving.
-    const face = r.int(0, 3), half = face < 2 ? T.hz : T.hx, wall = face < 2 ? T.hx : T.hz;
+    // fire, not lamps (sheet C), and 2.8 m up it lays a pool on the paving. On a
+    // local z face: lots are yawed to their street, so +-z is front or back; a
+    // random face put half of them on side walls no street sees (pose 14).
+    const face = 2 + r.int(0, 1), half = face < 2 ? T.hz : T.hx, wall = face < 2 ? T.hx : T.hz;
     const t = r.jitter(half * 0.7);
     const Q = (y: number): Vec3 => facePoint(b, face, wall, t, y, 1.3);
     bld.pushCylinder(Q(yb), Q(yb + 1.7), 0.06, 5, [0.16, 0.13, 0.11]);
@@ -210,7 +222,7 @@ export function pushOldTownFire(bld: MeshBuilder, b: BuildingInstance, lights: B
     return;
   }
   for (let n = 0, faces = 1 + r.int(0, 1); n < faces; n++) {
-    const face = r.int(0, 3), half = face < 2 ? T.hz : T.hx, wall = (face < 2 ? T.hx : T.hz) + 0.3;
+    const face = 2 + r.int(0, 1), half = face < 2 ? T.hz : T.hx, wall = (face < 2 ? T.hx : T.hz) + 0.3;
     const t = r.jitter(half * 0.6), hw = 1.1 + r.next() * 0.6, h = 2.2 + r.next() * 0.6;
     const Q = (tt: number, y: number, dd: number): Vec3 => facePoint(b, face, wall, tt, y, dd);
     bld.pushQuad(Q(t - hw, yb + 0.1, 0.02), Q(t + hw, yb + 0.1, 0.02), Q(t + hw, yb + h, 0.02), Q(t - hw, yb + h, 0.02), [1.0, 0.5, 0.16], 1, { emissive: 3.0, doubleSided: true });
@@ -390,10 +402,12 @@ export function pushBuilding(
   const tier0Top = yBase + tiers[0].y1;
 
   // --- plinth: the first 8m is a different material, like a real base course.
+  // A ruin's plinth is burnt too: tagged plain, it kept lit shop displays and neon
+  // under a sooted shell, which read as an intact building (R14 review 5).
   if (lod < 2) {
     const plinthH = Math.min(7.5, totalH * 0.25);
     pushBoxShell(bld, P, hx + 0.28, hz + 0.28, yBase, yBase + plinthH,
-      pal.secondary, MAT.DIFFUSE, STONE + 0.15, seed + 7, 0, yaw, ot && !ot.ruin ? FACADE_UV_OLDTOWN : FACADE_UV);
+      pal.secondary, MAT.DIFFUSE, STONE + 0.15, seed + 7, 0, yaw, ot?.ruin ? FACADE_UV_RUIN : ot ? FACADE_UV_OLDTOWN : FACADE_UV);
   }
 
   // --- vertical pilasters. These are the single cheapest thing that makes a
