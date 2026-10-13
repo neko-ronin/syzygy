@@ -138,6 +138,14 @@ export const CLUTTER_KINDS: readonly string[] = [
   // --- appended, reference-evidenced (spec section B)
   'railing', 'bracket', 'projecting-sign', 'awning', 'lamp-bracket',
   'balcony', 'planter-row', 'step-edge',
+  // --- appended, DECISIONS D30 (2026-10-13): things people use and leave.
+  // Owner direction, not reference-derived; the district kits below map them
+  // onto sheets A (seating, stall overflow), B (barrels, pallets), C (braziers,
+  // firewood, kiln stock) and D (planters, trees, cafe terraces).
+  'cafe-set', 'bicycle', 'doorstep-pots', 'barrel', 'pallet', 'brazier',
+  'firewood', 'kiln-stock', 'handcart', 'sacks', 'planter-tall',
+  // Island-only pieces (market spine interior, `MarketIsland`).
+  'tree', 'ring-bench', 'parasol', 'pump', 'shrine', 'cafe-table', 'chair',
 ];
 
 /**
@@ -148,7 +156,9 @@ export const CLUTTER_KINDS: readonly string[] = [
  * boundaries, leaving coherent walking areas" — which cannot be done if items
  * are scattered evenly across the width of the footway, where they read as
  * debris in the middle of the route. Superseded in part by DECISIONS D30
- * (2026-10-13): wide walking areas also take furniture islands; not yet built.
+ * (2026-10-13): no authored footway reaches the ~6 m D30 names (widest 5.72 m),
+ * so footways stay edge-placed and the islands go in the market spine's open
+ * carriageway (`MarketIsland` in `marketgrammar.ts`).
  */
 export const CLUTTER_EDGE: Record<string, 'front' | 'kerb'> = {
   railing: 'kerb', 'step-edge': 'kerb', 'drain-cover': 'kerb', 'manhole': 'kerb',
@@ -159,7 +169,50 @@ export const CLUTTER_EDGE: Record<string, 'front' | 'kerb'> = {
   awning: 'front', bracket: 'front', balcony: 'front', bin: 'kerb',
   'crate-stack': 'kerb', kiosk: 'front', 'phone-box': 'front',
   'newspaper-box': 'front', 'sandwich-board': 'front',
+  'cafe-set': 'front', bicycle: 'front', 'doorstep-pots': 'front', barrel: 'front',
+  pallet: 'front', brazier: 'front', firewood: 'front', 'kiln-stock': 'front',
+  handcart: 'front', sacks: 'front', 'planter-tall': 'front',
 };
+
+/**
+ * Half the across-street footprint of a kind at hip height, metres: what a
+ * walker bumps into, not a crown or an awning overhead. Unlisted kinds are thin
+ * (rails, posts) or off the walking surface (wall brackets, flat covers).
+ */
+export const CLUTTER_DEPTH: Record<string, number> = {
+  'cafe-set': 0.36, bicycle: 0.2, 'doorstep-pots': 0.26, barrel: 0.33, pallet: 0.22,
+  brazier: 0.38, firewood: 0.3, 'kiln-stock': 0.34, handcart: 0.5, sacks: 0.32,
+  'planter-tall': 0.36, kiosk: 0.82, bench: 0.27, 'crate-stack': 0.34, 'potted-palm': 0.3,
+  planter: 0.42, 'planter-row': 0.5, 'bike-rack': 0.34, 'sandwich-board': 0.35,
+  spool: 0.32, 'cable-spool': 0.32, sandbag: 0.22, hydrant: 0.14, postbox: 0.2,
+  'newspaper-box': 0.2, 'phone-box': 0.36,
+};
+const DEPTH_THIN = 0.1;
+
+/** Building-line inset of a front item, metres beyond the footway edge. */
+export const FOOTWAY_FRONT_INSET = 0.22;
+/** Kerb-line placement band of a kerb item's centre, metres onto the footway. */
+export const FOOTWAY_KERB_BAND: readonly [number, number] = [0.16, 0.38];
+
+/**
+ * The walking line a footway keeps clear of furniture: 3 m where the footway
+ * can give it (D30), otherwise all but 1.1 m (one furnished edge line, which is
+ * what the edge-only rule this extends assumed).
+ */
+export const footwayWalk = (fw: number): number => Math.min(3, Math.max(0, fw - 1.1));
+
+/**
+ * Depth from its own edge that a placed item may reach, metres, and so the room
+ * left for jitter: `null` when the kind cannot stand on this footway at all.
+ * Front items are measured from the building line, kerb items from the kerb.
+ */
+export function clutterReach(name: string, fw: number): number | null {
+  const d = CLUTTER_DEPTH[name] ?? DEPTH_THIN;
+  const allowed = fw - footwayWalk(fw);
+  const atFront = (CLUTTER_EDGE[name] ?? 'front') === 'front';
+  const used = atFront ? FOOTWAY_FRONT_INSET + 2 * d : FOOTWAY_KERB_BAND[1] + d;
+  return used <= allowed + 1e-9 ? allowed - used : null;
+}
 
 /** Index of a clutter kind by name, or -1. */
 export const clutterIndex = (name: string): number => CLUTTER_KINDS.indexOf(name);
@@ -206,6 +259,13 @@ interface DistrictGround {
   footwayWidth: number;
   clutterDensity: number;
   clutter: readonly string[];
+  /**
+   * D30: things people use and leave, drawn alongside `clutter`. The draw is
+   * uniform over both lists and the density scales by their combined length,
+   * so each authored kind keeps its per-metre rate (appended into `clutter`,
+   * they halved the lamp brackets: 20.6 -> 11.3 lamps per chunk).
+   */
+  lived: readonly string[];
   shopfrontDensity: number;
   wetnessBias: number;
   polish: number;
@@ -235,6 +295,11 @@ interface DistrictGround {
  * Where a district could plausibly serve any section, it is given a mix rather
  * than a guess. Repeated names in a list are intentional: they are the weighted
  * draw, so 'railing','railing' means "mostly railings".
+ *
+ * D30 (2026-10-13) appends things people use and leave, by sheet: seating and
+ * stall overflow on the market (A), barrels and pallets in the yards (B),
+ * braziers, firewood and kiln stock in the old town (C), cafe sets, pots and
+ * small trees in the planted districts (D). Owner direction, not reference-derived.
  */
 const DISTRICT_GROUND: readonly DistrictGround[] = [
   // 0 verdant-canyon — pale stone under planting. Spec A has the least
@@ -244,6 +309,7 @@ const DISTRICT_GROUND: readonly DistrictGround[] = [
     pavement: 'flagstone', kerb: 'stone', marking: 'none',
     kerbHeight: 0.16, footwayWidth: 3.2, clutterDensity: 4.0,
     clutter: ['railing', 'railing', 'lamp-bracket', 'planter', 'balcony'],
+    lived: ['cafe-set', 'doorstep-pots', 'bicycle', 'planter-tall'],
     shopfrontDensity: 0.35, wetnessBias: 0.50, polish: 0.35, kerbTone: 2.6, kerbChroma: 1.0,
   },
   // 1 copper-stacks — industrial, exposed infrastructure. Spec B is the densest
@@ -252,6 +318,7 @@ const DISTRICT_GROUND: readonly DistrictGround[] = [
     pavement: 'asphalt', kerb: 'flush', marking: 'lane-dashes',
     kerbHeight: 0.14, footwayWidth: 2.6, clutterDensity: 5.2,
     clutter: ['projecting-sign', 'bracket', 'lamp-bracket', 'railing', 'drain-cover', 'manhole'],
+    lived: ['bicycle'],
     shopfrontDensity: 0.30, wetnessBias: 0.60, polish: 0.60, kerbTone: 1.9, kerbChroma: 0.85,
   },
   // 2 terracotta-tiers — terracotta tiles the whole width, wide planted shoulder.
@@ -259,6 +326,7 @@ const DISTRICT_GROUND: readonly DistrictGround[] = [
     pavement: 'terracotta-tile', kerb: 'stone', marking: 'none',
     kerbHeight: 0.18, footwayWidth: 4.0, clutterDensity: 5.6,
     clutter: ['planter-row', 'planter', 'railing', 'potted-palm', 'lamp-bracket'],
+    lived: ['brazier', 'firewood', 'kiln-stock', 'doorstep-pots'],
     shopfrontDensity: 0.45, wetnessBias: 0.40, polish: 0.40, kerbTone: 2.4, kerbChroma: 1.05,
   },
   // 3 glass-foxholes — cold, reflective, swept. B-like: rails, signs, brackets.
@@ -266,6 +334,7 @@ const DISTRICT_GROUND: readonly DistrictGround[] = [
     pavement: 'asphalt', kerb: 'flush', marking: 'centre-line',
     kerbHeight: 0.13, footwayWidth: 2.8, clutterDensity: 4.6,
     clutter: ['railing', 'projecting-sign', 'lamp-bracket', 'balcony', 'drain-cover'],
+    lived: ['bicycle'],
     shopfrontDensity: 0.25, wetnessBias: 0.65, polish: 0.70, kerbTone: 2.0, kerbChroma: 0.8,
   },
   // 4 lantern-bazaar — everything crowds the carriageway. C-like: warm lamp
@@ -274,6 +343,7 @@ const DISTRICT_GROUND: readonly DistrictGround[] = [
     pavement: 'terracotta-tile', kerb: 'painted', marking: 'none',
     kerbHeight: 0.14, footwayWidth: 2.4, clutterDensity: 12.0,
     clutter: ['lamp-bracket', 'lamp-bracket', 'projecting-sign', 'awning', 'railing', 'planter', 'bracket'],
+    lived: ['cafe-set', 'sacks', 'handcart', 'doorstep-pots'],
     shopfrontDensity: 0.95, wetnessBias: 0.45, polish: 0.45, kerbTone: 2.8, kerbChroma: 1.15,
   },
   // 5 rust-hangars — yard, not street. Spec B's "exposed infrastructure":
@@ -282,6 +352,7 @@ const DISTRICT_GROUND: readonly DistrictGround[] = [
     pavement: 'board-formed', kerb: 'flush', marking: 'yard-grid',
     kerbHeight: 0.10, footwayWidth: 3.4, clutterDensity: 4.2,
     clutter: ['spool', 'cable-spool', 'awning', 'railing', 'drain-cover', 'step-edge'],
+    lived: ['barrel', 'barrel', 'pallet'],
     shopfrontDensity: 0.15, wetnessBias: 0.70, polish: 0.30, kerbTone: 1.8, kerbChroma: 0.75,
   },
   // 6 monastery-spire — pale stone, generous clear footway, herb terraces.
@@ -289,6 +360,7 @@ const DISTRICT_GROUND: readonly DistrictGround[] = [
     pavement: 'flagstone', kerb: 'stone', marking: 'none',
     kerbHeight: 0.20, footwayWidth: 3.6, clutterDensity: 4.0,
     clutter: ['planter', 'potted-palm', 'railing', 'bench', 'step-edge'],
+    lived: ['doorstep-pots', 'planter-tall'],
     shopfrontDensity: 0.20, wetnessBias: 0.50, polish: 0.50, kerbTone: 2.7, kerbChroma: 1.05,
   },
   // 7 neon-arcology — engineered deck over a plinth. Spec C's "dense cables,
@@ -298,6 +370,7 @@ const DISTRICT_GROUND: readonly DistrictGround[] = [
     pavement: 'metal-deck', kerb: 'channel', marking: 'centre-line',
     kerbHeight: 0.10, footwayWidth: 4.4, clutterDensity: 5.8,
     clutter: ['balcony', 'bracket', 'lamp-bracket', 'railing', 'puddle-grate', 'drain-cover'],
+    lived: ['cafe-set', 'bicycle'],
     shopfrontDensity: 0.30, wetnessBias: 0.55, polish: 0.80, kerbTone: 2.2, kerbChroma: 0.7,
   },
   // 8 botanical-dome — not paved at all. This is the spec's section D: the
@@ -307,6 +380,7 @@ const DISTRICT_GROUND: readonly DistrictGround[] = [
     pavement: 'dirt', kerb: 'planter-edge', marking: 'none',
     kerbHeight: 0.12, footwayWidth: 3.0, clutterDensity: 9.5,
     clutter: ['planter-row', 'planter-row', 'planter', 'potted-palm', 'bench', 'railing'],
+    lived: ['cafe-set', 'planter-tall', 'doorstep-pots'],
     shopfrontDensity: 0.10, wetnessBias: 0.75, polish: 0.25, kerbTone: 2.5, kerbChroma: 0.95,
   },
   // 9 canal-district — quay flagstone, open channel, continuous terrace rails,
@@ -317,6 +391,7 @@ const DISTRICT_GROUND: readonly DistrictGround[] = [
     pavement: 'flagstone', kerb: 'channel', marking: 'none',
     kerbHeight: 0.18, footwayWidth: 3.2, clutterDensity: 7.0,
     clutter: ['railing', 'railing', 'planter', 'bollard', 'lamp-bracket', 'crate-stack'],
+    lived: ['barrel', 'pallet', 'bicycle'],
     shopfrontDensity: 0.30, wetnessBias: 0.70, polish: 0.40, kerbTone: 2.6, kerbChroma: 1.0,
   },
   // 10 market-spine — cobbles, bollards instead of a kerb.
@@ -328,6 +403,7 @@ const DISTRICT_GROUND: readonly DistrictGround[] = [
     kerbHeight: 0.13, footwayWidth: 2.2, clutterDensity: 15.0,
     clutter: ['kiosk', 'crate-stack', 'awning', 'projecting-sign', 'lamp-bracket',
       'newspaper-box', 'sandwich-board', 'planter', 'bollard'],
+    lived: ['cafe-set', 'sacks', 'handcart'],
     shopfrontDensity: 1.00, wetnessBias: 0.40, polish: 0.45, kerbTone: 2.9, kerbChroma: 1.2,
   },
 ];
@@ -433,8 +509,8 @@ export function groundGrammarFor(districtId: number, kind: RoadKind): GroundGram
     marking: src.marking,
     kerbHeight: src.kerbHeight,
     footwayWidth: src.footwayWidth,
-    clutterDensity: src.clutterDensity,
-    clutter: src.clutter.map(clutterIndex).filter((i) => i >= 0),
+    clutterDensity: src.clutterDensity * (src.clutter.length + src.lived.length) / Math.max(1, src.clutter.length),
+    clutter: [...src.clutter, ...src.lived].map(clutterIndex).filter((i) => i >= 0),
     shopfrontDensity: src.shopfrontDensity,
     wetnessBias: src.wetnessBias,
     polish: src.polish,

@@ -791,3 +791,30 @@ other two rules (irregular gaps, open stretches and clumps) still apply.
 - `groundbake.ts` rule 1 and `CLUTTER_EDGE` change; `__selftest_footway.ts` assumes one
   ~1 m clutter line per footway and needs a clear-route check instead.
 - STREET_SPEC §F is annotated as superseded in part.
+
+### As built (2026-10-13)
+
+- **Where the islands go.** No authored footway reaches ~6 m (widest 5.72 m), so footways
+  stay edge-placed and the islands are the market spine's: `MarketIsland` in
+  `marketgrammar.ts` (placement, pure data), baked in `groundbake.ts` through
+  `pushClutterItem` and one obstacle path (`pushObstacleSince`). Kinds: tree in a ring
+  bench, cafe (tables, chairs at angles, parasols), kiosk, pump, planter group, stall
+  overflow, handcart, shrine. Default seed: 104 islands over 1.3 km of spine.
+- **The walking line.** Islands keep `|lateral| + radius <= half - 2.6 - 3.2`: a 3.2 m lane
+  in front of the deepest stall overhang on both sides, which is also where the hero
+  corridor stands. Measured on the baked chunks (`__selftest_footway.ts`): narrowest
+  clear run across the spine 11.2 m over 1301 cross-sections; 470/470 solid pieces carry a
+  crowd obstacle; no at-grade tram passes an island.
+- **An arterial runs inside the spine** either side of the origin (along -20..52 at the
+  default seed), and the street field reports `artery` there. Islands accept any walkable
+  carriageway (not canal, not rail), or every market review camera would look down the
+  one stretch with none.
+- **Footways.** District kits gain a `lived` list (sheet A cafe sets, sacks, handcarts; B
+  barrels, pallets; C braziers, firewood, kiln stock; D cafe sets, pots, small trees),
+  drawn alongside the authored kit at the same per-kind rate. A kind that would leave less
+  than `footwayWalk(fw)` clear (3 m, or all but 1.1 m on narrow footways) is not placed
+  (`clutterReach`). Front items stand their own depth off the building line (they were
+  placed by their centre, half inside the wall), and every clutter box now carries its
+  placer's yaw.
+- **Budget.** `CLUTTER_TRIS` 9000 -> 12000 (measured, see the constant); islands carry
+  their own tally. Hero GPU span +0.2 ms (PERFORMANCE, 2026-10-13).

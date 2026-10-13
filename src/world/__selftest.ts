@@ -15,7 +15,7 @@ import { bakeGroundDetail } from '../render/groundbake';
 import { bakeChunk, profileFor, pushBuilding } from '../render/citymesh';
 import { NavGraph, buildRailLines, buildZiplines, resampleSpline } from './networks';
 import {
-  BAND_ORDER, CLUTTER_KINDS, bandAlbedo, familyFromBand, groundGrammarFor, hsv,
+  BAND_ORDER, CLUTTER_KINDS, bandAlbedo, decodeGroundSurfaceTag, familyFromBand, groundGrammarFor, hsv,
 } from './groundgrammar';
 
 const now = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
@@ -556,7 +556,7 @@ export function runCitySelfTest(): string {
     gRes0.clutter.placed += r.clutter.placed; gRes0.clutter.wanted += r.clutter.wanted;
     gRes0.clutter.tris += r.clutter.tris; gRes0.clutter.lamps += r.clutter.lamps;
     const pm = probe.build();
-    const gp = pm.positions, gn = pm.normals;
+    const gp = pm.positions, gn = pm.normals, gcol = pm.colors;
     // Every emitted normal must be a unit vector. This is the check that catches
     // a wrong stride in a frame computation immediately: a normal built from the
     // wrong field has length ~26, not 1, and geometry that is merely *in the
@@ -584,7 +584,14 @@ export function runCitySelfTest(): string {
         z < gc.boundsMin[2] - 8 || z > gc.boundsMin[2] + size2 + 8) { continue; }
       sampleStreetPlan(plan, x, z, tmpS);
       const edge = Math.abs(tmpS.dist) - tmpS.width * 0.5;
-      if (Math.abs(gn[i + 1]) < 0.5) {
+      // Kerb faces by their authored tag, not by "below 1.5 m with a sideways
+      // normal": that also caught every side of every piece of furniture, and
+      // D30's barrels, pots and chairs on footways moved p50 0.17 -> 0.52 m with
+      // no kerb moved. Furniture sides are not this check's subject.
+      const tag = gcol[(i / 3) * 4 + 3];
+      const kerbFace = tag < 0 && decodeGroundSurfaceTag(tag).surface === 'kerb-face';
+      if (!kerbFace && Math.abs(gn[i + 1]) < 0.5) continue;
+      if (kerbFace) {
         // Kerb FACE. Where the nearest carriageway is unambiguously this kerb's
         // own road, the kerb must sit ON that carriageway's edge. Vertices near a
         // junction are excluded: there the nearest road is legitimately a
@@ -672,7 +679,7 @@ export function runCitySelfTest(): string {
   for (let d = 0; d < DISTRICT_STYLES.length; d++) L.push(`              ${groundRow(d)}`);
   L.push(`              family decode ${decodeOk}/${decodeTotal} pairs; bands ${bandOk}/${BAND_ORDER.length} uniquely decodable; kerbTone honoured on all ${DISTRICT_STYLES.length * ROAD_KINDS.length}`);
   L.push(`ground detail  ${gRes.triangles} tris in ${verts} verts, ${gRes.roads} carriageways, ${Math.round(gRes.edgeMetres)}m of edge, ${gRes.fieldMs}ms, ${gLights.length} lights`);
-  L.push(`              furniture ${gRes.clutter.placed} placed / ${gRes.clutter.wanted} wanted, ${gRes.clutter.tris} tris, ${gRes.clutter.lamps} lamps (budget 9000 tris/chunk)`);
+  L.push(`              furniture ${gRes.clutter.placed} placed / ${gRes.clutter.wanted} wanted, ${gRes.clutter.tris} tris, ${gRes.clutter.lamps} lamps (budget 12000 tris/chunk)`);
   L.push(`              ${faceVerts} unambiguous kerb-face vertices sit on the carriageway edge: p50 ${f2(faceP50)}m, p90 ${f2(faceP90)}m; ` +
     `${deckInCorridor}/${deckVerts} deck vertices inside a street corridor (worst ${f2(deckWorst)}m clear)`);
   L.push(`              chunk overhang ${outside} vertices, of which ${ownOutside} on raised/kerb surfaces (bundle includes another module's market detail; reported, not asserted)`);

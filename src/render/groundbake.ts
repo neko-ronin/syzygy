@@ -22,7 +22,7 @@
  * range the shader's surface synthesis carries the whole street.
  */
 
-import { type Rng, type Vec3 } from '../core/math';
+import { makeRng, type Rng, type Vec3 } from '../core/math';
 import {
   sampleStreetPlan, GROUND_Y, DISTRICT_CELL,
   type CityChunk, type CityPlan, type RoadKind, type StreetSample,
@@ -35,10 +35,12 @@ import { bakeMarketDetail, marketBakeState, type MarketBakeState } from './marke
 import {
   marketGrammarFor, MAX_MARKET_LIGHTS_PER_CHUNK, MAX_STALL_LAMPS_PER_CHUNK,
 } from '../world/marketgrammar';
-import { CLUTTER_EDGE, CLUTTER_KINDS } from '../world/groundgrammar';
+import {
+  CLUTTER_DEPTH, CLUTTER_EDGE, CLUTTER_KINDS, FOOTWAY_FRONT_INSET, FOOTWAY_KERB_BAND, clutterReach,
+} from '../world/groundgrammar';
 import { districtStyle } from '../world/districts';
 import type { CrowdObstacle } from '../world/crowdobstacles';
-import type { MarketStall } from '../world/marketgrammar';
+import type { MarketIsland, MarketStall } from '../world/marketgrammar';
 
 // ---------------------------------------------------------------- constants
 
@@ -245,6 +247,11 @@ export interface GroundBakeResult {
   roads: number;
   /** Furniture the grammar asked for, and how many the triangle budget allowed. */
   clutter: ClutterTally;
+  /**
+   * Market-spine islands (D30), on their own tally: charging them to `clutter`
+   * would throttle every footway traced after the market in the same chunk.
+   */
+  islands: { placed: number; pieces: number; tris: number };
   /** Metres of carriageway edge emitted. */
   edgeMetres: number;
   /** Triangles emitted. Read back from the builder, never predicted. */
@@ -308,6 +315,7 @@ export function bakeGroundDetail(
       placed: 0, wanted: 0, tris: 0, lamps: 0,
       marketLights: 0, marketLightsDropped: 0, marketTraces: 0, stallLights: 0,
     },
+    islands: { placed: 0, pieces: 0, tris: 0 },
   };
   if (lod > 1) return res;
 
@@ -495,8 +503,15 @@ function edgeOffset(
  * budget is gone — as a uniform throttle rather than a cut-off, see the comment
  * at the placement site — and `clutterPlaced` / `clutterWanted` are reported so
  * the shortfall is visible rather than silent.
+ *
+ * 9000 -> 12000 for D30 (2026-10-13), measured over the self-test's 8 chunks:
+ * the lived-in kits cost 5.9-7.7k triangles per chunk, past the throttle's 55%
+ * knee at 9000, and widened every gap including the lamp brackets'. At 12000:
+ * 135 items, 7.6k triangles, 18.5 lamps; with no budget at all 18.9 (base 20.6,
+ * the rest is a different draw sequence, not a rate). Market islands are not
+ * in this budget (`GroundBakeResult.islands`).
  */
-const CLUTTER_TRIS = 9000;
+const CLUTTER_TRIS = 12000;
 
 /**
  * Compensates the mean of the clump/open gap draw so the AUTHORED
@@ -510,14 +525,26 @@ const CLUTTER_TRIS = 9000;
  */
 const CLUSTER_MEAN = 1.45;
 
-/** Prop-local point -> world, yawing the item to face the carriageway. */
-type Placer = (x: number, y: number, z: number) => Vec3;
+/**
+ * Prop-local point -> world, yawing the item to face the carriageway. `yaw` is
+ * the same angle in `MeshBuilder`'s `rotationY` convention: boxes must be given
+ * it too, or they stay world-aligned while their positions turn (every clutter
+ * box was, until D30's chairs at angles made it visible).
+ */
+type Placer = ((x: number, y: number, z: number) => Vec3) & { yaw: number };
 
 /** Build a placer that puts local +Z toward `face` and local +Y at `y`. */
 const placer = (x: number, y: number, z: number, faceX: number, faceZ: number): Placer => {
   const a = Math.atan2(faceX, faceZ);
   const c = Math.cos(a), s = Math.sin(a);
-  return (lx: number, ly: number, lz: number): Vec3 => [x + lx * c + lz * s, y + ly, z - lx * s + lz * c];
+  const P = (lx: number, ly: number, lz: number): Vec3 => [x + lx * c + lz * s, y + ly, z - lx * s + lz * c];
+  return Object.assign(P, { yaw: a });
+};
+
+/** Yaw jitter, radians, a loose kind may take on a footway (D30 rule 3). Long items stay near square to the wall. */
+const LOOSE_YAW: Record<string, number> = {
+  'cafe-set': 0.35, barrel: Math.PI, sacks: Math.PI, 'doorstep-pots': Math.PI, brazier: Math.PI,
+  pallet: 0.3, 'kiln-stock': 0.3, handcart: 0.2, bicycle: 0.08, firewood: 0.06,
 };
 
 const METAL: Vec3 = [0.16, 0.17, 0.18];
@@ -543,6 +570,36 @@ const DEEP_JOINT: Vec3 = [0.030, 0.031, 0.035];   // was [0.020, 0.021, 0.024]; 
 const DARK: Vec3 = [0.055, 0.058, 0.062];
 const TIMBER: Vec3 = [0.26, 0.17, 0.10];
 const LEAF: Vec3 = [0.075, 0.21, 0.055];
+// D30 pieces. Warm, used materials; the ember is the only emitter (D28 amber).
+const LEAVES: readonly Vec3[] = [LEAF, [0.11, 0.26, 0.06], [0.16, 0.30, 0.07]];
+const BARK: Vec3 = [0.19, 0.13, 0.08];
+const POT: Vec3 = [0.46, 0.20, 0.10];
+const BURLAP: Vec3 = [0.42, 0.33, 0.20];
+const IRON: Vec3 = [0.085, 0.085, 0.095];
+const BRICK: Vec3 = [0.40, 0.15, 0.08];
+const EMBER: Vec3 = [1.0, 0.45, 0.14];
+const PALE_TIMBER: Vec3 = [0.40, 0.30, 0.18];
+const BARREL_PAINT: readonly Vec3[] = [[0.36, 0.14, 0.07], [0.17, 0.25, 0.33], [0.30, 0.20, 0.11]];
+const CLOTH: readonly Vec3[] = [[0.75, 0.32, 0.12], [0.82, 0.66, 0.38], [0.55, 0.14, 0.10]];
+/** Island stone: the market's kerb paint read every island as a yellow disc. */
+const STONE: Vec3 = [0.34, 0.30, 0.25];
+/** Island paintwork, one per island: green, ox-red, cream, blue-grey. Not the district's yellow trim. */
+const ISLAND_PAINT: readonly Vec3[] = [[0.13, 0.26, 0.17], [0.40, 0.11, 0.07], [0.58, 0.50, 0.38], [0.20, 0.26, 0.32]];
+
+/** A chair whose sitter faces local +Z: seat, back, two side frames. 48 triangles. */
+function pushChair(bld: MeshBuilder, P: Placer, color: Vec3): void {
+  const o = { faces: FACE_ALL, rotationY: P.yaw };
+  bld.pushBox(P(0, 0.45, 0), [0.21, 0.025, 0.21], color, o);
+  bld.pushBox(P(0, 0.7, -0.19), [0.2, 0.22, 0.02], color, o);
+  for (const sx of [-0.19, 0.19]) bld.pushBox(P(sx, 0.21, 0), [0.02, 0.21, 0.19], METAL, o);
+}
+
+/** Placer for a sub-part at local (lx, lz), turned by `yaw` more than its parent. */
+const sub = (P: Placer, lx: number, lz: number, yaw: number): Placer => {
+  const o = P(lx, 0, lz);
+  const a = P.yaw + yaw;
+  return placer(o[0], o[1], o[2], Math.sin(a), Math.cos(a));
+};
 
 export interface ClutterTally {
   placed: number;
@@ -597,16 +654,16 @@ function pushClutterItem(
       bld.pushCylinder(P(0, 0.008, 0), P(0, 0.03, 0), 0.33, 8, pal.kerb, { capEnds: true });
       break;
     case 'bench':
-      bld.pushBox(P(0, 0.44, 0), [0.9, 0.05, 0.24], TIMBER, { faces: FACE_PY | FACE_NY, rotationY: 0 });
-      bld.pushBox(P(0, 0.68, -0.22), [0.9, 0.22, 0.04], TIMBER, { faces: FACE_ALL });
-      for (const sx of [-0.78, 0.78]) bld.pushBox(P(sx, 0.22, 0), [0.05, 0.22, 0.22], METAL, { faces: FACE_ALL });
+      bld.pushBox(P(0, 0.44, 0), [0.9, 0.05, 0.24], TIMBER, { faces: FACE_PY | FACE_NY, rotationY: P.yaw });
+      bld.pushBox(P(0, 0.68, -0.22), [0.9, 0.22, 0.04], TIMBER, { faces: FACE_ALL, rotationY: P.yaw });
+      for (const sx of [-0.78, 0.78]) bld.pushBox(P(sx, 0.22, 0), [0.05, 0.22, 0.22], METAL, { faces: FACE_ALL, rotationY: P.yaw });
       break;
     case 'bin':
       bld.pushCylinder(P(0, 0, 0), P(0, 0.78, 0), 0.26, 7, pal.metal, { capEnds: false });
       bld.pushCylinder(P(0, 0.78, 0), P(0, 0.86, 0), 0.29, 7, pal.metal, { radiusTop: 0.2, capEnds: true });
       break;
     case 'planter':
-      bld.pushBox(P(0, 0.22, 0), [0.42, 0.22, 0.42], pal.kerb, { faces: FACE_ALL });
+      bld.pushBox(P(0, 0.22, 0), [0.42, 0.22, 0.42], pal.kerb, { faces: FACE_ALL, rotationY: P.yaw });
       bld.pushSphere(P(0, 0.62, 0), 0.4, 6, 3, LEAF);
       break;
     case 'potted-palm':
@@ -626,8 +683,8 @@ function pushClutterItem(
       bld.pushCylinder(P(0, 0, 0), P(0, 4.6, 0), 0.085, 5, pal.metal, { capEnds: false });
       bld.pushCylinder(P(0, 0, 0), P(0, 0.14, 0), 0.17, 6, pal.metal, { capEnds: true });
       bld.pushTubeAlongPath([P(0, 3.5, 0), P(0, 4.35, -0.5)], 0.03, 3, pal.metal, { capEnds: false });
-      bld.pushBox(P(0, 4.42, 0), [0.10, 0.07, 0.42], pal.metal, { faces: FACE_ALL });
-      bld.pushBox(P(0, 4.3, 0.56), [0.20, 0.06, 0.26], [1.0, 0.86, 0.62], { faces: FACE_ALL, emissive: 4.6 });
+      bld.pushBox(P(0, 4.42, 0), [0.10, 0.07, 0.42], pal.metal, { faces: FACE_ALL, rotationY: P.yaw });
+      bld.pushBox(P(0, 4.3, 0.56), [0.20, 0.06, 0.26], [1.0, 0.86, 0.62], { faces: FACE_ALL, emissive: 4.6, rotationY: P.yaw });
       tally.lamps++;
       break;
     case 'hydrant':
@@ -644,7 +701,7 @@ function pushClutterItem(
       break;
     case 'crate-stack':
       for (let i = 0; i < 3; i++) {
-        bld.pushBox(P(rng.jitter(0.1), 0.2 + i * 0.4, rng.jitter(0.1)), [0.32, 0.2, 0.28], TIMBER, { faces: FACE_ALL, rotationY: rng.jitter(0.4) });
+        bld.pushBox(P(rng.jitter(0.1), 0.2 + i * 0.4, rng.jitter(0.1)), [0.32, 0.2, 0.28], TIMBER, { faces: FACE_ALL, rotationY: P.yaw + rng.jitter(0.4) });
       }
       break;
     case 'spool':
@@ -654,24 +711,26 @@ function pushClutterItem(
       bld.pushCylinder(P(0, 0, 0.26), P(0, 0, 0.32), 0.78, 8, TIMBER, { capEnds: true });
       break;
     case 'postbox':
-      bld.pushBox(P(0, 0.6, 0), [0.24, 0.6, 0.18], pal.accent, { faces: FACE_ALL });
-      bld.pushBox(P(0, 1.22, 0), [0.26, 0.04, 0.2], pal.accent, { faces: FACE_ALL });
+      bld.pushBox(P(0, 0.6, 0), [0.24, 0.6, 0.18], pal.accent, { faces: FACE_ALL, rotationY: P.yaw });
+      bld.pushBox(P(0, 1.22, 0), [0.26, 0.04, 0.2], pal.accent, { faces: FACE_ALL, rotationY: P.yaw });
       break;
     case 'newspaper-box':
-      bld.pushBox(P(0, 0.28, 0), [0.22, 0.28, 0.18], pal.accent, { faces: FACE_ALL });
-      for (const sx of [-0.16, 0.16]) bld.pushBox(P(sx, 0.06, 0), [0.03, 0.06, 0.03], METAL, { faces: FACE_ALL });
+      bld.pushBox(P(0, 0.28, 0), [0.22, 0.28, 0.18], pal.accent, { faces: FACE_ALL, rotationY: P.yaw });
+      for (const sx of [-0.16, 0.16]) bld.pushBox(P(sx, 0.06, 0), [0.03, 0.06, 0.03], METAL, { faces: FACE_ALL, rotationY: P.yaw });
       break;
     case 'kiosk':
-      bld.pushBox(P(0, 1.1, 0), [1.1, 1.1, 0.8], pal.trim, { faces: FACE_ALL });
-      bld.pushQuad(P(-1.2, 1.85, -0.6), P(1.2, 1.85, -0.6), P(1.2, 1.6, 0.7), P(-1.2, 1.6, 0.7), pal.accent, 1, { doubleSided: true });
-      bld.pushBox(P(0, 0.5, 0.42), [0.9, 0.5, 0.04], pal.metal, { faces: FACE_ALL });
+      bld.pushBox(P(0, 1.1, 0), [1.1, 1.1, 0.8], pal.trim, { faces: FACE_ALL, rotationY: P.yaw });
+      bld.pushQuad(P(-1.2, 2.55, -0.6), P(1.2, 2.55, -0.6), P(1.2, 2.3, 0.7), P(-1.2, 2.3, 0.7), pal.accent, 1, { doubleSided: true });
+      bld.pushBox(P(0, 2.66, 0.66), [0.9, 0.18, 0.03], pal.accent, { faces: FACE_ALL, rotationY: P.yaw });
+      for (const sx of [-1.05, 1.05]) bld.pushCylinder(P(sx, 2.2, 0.68), P(sx, 2.36, 0.68), 0.03, 3, pal.metal, { capEnds: false });
+      bld.pushBox(P(0, 0.5, 0.42), [0.9, 0.5, 0.04], pal.metal, { faces: FACE_ALL, rotationY: P.yaw });
       break;
     case 'phone-box':
-      bld.pushBox(P(0, 1.1, 0), [0.42, 1.1, 0.34], pal.accent, { faces: FACE_ALL });
+      bld.pushBox(P(0, 1.1, 0), [0.42, 1.1, 0.34], pal.accent, { faces: FACE_ALL, rotationY: P.yaw });
       break;
     case 'sandbag':
       for (let i = 0; i < 3; i++) {
-        bld.pushBox(P(0, 0.11 + i * 0.2, 0), [0.34, 0.1, 0.2], pal.kerb, { faces: FACE_ALL, rotationY: i * 0.3 });
+        bld.pushBox(P(0, 0.11 + i * 0.2, 0), [0.34, 0.1, 0.2], pal.kerb, { faces: FACE_ALL, rotationY: P.yaw + i * 0.3 });
       }
       break;
     case 'sandwich-board':
@@ -704,7 +763,7 @@ function pushClutterItem(
         const x = -L / 2 + (L * i) / 3;
         bld.pushTubeAlongPath([P(x, 0, 0), P(x, 1.0, 0)], 0.038, 4, pal.metal, { capEnds: false });
         // Base plate: the post has to meet something.
-        bld.pushBox(P(x, 0.02, 0), [0.09, 0.02, 0.09], pal.metal, { faces: FACE_ALL });
+        bld.pushBox(P(x, 0.02, 0), [0.09, 0.02, 0.09], pal.metal, { faces: FACE_ALL, rotationY: P.yaw });
       }
       break;
     }
@@ -714,7 +773,7 @@ function pushClutterItem(
       bld.pushTubeAlongPath([P(0, 2.35, 0), P(0, 2.35, -0.75)], 0.045, 4, pal.metal, { capEnds: false });
       bld.pushTubeAlongPath([P(0, 2.35, -0.75), P(0, 1.95, -0.75)], 0.035, 4, pal.metal, { capEnds: false });
       bld.pushTubeAlongPath([P(0, 2.05, -0.05), P(0, 2.35, -0.70)], 0.022, 3, pal.metal, { capEnds: false });
-      bld.pushBox(P(0, 2.42, 0.02), [0.11, 0.16, 0.06], pal.metal, { faces: FACE_ALL });
+      bld.pushBox(P(0, 2.42, 0.02), [0.11, 0.16, 0.06], pal.metal, { faces: FACE_ALL, rotationY: P.yaw });
       break;
     }
     case 'lamp-bracket': {
@@ -726,8 +785,8 @@ function pushClutterItem(
       // shader threw away.
       bld.pushTubeAlongPath([P(0, 3.05, 0), P(0, 3.15, -0.55)], 0.05, 4, pal.metal, { capEnds: false });
       bld.pushTubeAlongPath([P(0, 3.15, -0.55), P(0, 2.95, -0.62)], 0.035, 4, pal.metal, { capEnds: false });
-      bld.pushBox(P(0, 3.1, 0.03), [0.1, 0.18, 0.05], pal.metal, { faces: FACE_ALL });
-      bld.pushBox(P(0, 2.88, -0.62), [0.13, 0.09, 0.13], [1.0, 0.68, 0.32], { faces: FACE_ALL, emissive: 4.2 });
+      bld.pushBox(P(0, 3.1, 0.03), [0.1, 0.18, 0.05], pal.metal, { faces: FACE_ALL, rotationY: P.yaw });
+      bld.pushBox(P(0, 2.88, -0.62), [0.13, 0.09, 0.13], [1.0, 0.68, 0.32], { faces: FACE_ALL, emissive: 4.2, rotationY: P.yaw });
       tally.lamps++;
       break;
     }
@@ -738,10 +797,10 @@ function pushClutterItem(
       // back to the facade.
       bld.pushTubeAlongPath([P(-0.32, 2.9, -0.04), P(-0.32, 2.9, -0.5)], 0.028, 3, pal.metal, { capEnds: false });
       bld.pushTubeAlongPath([P(0.32, 2.9, -0.04), P(0.32, 2.9, -0.5)], 0.028, 3, pal.metal, { capEnds: false });
-      bld.pushBox(P(0, 2.9, -0.04), [0.42, 0.36, 0.035], pal.metal, { faces: FACE_ALL });
+      bld.pushBox(P(0, 2.9, -0.04), [0.42, 0.36, 0.035], pal.metal, { faces: FACE_ALL, rotationY: P.yaw });
       // The luminous face. Emissive 3.4 — under the 5.5 of a PropKind.Lantern,
       // because a sign panel is a large area and a large emissive area blooms out.
-      bld.pushBox(P(0, 2.9, 0.02), [0.36, 0.3, 0.02], pal.accent, { faces: FACE_ALL, emissive: 3.4 });
+      bld.pushBox(P(0, 2.9, 0.02), [0.36, 0.3, 0.02], pal.accent, { faces: FACE_ALL, emissive: 3.4, rotationY: P.yaw });
       break;
     }
     case 'awning': {
@@ -781,7 +840,7 @@ function pushClutterItem(
       // boxes with foliage breaking over the top.
       for (let i = 0; i < 2; i++) {
         const x = -0.55 + i * 1.1;
-        bld.pushBox(P(x, 0.26, 0), [0.5, 0.26, 0.34], pal.kerb, { faces: FACE_ALL });
+        bld.pushBox(P(x, 0.26, 0), [0.5, 0.26, 0.34], pal.kerb, { faces: FACE_ALL, rotationY: P.yaw });
         bld.pushSphere(P(x, 0.66, rng.jitter(0.08)), rng.range(0.36, 0.52), 5, 3, LEAF);
       }
       break;
@@ -800,10 +859,186 @@ function pushClutterItem(
         pal.trim, 1, { normals: UP4 });
       break;
     }
+    // ------------------------------------------------------------------
+    // D30: things people use and leave. Owner direction, not reference-
+    // derived (see the kits in groundgrammar.ts). Same rule as above: every
+    // standing thing has a base, nothing floats.
+    // ------------------------------------------------------------------
+    case 'cafe-set': {
+      // Against a front: a small table and two chairs either side of it,
+      // never square to the wall.
+      bld.pushCylinder(P(0, 0, 0), P(0, 0.72, 0), 0.04, 4, METAL, { capEnds: false });
+      bld.pushCylinder(P(0, 0.72, 0), P(0, 0.75, 0), 0.32, 8, TIMBER, { capEnds: true });
+      for (const sx of [-1, 1]) pushChair(bld, sub(P, sx * 0.56, 0.02, -sx * (1.3 + rng.jitter(0.4))), rng.bool(0.5) ? TIMBER : pal.trim);
+      break;
+    }
+    case 'cafe-table':
+      bld.pushCylinder(P(0, 0, 0), P(0, 0.72, 0), 0.045, 4, METAL, { capEnds: false });
+      bld.pushCylinder(P(0, 0, 0), P(0, 0.04, 0), 0.24, 6, METAL, { capEnds: true });
+      bld.pushCylinder(P(0, 0.72, 0), P(0, 0.76, 0), 0.42, 8, rng.bool(0.5) ? TIMBER : pal.trim, { capEnds: true });
+      if (rng.bool(0.6)) bld.pushCylinder(P(rng.jitter(0.15), 0.76, rng.jitter(0.15)), P(0, 0.85, 0), 0.04, 5, pal.trim, { capEnds: true });
+      break;
+    case 'chair':
+      pushChair(bld, P, rng.bool(0.5) ? TIMBER : pal.trim);
+      break;
+    case 'parasol':
+      bld.pushCylinder(P(0, 0.76, 0), P(0, 2.45, 0), 0.03, 4, METAL, { capEnds: false });
+      bld.pushCylinder(P(0, 2.0, 0), P(0, 2.5, 0), 1.35, 8, CLOTH[rng.int(0, CLOTH.length - 1)], { radiusTop: 0.05, capEnds: true });
+      break;
+    case 'tree': {
+      // Trunk and a crown of four to six masses (R14 review 5: no lollipops).
+      // Street-tree scale: the crown has to clear a standing crowd to be seen at all.
+      bld.pushCylinder(P(0, 0, 0), P(0, 3.3, 0), 0.19, 6, BARK, { radiusTop: 0.11, capEnds: false });
+      const n = rng.int(4, 6);
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2 + rng.jitter(0.4), d = i === 0 ? 0 : rng.range(0.7, 1.15);
+        bld.pushSphere(P(Math.cos(a) * d, rng.range(3.5, 4.5) + (i === 0 ? 0.6 : 0), Math.sin(a) * d),
+          rng.range(0.9, 1.35), 3, 6, LEAVES[rng.int(0, LEAVES.length - 1)]);
+      }
+      break;
+    }
+    case 'ring-bench': {
+      // A raised octagonal planter ring with a timber seat on it, round a tree pit.
+      bld.pushCylinder(P(0, 0, 0), P(0, 0.4, 0), 1.12, 8, pal.kerb, { capEnds: true });
+      bld.pushCylinder(P(0, 0.4, 0), P(0, 0.5, 0), 0.6, 8, pal.kerb, { capEnds: false });
+      bld.pushCylinder(P(0, 0.49, 0), P(0, 0.5, 0), 0.58, 8, DARK, { capEnds: true });
+      for (let k = 0; k < 8; k++) {
+        // Seat slats along the ring's tangent: local X onto (-sin, cos) is yaw -phi - pi/2.
+        const phi = (k / 8) * Math.PI * 2 + Math.PI / 8;
+        bld.pushBox(P(Math.cos(phi) * 0.88, 0.43, Math.sin(phi) * 0.88), [0.34, 0.03, 0.2], TIMBER,
+          { faces: FACE_ALL, rotationY: P.yaw - phi - Math.PI / 2 });
+      }
+      break;
+    }
+    case 'pump': {
+      // A cast-iron street pump over a stone trough.
+      bld.pushBox(P(0, 0.25, 0.32), [0.55, 0.25, 0.27], pal.kerb, { faces: FACE_ALL, rotationY: P.yaw });
+      bld.pushBox(P(0, 0.49, 0.32), [0.47, 0.012, 0.2], [0.05, 0.08, 0.10], { faces: FACE_PY, rotationY: P.yaw });
+      bld.pushCylinder(P(0, 0, -0.15), P(0, 1.25, -0.15), 0.1, 6, IRON, { capEnds: false });
+      bld.pushSphere(P(0, 1.3, -0.15), 0.13, 3, 6, IRON);
+      bld.pushTubeAlongPath([P(0, 1.02, -0.08), P(0, 1.02, 0.18), P(0, 0.9, 0.24)], 0.035, 4, IRON, { capEnds: false });
+      bld.pushTubeAlongPath([P(0, 1.15, -0.22), P(0, 1.42, -0.7)], 0.025, 4, IRON, { capEnds: false });
+      break;
+    }
+    case 'shrine': {
+      bld.pushBox(P(0, 0.42, 0), [0.32, 0.42, 0.26], pal.kerb, { faces: FACE_ALL, rotationY: P.yaw });
+      bld.pushQuad(P(-0.4, 1.0, -0.34), P(0.4, 1.0, -0.34), P(0.4, 1.22, 0), P(-0.4, 1.22, 0), pal.trim, 1, { doubleSided: true });
+      bld.pushQuad(P(-0.4, 1.22, 0), P(0.4, 1.22, 0), P(0.4, 1.0, 0.34), P(-0.4, 1.0, 0.34), pal.trim, 1, { doubleSided: true });
+      for (const sx of [-0.28, 0.28]) bld.pushCylinder(P(sx, 0.84, 0.2), P(sx, 1.08, 0.2), 0.025, 3, TIMBER, { capEnds: false });
+      bld.pushBox(P(0, 0.91, 0.12), [0.07, 0.07, 0.07], [1.0, 0.70, 0.36], { faces: FACE_ALL, emissive: 3.5, rotationY: P.yaw });
+      break;
+    }
+    case 'bicycle': {
+      // Long axis along the wall (local X). Wheels are discs: spokes are below a pixel.
+      const c = rng.bool(0.5) ? pal.accent : [0.42, 0.10, 0.08] as Vec3;
+      for (const wx of [-0.52, 0.52]) bld.pushCylinder(P(wx, 0.33, -0.025), P(wx, 0.33, 0.025), 0.33, 10, IRON, { capEnds: true });
+      bld.pushTubeAlongPath([P(-0.52, 0.33, 0), P(-0.04, 0.32, 0), P(0.32, 0.76, 0), P(-0.24, 0.78, 0), P(-0.52, 0.33, 0)], 0.022, 3, c, { capEnds: false });
+      bld.pushTubeAlongPath([P(0.52, 0.33, 0), P(0.38, 0.92, 0)], 0.02, 3, c, { capEnds: false });
+      bld.pushTubeAlongPath([P(0.38, 0.92, -0.22), P(0.38, 0.92, 0.22)], 0.016, 3, IRON, { capEnds: false });
+      bld.pushBox(P(-0.24, 0.84, 0), [0.11, 0.025, 0.05], IRON, { faces: FACE_ALL, rotationY: P.yaw });
+      break;
+    }
+    case 'doorstep-pots': {
+      const n = rng.int(2, 3);
+      for (let i = 0; i < n; i++) {
+        const x = -0.28 + (i * 0.56) / Math.max(1, n - 1) + rng.jitter(0.05), r = rng.range(0.12, 0.2), h = rng.range(0.22, 0.38);
+        bld.pushCylinder(P(x, 0, rng.jitter(0.05)), P(x, h, 0), r, 6, POT, { radiusTop: r * 1.18, capEnds: true });
+        bld.pushSphere(P(x, h + r * 0.7, 0), r * rng.range(1.1, 1.6), 3, 5, LEAVES[rng.int(0, LEAVES.length - 1)]);
+      }
+      break;
+    }
+    case 'barrel': {
+      const n = rng.int(1, 3);
+      for (let i = 0; i < n; i++) {
+        const x = (i - (n - 1) / 2) * 0.64, c = BARREL_PAINT[rng.int(0, BARREL_PAINT.length - 1)];
+        if (i === n - 1 && n > 1 && rng.bool(0.35)) {
+          // One on its side: rolled out and left.
+          bld.pushCylinder(P(x - 0.1, 0.3, -0.44), P(x + 0.1, 0.3, 0.44), 0.3, 8, c, { capEnds: true });
+          continue;
+        }
+        bld.pushCylinder(P(x, 0, 0), P(x, 0.88, 0), 0.3, 8, c, { capEnds: true });
+        for (const y of [0.18, 0.68]) bld.pushCylinder(P(x, y, 0), P(x, y + 0.05, 0), 0.315, 8, IRON, { capEnds: false });
+      }
+      break;
+    }
+    case 'pallet': {
+      const n = rng.int(1, 3);
+      for (let i = 0; i < n; i++) {
+        bld.pushBox(P(rng.jitter(0.06), 0.06 + i * 0.13, rng.jitter(0.04)), [0.6, 0.06, 0.2], PALE_TIMBER,
+          { faces: FACE_ALL, rotationY: P.yaw + rng.jitter(0.12) });
+      }
+      break;
+    }
+    case 'brazier': {
+      // An iron bowl on three legs with a live ember bed: the old town's
+      // ground-level fire (sheet C). Emissive only; the light budget is the market's.
+      for (let i = 0; i < 3; i++) {
+        const a = (i / 3) * Math.PI * 2;
+        bld.pushTubeAlongPath([P(Math.cos(a) * 0.36, 0, Math.sin(a) * 0.36), P(Math.cos(a) * 0.2, 0.58, Math.sin(a) * 0.2)], 0.022, 3, IRON, { capEnds: false });
+      }
+      bld.pushCylinder(P(0, 0.55, 0), P(0, 0.82, 0), 0.22, 8, IRON, { radiusTop: 0.36, capEnds: false });
+      bld.pushCylinder(P(0, 0.55, 0), P(0, 0.56, 0), 0.22, 8, IRON, { capEnds: true });
+      bld.pushCylinder(P(0, 0.74, 0), P(0, 0.8, 0), 0.31, 8, EMBER, { capEnds: true, emissive: 4.0 });
+      for (let i = 0; i < 3; i++) bld.pushSphere(P(rng.jitter(0.15), 0.84, rng.jitter(0.15)), rng.range(0.05, 0.09), 2, 4, EMBER, { emissive: 5.0 });
+      break;
+    }
+    case 'firewood': {
+      // Split logs stacked against the wall, three courses.
+      for (let k = 0; k < 3; k++) {
+        for (let j = 0; j < 3 - k; j++) {
+          const z = (j - (2 - k) / 2) * 0.21, y = 0.1 + k * 0.18;
+          bld.pushCylinder(P(-0.5 + rng.jitter(0.06), y, z), P(0.5 + rng.jitter(0.06), y, z), 0.1, 5, rng.bool(0.5) ? BARK : TIMBER, { capEnds: true });
+        }
+      }
+      break;
+    }
+    case 'kiln-stock': {
+      // Fired brick on the pallet and unglazed pots waiting for the kiln.
+      bld.pushBox(P(-0.25, 0.2, 0), [0.3, 0.2, 0.2], BRICK, { faces: FACE_ALL, rotationY: P.yaw });
+      bld.pushBox(P(-0.22, 0.52, 0.02), [0.26, 0.12, 0.18], BRICK, { faces: FACE_ALL, rotationY: P.yaw + rng.jitter(0.2) });
+      for (let i = 0; i < rng.int(2, 3); i++) {
+        const x = 0.28 + i * 0.2, r = rng.range(0.1, 0.16);
+        bld.pushCylinder(P(x, 0, rng.jitter(0.12)), P(x, r * 2.4, 0), r, 6, POT, { radiusTop: r * 0.7, capEnds: true });
+      }
+      break;
+    }
+    case 'handcart': {
+      // Two wheels, a boarded bed, handles back toward local -X, a prop leg in front.
+      bld.pushBox(P(0, 0.62, 0), [0.55, 0.04, 0.4], TIMBER, { faces: FACE_ALL, rotationY: P.yaw });
+      for (const sz of [-0.4, 0.4]) {
+        bld.pushBox(P(0, 0.76, sz), [0.55, 0.1, 0.02], TIMBER, { faces: FACE_ALL, rotationY: P.yaw });
+        bld.pushCylinder(P(0.05, 0.36, sz * 1.18), P(0.05, 0.36, sz * 1.3), 0.36, 10, PALE_TIMBER, { capEnds: true });
+        bld.pushTubeAlongPath([P(-0.55, 0.64, sz * 0.75), P(-1.2, 0.7, sz * 0.75)], 0.025, 3, TIMBER, { capEnds: false });
+      }
+      bld.pushTubeAlongPath([P(0.05, 0.36, -0.5), P(0.05, 0.36, 0.5)], 0.025, 3, IRON, { capEnds: false });
+      bld.pushTubeAlongPath([P(0.5, 0.6, 0), P(0.52, 0, 0)], 0.03, 3, TIMBER, { capEnds: false });
+      if (rng.bool(0.6)) for (let i = 0; i < 3; i++) bld.pushSphere(P(-0.3 + i * 0.3, 0.86, rng.jitter(0.15)), rng.range(0.18, 0.24), 3, 5, BURLAP);
+      else bld.pushBox(P(0, 0.88, 0), [0.32, 0.22, 0.28], TIMBER, { faces: FACE_ALL, rotationY: P.yaw + rng.jitter(0.4) });
+      break;
+    }
+    case 'sacks': {
+      const n = rng.int(3, 4);
+      for (let i = 0; i < n; i++) {
+        const top = i === n - 1 && n > 3;
+        const r = rng.range(0.2, 0.27);
+        bld.pushSphere(P(top ? 0 : (i - 1) * 0.36 + rng.jitter(0.05), top ? 0.5 : r * 0.85, rng.jitter(0.1)), r, 3, 5,
+          [BURLAP[0] * rng.range(0.85, 1.1), BURLAP[1] * rng.range(0.85, 1.1), BURLAP[2]]);
+      }
+      break;
+    }
+    case 'planter-tall': {
+      bld.pushBox(P(0, 0.3, 0), [0.34, 0.3, 0.34], pal.kerb, { faces: FACE_ALL, rotationY: P.yaw });
+      bld.pushCylinder(P(0, 0.6, 0), P(0, 1.55, 0), 0.05, 4, BARK, { capEnds: false });
+      for (let i = 0; i < 3; i++) {
+        const a = (i / 3) * Math.PI * 2 + rng.jitter(0.5);
+        bld.pushSphere(P(Math.cos(a) * 0.25, rng.range(1.5, 1.95), Math.sin(a) * 0.25), rng.range(0.32, 0.48), 3, 5, LEAVES[rng.int(0, LEAVES.length - 1)]);
+      }
+      break;
+    }
     default:
       // An authored kind with no emitter yet is a loud, visible cube rather than
       // a silent one — see the same reasoning in `pushProp`.
-      bld.pushBox(P(0, 0.3, 0), [0.3, 0.3, 0.3], pal.metal, { faces: FACE_ALL });
+      bld.pushBox(P(0, 0.3, 0), [0.3, 0.3, 0.3], pal.metal, { faces: FACE_ALL, rotationY: P.yaw });
       break;
   }
   tally.tris += (bld.indexCount - before) / 3;
@@ -815,6 +1050,50 @@ export interface ClutterPalette {
   trim: Vec3;
   metal: Vec3;
   accent: Vec3;
+}
+
+/**
+ * Register what was emitted since `start` as a crowd obstacle, if it stands in
+ * the walking band (above the paving, below a standing head). The one path
+ * every piece of furniture takes, so the crowd and the frame cannot disagree.
+ */
+function pushObstacleSince(bld: MeshBuilder, start: number, kind: string, out: CrowdObstacle[]): void {
+  const bounds = bld.boundsSince(start);
+  if (!bounds || bounds[1][1] <= GROUND_Y + 0.08 || bounds[0][1] >= GROUND_Y + 1.7) return;
+  const [lo, hi] = bounds;
+  out.push({ x: (lo[0] + hi[0]) * 0.5, z: (lo[2] + hi[2]) * 0.5, tx: 1, tz: 0,
+    halfAlong: (hi[0] - lo[0]) * 0.5, halfAcross: (hi[2] - lo[2]) * 0.5,
+    minY: lo[1], maxY: hi[1], kind });
+}
+
+/**
+ * Bake the market spine's islands (D30). Placement is the grammar's
+ * (`MarketIsland`); here each piece goes through `pushClutterItem` and
+ * {@link pushObstacleSince}. `seen` dedupes across the chunk's market traces,
+ * which all re-derive the same grammar.
+ */
+function bakeIslands(
+  bld: MeshBuilder, islands: readonly MarketIsland[], districtId: number,
+  seen: Set<string>, res: GroundBakeResult,
+): void {
+  const style = districtStyle(districtId);
+  const tally: ClutterTally = { placed: 0, wanted: 0, tris: 0, lamps: 0, marketLights: 0, marketLightsDropped: 0, marketTraces: 0, stallLights: 0 };
+  for (const isl of islands) {
+    const key = `${isl.x.toFixed(2)},${isl.z.toFixed(2)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    // Bake-time dressing draws from the island's own seed, never the chunk stream.
+    const rng = makeRng((Math.round(isl.x * 131) * 73856093) ^ (Math.round(isl.z * 131) * 19349663) ^ 0x15a4d);
+    const pal: ClutterPalette = { kerb: STONE, trim: ISLAND_PAINT[rng.int(0, ISLAND_PAINT.length - 1)], metal: style.palette.metal, accent: style.accentColor };
+    for (const pc of isl.pieces) {
+      const start = bld.vertexCount;
+      pushClutterItem(bld, pc.kind, placer(pc.x, GROUND_Y, pc.z, Math.sin(pc.yaw), Math.cos(pc.yaw)), pal, rng, tally);
+      if (pc.solid) pushObstacleSince(bld, start, pc.kind, res.obstacles);
+      res.islands.pieces++;
+    }
+    res.islands.placed++;
+  }
+  res.islands.tris += tally.tris;
 }
 
 /** Emit kerb, kerb top, footway band and paint for one traced carriageway. */
@@ -1015,13 +1294,12 @@ function emitTrace(
         // Three rules, all from `docs/STREET_SPEC.md` section F, which names
         // "uniform procedural repetition" as the single risk to this work:
         //
-        //   (Rule 1 is superseded by DECISIONS D30, 2026-10-13: wide walking areas
-        //   also carry islands of furniture, keeping a ~3 m clear route. Not yet
-        //   implemented; this is still the edge-only placement.)
-        //   1. EDGE, NOT MIDDLE. Items go to the building line or the kerb line
-        //      per `CLUTTER_EDGE`, never scattered across the width. The spec
-        //      wants "coherent open walking areas"; furniture in the middle of
-        //      the route reads as debris.
+        //   1. EDGE, NOT MIDDLE, on footways. Items go to the building line or
+        //      the kerb line per `CLUTTER_EDGE`, and a kind that would leave less
+        //      than `footwayWalk` clear is not placed (`clutterReach`). DECISIONS
+        //      D30 extends this rule: wide walking areas carry islands in their
+        //      middle. No authored footway is that wide (widest 5.72 m), so the
+        //      islands are the market spine's (`MarketIsland`, baked below).
         //   2. IRREGULAR GAPS. Each gap is re-rolled in 0.45..2.4x of nominal, so
         //      there is rhythm instead of a metronome.
         //   3. OPEN STRETCHES. A low-frequency mask leaves roughly a third of
@@ -1057,33 +1335,36 @@ function emitTrace(
             gapNext[si2] = dense ? rng.range(0.22, 0.72) : rng.range(1.7, 3.4);
             gapWalk[si2] = 0;
             res.clutter.wanted++;
-            {
-              const d = grammar.clutter[Math.floor(rng.next() * grammar.clutter.length) % grammar.clutter.length];
+            const pickKind = (): number => grammar.clutter[Math.floor(rng.next() * grammar.clutter.length) % grammar.clutter.length];
+            let d = pickKind();
+            let room = clutterReach(CLUTTER_KINDS[d], fw);
+            // Too deep for this footway's walking line: one re-draw, then the slot stays empty.
+            if (room === null) { d = pickKind(); room = clutterReach(CLUTTER_KINDS[d], fw); }
+            if (room !== null) {
               const name = CLUTTER_KINDS[d];
               const atFront = (CLUTTER_EDGE[name] ?? 'front') === 'front';
-              // Against the building line, or on the route boundary.
+              // Against the building line, or on the route boundary. A front item
+              // stands its own depth off the line: placed by its centre at the
+              // inset, anything deeper than the inset was half inside the wall.
+              // Wall-mounted kinds (unlisted depth) keep the inset their arms reach.
               const inX = atFront
-                ? Math.max(KERB_W + 0.25, KERB_W + fw - 0.22 - rng.next() * Math.min(0.75, fw * 0.4))
-                : KERB_W + 0.16 + rng.next() * 0.22;
+                ? Math.max(KERB_W + 0.25, KERB_W + fw - FOOTWAY_FRONT_INSET - (CLUTTER_DEPTH[name] ?? 0)
+                  - rng.next() * Math.min(0.75, fw * 0.4, room))
+                : KERB_W + FOOTWAY_KERB_BAND[0] + rng.next() * (FOOTWAY_KERB_BAND[1] - FOOTWAY_KERB_BAND[0]);
               const px = (axE2 + bxE2) * 0.5 + anx * side * inX;
               const pz = (azE2 + bzE2) * 0.5 + anz * side * inX;
               // Face the carriageway: local +Z points at the road, so local -Z is
               // the building line — which is what the bracket arms in
-              // `pushClutterItem` run back to.
-              const P = placer(px, yHi, pz, -anx * side, -anz * side);
+              // `pushClutterItem` run back to. Loose things are left at an angle.
+              const turn = Math.atan2(-anx * side, -anz * side) + (LOOSE_YAW[name] ? rng.jitter(LOOSE_YAW[name]) : 0);
+              const P = placer(px, yHi, pz, Math.sin(turn), Math.cos(turn));
               const style = districtStyle(t.districtId);
               const pal = style.palette;
               const componentStart = bld.vertexCount;
               pushClutterItem(bld, name, P, {
                 kerb: grammar.kerbAlbedo, trim: pal.trim, metal: pal.metal, accent: style.accentColor,
               }, rng, res.clutter);
-              const bounds = bld.boundsSince(componentStart);
-              if (bounds && bounds[1][1] > GROUND_Y + 0.08 && bounds[0][1] < GROUND_Y + 1.7) {
-                const [lo, hi] = bounds;
-                res.obstacles.push({ x: (lo[0] + hi[0]) * 0.5, z: (lo[2] + hi[2]) * 0.5, tx: 1, tz: 0,
-                  halfAlong: (hi[0] - lo[0]) * 0.5, halfAcross: (hi[2] - lo[2]) * 0.5,
-                  minY: lo[1], maxY: hi[1], kind: name });
-              }
+              pushObstacleSince(bld, componentStart, name, res.obstacles);
               res.clutter.placed++;
               // A lamp that emits no light is a PHANTOM: the light is the point.
               //
@@ -1144,6 +1425,7 @@ function emitTrace(
     // are exactly the kind of counter that agrees with itself and disagrees
     // with the frame.
     if (desc.stalls.length === 0 && desc.strings.length === 0) return;
+    bakeIslands(bld, desc.islands, t.districtId, marketState.emitted.islands, res);
     // Count distinct traces only for the report; see the dedup below.
     if (!marketState.seen) {
       res.clutter.marketTraces++;

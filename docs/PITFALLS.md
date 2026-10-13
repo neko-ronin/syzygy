@@ -847,6 +847,20 @@ face normal against the sun path.
 `node tools/capture.mjs --hero-pair --scene=<before>/_scene.json`. Replayed, the pair
 differed only where the code changed.
 
+## 28. Furniture counted as kerb faces
+
+**Symptom:** after D30 added barrels, pots and chairs to footways, the citygen self-test
+failed "kerb faces are not on the carriageway edges" (p50 0.17 -> 0.52 m). No kerb had moved.
+
+**Cause:** the check classified a kerb face as any ground-bake vertex below 1.5 m with a
+sideways normal. Every side of every piece of furniture matched, so the metric was always
+partly a furniture statistic, and adding furniture on footways moved it.
+
+**Fix:** classify by the authored surface tag (`decodeGroundSurfaceTag(...).surface ===
+'kerb-face'`). Real kerb faces: p50 0.00 m, p90 0.81 m. **Catch it next time:** when a
+check fails after a change to something else, run the base as a control first (it passed),
+then ask what the check's population actually contains.
+
 ## Working norms that held up
 
 - **Measure before theorising.** Every bug above cost far less time to measure

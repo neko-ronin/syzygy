@@ -488,3 +488,19 @@ near-field geometry only. The benchmark keeps the old skyline camera, `(900, 120
 **Crown and envelope scatter** (`MAX_FLOORS` 160 → 256, per-lot envelope ±20%; heart towers
 to 819 m): GPU span, two pairs against `6301ae6`: hero 14.25 / 14.21 → 14.40 / 14.40 ms;
 skyline 11.24 / 12.05 → 11.92 / 11.80 ms (gbuffer +0.2–0.35 ms). 59.1–60.1 fps throughout.
+
+## 2026-10-13 — D30 furniture islands, same-window A/B
+
+Reports: `benchmarks/d30-islands-ab/` (hero pass runs, base = `69e675d`, five pairs
+interleaved). Uncontended pairs, GPU span base / new: 14.54, 14.60 / 14.75, 14.77 ms and
+13.69, 13.67 / 13.85 ms; submitted 58.4–60.1 / 57.8–60.0 per second. **Cost +0.17–0.21 ms
+(~1.3%).** Pairs 4–5 collapsed to 43–45/s with every pass up ~50% at once, TAA included,
+on both sides (new 20.16 / 19.93 ms, base 20.89 ms): contention from another app's
+renderer (a ChatGPT/Codex framework process at ~21% CPU), not content.
+
+`CLUTTER_TRIS` 9000 -> 12000 per chunk: footway furniture 102 -> 135 items and 4.5k -> 7.6k
+triangles per chunk over the citygen self-test's 8 chunks. On the six spine chunks the
+islands add 4.7–7.0k triangles each (13–20 islands, 58–99 pieces, LOD 0 only), and footway
+furniture there runs 11–18k: the throttle widens spacing past the budget rather than
+cutting off, by design.
+

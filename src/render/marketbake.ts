@@ -293,8 +293,8 @@ function bakeCloth(bld: MeshBuilder, c: MarketCloth): void {
  * because the signature has to match every other ground baker.
  */
 export interface MarketBakeResult { stalls: MarketStall[]; obstacles: CrowdObstacle[]; }
-export interface MarketBakeState { stalls: Set<string>; strings: Set<string>; cloth: Set<string>; }
-export const marketBakeState = (): MarketBakeState => ({ stalls: new Set(), strings: new Set(), cloth: new Set() });
+export interface MarketBakeState { stalls: Set<string>; strings: Set<string>; cloth: Set<string>; islands: Set<string>; }
+export const marketBakeState = (): MarketBakeState => ({ stalls: new Set(), strings: new Set(), cloth: new Set(), islands: new Set() });
 export function bakeMarketDetail(bld: MeshBuilder, ctx: GroundBakeCtx, emitted = marketBakeState()): MarketBakeResult {
   const result: MarketBakeResult = { stalls: [], obstacles: [] };
   if (ctx.lod >= MARKET_LOD_GONE) return result;

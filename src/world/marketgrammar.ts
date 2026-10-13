@@ -41,8 +41,8 @@
  */
 
 import { clamp, lerp, makeRng, fbm2, type Rng, type Vec3 } from '../core/math';
-import { GROUND_Y } from './citygen';
-import type { CityChunk, CityPlan, RoadKind } from './citygen';
+import { GROUND_Y, sampleStreetPlan } from './citygen';
+import type { CityChunk, CityPlan, RoadKind, StreetSample } from './citygen';
 import {
   MARKET_DISTRICT, districtPaletteLinear, districtStyle, spineHit, spinePoint,
   type ResolvedPalette, type SpineHit,
@@ -576,6 +576,56 @@ export interface MarketCloth {
 }
 
 /**
+ * One piece of an island, baked by `pushClutterItem` in `groundbake.ts`.
+ * `kind` is a `CLUTTER_KINDS` name; `yaw` turns the piece's local +Z.
+ */
+export interface IslandPiece {
+  kind: string;
+  x: number;
+  z: number;
+  yaw: number;
+  /** Registers a crowd obstacle. False only for a part standing over a solid
+   *  piece: a tree inside its ring bench, a parasol over its table. */
+  solid: boolean;
+}
+
+/**
+ * Furniture islands in the open middle of the spine (DECISIONS D30): a tree in
+ * a ring bench, cafe tables with chairs at angles, a kiosk, a pump, planter
+ * groups, stall overflow, a handcart, a shrine. Owner direction, not
+ * reference-derived; sheet A's market reads "seating and stall overflow".
+ */
+export type IslandKind = 'tree-bench' | 'cafe' | 'kiosk' | 'pump' | 'planters' | 'overflow' | 'handcart' | 'shrine';
+
+export interface MarketIsland {
+  along: number;
+  kind: IslandKind;
+  x: number;
+  z: number;
+  /** Every piece's base lies within this of (x, z). */
+  radius: number;
+  pieces: IslandPiece[];
+}
+
+/**
+ * Clear lane kept in front of each stall row, metres from the deepest possible
+ * stall front: the D30 walking line, and where the counter crowd and the hero
+ * corridor (front + 0.15..3.15 m) stand. Islands never enter it.
+ */
+export const ISLAND_LANE = 3.2;
+/** Roadward reach of the deepest module overhang; the lane starts here. */
+export const ISLAND_FRONT_MAX = Math.max(...Object.values(MODULE_FORMS).map((f) => f.overhang[1]));
+/** Kind, draw weight, footprint radius. */
+const ISLAND_KINDS: readonly [IslandKind, number, number][] = [
+  ['cafe', 24, 2.6], ['overflow', 15, 1.9], ['tree-bench', 22, 2.0], ['planters', 12, 2.0],
+  ['kiosk', 10, 2.0], ['handcart', 10, 1.7], ['pump', 7, 1.4], ['shrine', 4, 1.1],
+];
+const ISLAND_WEIGHT = ISLAND_KINDS.reduce((s, k) => s + k[1], 0);
+/** Gaps along the spine between island centres: a clump, or an open stretch. */
+const ISLAND_CLUMP: readonly [number, number] = [5, 10];
+const ISLAND_OPEN: readonly [number, number] = [12, 26];
+
+/**
  * A light the market wants the chunk to carry. Structurally identical to
  * `GroundLight` in `src/render/groundbake.ts`, so pushing one into that array
  * needs no cast — it is one loop at the call site, described in the header of
@@ -611,6 +661,7 @@ export interface MarketStats {
   lanterns: number;
   cloth: number;
   lights: number;
+  islands: number;
 }
 
 /** Everything one chunk's market contributes. */
@@ -621,6 +672,7 @@ export interface MarketDesc {
   lights: MarketLight[];
   /** Stall lamp lights, budgeted apart from the cord lanterns. */
   stallLights: MarketLight[];
+  islands: MarketIsland[];
   stats: MarketStats;
 }
 
@@ -830,10 +882,11 @@ export function marketGrammarFor(q: MarketQuery): MarketDesc {
   const lights: MarketLight[] = [];
   const stats: MarketStats = {
     metres: 0, slots: 0, gaps: 0, fatigueGaps: 0, rejected: 0, stalls: 0, crates: 0, signs: 0,
-    vents: 0, lanternStrings: 0, lanterns: 0, cloth: 0, lights: 0,
+    vents: 0, lanternStrings: 0, lanterns: 0, cloth: 0, lights: 0, islands: 0,
   };
   const stallLights: MarketLight[] = [];
-  const empty = (): MarketDesc => ({ stalls, strings, cloth, lights, stallLights, stats });
+  const islands: MarketIsland[] = [];
+  const empty = (): MarketDesc => ({ stalls, strings, cloth, lights, stallLights, islands, stats });
 
   // Market dressing belongs to the market street and to the bazaar that wraps
   // it. Anything else gets nothing, however close its geometry runs to the
@@ -1182,5 +1235,154 @@ export function marketGrammarFor(q: MarketQuery): MarketDesc {
     stallLights.push({ pos, radius: STALL_LAMP_RADIUS, color: STALL_LAMP_COLOR, intensity: STALL_LAMP_INTENSITY });
   });
 
-  return { stalls, strings, cloth, lights, stallLights, stats };
+  // Islands last, from their own forks: nothing above draws differently for them.
+  placeIslands(q, range, half, base, strings, islands);
+  stats.islands = islands.length;
+
+  return { stalls, strings, cloth, lights, stallLights, islands, stats };
+}
+
+// ---------------------------------------------------------------- islands (D30)
+
+const scratchPlan: StreetSample = { dist: 0, px: 0, pz: 0, tx: 1, tz: 0, width: 0, kind: 'market', clearance: 0 };
+
+/**
+ * On walkable carriageway with `pad` to spare: not a canal or a rail bed. Not
+ * `kind === 'market'`: an arterial runs inside the spine either side of the
+ * origin (along -20..52 at the default seed), the field reports it there
+ * because its clearance is deeper, and that is the stretch every market review
+ * camera looks down. No cars in this city, so an artery is walking surface.
+ */
+function onSpine(plan: CityPlan, x: number, z: number, pad: number): boolean {
+  const s = sampleStreetPlan(plan, x, z, scratchPlan);
+  return s.kind !== 'canal' && s.kind !== 'rail' && s.clearance < -pad;
+}
+
+/**
+ * Walk the spine and drop islands into the open band between the two stall
+ * lanes: `|lateral| + radius <= half - ISLAND_FRONT_MAX - ISLAND_LANE`, so the
+ * lane in front of every stall row stays clear whatever stands at the kerb.
+ * Gaps alternate between clumps and open stretches (STREET_SPEC section F's
+ * other two rules, which D30 keeps), and the lateral is drawn across the whole
+ * band so the islands never line up as a median.
+ */
+function placeIslands(
+  q: MarketQuery, range: [number, number], half: number, base: Rng,
+  strings: readonly MarketLanternString[], out: MarketIsland[],
+): void {
+  const spine = q.plan.districts.market;
+  const band = half - ISLAND_FRONT_MAX - ISLAND_LANE;
+  let a = range[0] + base.fork(0x7a000).range(0, ISLAND_CLUMP[1]);
+  for (let i = 1; a <= range[1]; i++) {
+    const r = base.fork(0x7a000 + i);
+    // Lanterns hang to ~2.2 m at mid-span, so a tree crown or a parasol under a
+    // cord would swallow them: nothing tall within reach of one.
+    const nearCord = strings.some((s) => Math.abs(s.along - a) < 3.2);
+    let pick = r.next() * ISLAND_WEIGHT;
+    let entry = ISLAND_KINDS[0];
+    for (const k of ISLAND_KINDS) { entry = k; if ((pick -= k[1]) < 0) break; }
+    if (nearCord && (entry[0] === 'tree-bench' || entry[0] === 'kiosk')) entry = ISLAND_KINDS[3];
+    const [kind, , radius] = entry;
+    const reach = band - radius;
+    if (reach > 0.4) {
+      const lat = r.range(-reach, reach);
+      const p = spinePoint(spine, a);
+      const h = spineHit(spine, p[0], p[1], scratchHit);
+      const x = p[0] - h.tz * lat, z = p[1] + h.tx * lat;
+      const clear = onSpine(q.plan, x, z, 0.5)
+        && [[1, 0], [-1, 0], [0, 1], [0, -1]].every(([u, v]) =>
+          onSpine(q.plan, x + (h.tx * u - h.tz * v) * radius, z + (h.tz * u + h.tx * v) * radius, 0.3))
+        && !footprintObstructed(q.chunk, x, z, h.tx, h.tz, radius, -radius, radius, 0.4, radius + 40);
+      if (clear) out.push({ along: a, kind, x, z, radius, pieces: islandPieces(kind, x, z, radius, r, !nearCord) });
+    }
+    a += radius + (r.bool(0.55) ? r.range(ISLAND_CLUMP[0], ISLAND_CLUMP[1]) : r.range(ISLAND_OPEN[0], ISLAND_OPEN[1]));
+  }
+}
+
+/** Up to `n` points in a disc of radius `rad`, at least `sep` apart (rejection, bounded tries). */
+function scatter(r: Rng, n: number, rad: number, sep: number): [number, number][] {
+  const pts: [number, number][] = [];
+  for (let t = 0; t < n * 12 && pts.length < n; t++) {
+    const ang = r.next() * Math.PI * 2, d = Math.sqrt(r.next()) * rad;
+    const u = Math.cos(ang) * d, v = Math.sin(ang) * d;
+    if (pts.every(([pu, pv]) => Math.hypot(pu - u, pv - v) >= sep)) pts.push([u, v]);
+  }
+  return pts;
+}
+
+/**
+ * What an island is made of, in world space. Signs of use over decoration
+ * (D30 rule 3): chairs pushed back at angles, a bicycle against the bench, a
+ * crate left beside the cart; every yaw drawn, nothing on a grid.
+ */
+function islandPieces(kind: IslandKind, cx: number, cz: number, radius: number, r: Rng, tall: boolean): IslandPiece[] {
+  const yaw0 = r.next() * Math.PI * 2;
+  const c = Math.cos(yaw0), s = Math.sin(yaw0);
+  const out: IslandPiece[] = [];
+  // Local (u, v) -> world, the `rotY` convention every box in the bake uses.
+  const put = (k: string, u: number, v: number, yaw: number, solid = true): void => {
+    out.push({ kind: k, x: cx + u * c + v * s, z: cz - u * s + v * c, yaw: yaw0 + yaw, solid });
+  };
+  switch (kind) {
+    case 'tree-bench':
+      put('ring-bench', 0, 0, 0);
+      put('tree', 0, 0, r.next() * 6.28, false);
+      if (r.bool(0.6)) {
+        const ang = r.next() * Math.PI * 2;
+        put(r.pick(['bicycle', 'doorstep-pots', 'sacks']), Math.cos(ang) * 1.5, Math.sin(ang) * 1.5, -ang);
+      }
+      break;
+    case 'cafe': {
+      const n = r.int(1, 3);
+      const tables: [number, number][] = n === 1 ? [[0, 0]]
+        : n === 2 ? [[-1.05, r.jitter(0.3)], [1.05, r.jitter(0.3)]]
+          : [0, 1, 2].map((k) => { const a = k * 2.094 + r.jitter(0.3); return [Math.cos(a) * 1.25, Math.sin(a) * 1.25]; });
+      tables.forEach(([u, v]) => {
+        put('cafe-table', u, v, r.next() * 6.28);
+        if (tall && r.bool(0.75)) put('parasol', u, v, 0, false);
+        const m = r.int(2, 4);
+        for (let k = 0; k < m; k++) {
+          const a = (k / m) * Math.PI * 2 + r.jitter(0.5);
+          // One chair in four pushed back and turned away: someone just left.
+          const away = r.bool(0.25);
+          const d = away ? 0.85 : 0.6 + r.jitter(0.06);
+          // A chair faces local +Z; 3pi/2 - a turns it toward its table (rotY convention).
+          put('chair', u + Math.cos(a) * d, v + Math.sin(a) * d, 1.5 * Math.PI - a + (away ? r.jitter(1.6) : r.jitter(0.45)));
+        }
+      });
+      if (r.bool(0.4)) { const a = r.next() * 6.28; put(r.pick(['planter', 'doorstep-pots']), Math.cos(a) * 2.15, Math.sin(a) * 2.15, a); }
+      break;
+    }
+    case 'kiosk':
+      put('kiosk', 0, 0, 0);
+      put('sandwich-board', r.jitter(0.5), 1.45, r.jitter(0.4));
+      if (r.bool(0.5)) put('crate-stack', -1.25, r.jitter(0.3), r.jitter(0.5));
+      if (r.bool(0.3)) put('newspaper-box', 1.3, 0.35, r.jitter(0.3));
+      break;
+    case 'pump':
+      put('pump', 0, 0, 0);
+      if (r.bool(0.6)) put('barrel', 0.95, -0.25, r.jitter(1));
+      if (r.bool(0.4)) put('doorstep-pots', -0.85, 0.3, r.jitter(1));
+      break;
+    case 'planters':
+      for (const [u, v] of scatter(r, r.int(3, 5), radius - 0.55, 1.0)) {
+        put(r.pick(['planter', 'planter-tall', 'planter', 'doorstep-pots', 'planter-tall']), u, v, r.next() * 6.28);
+      }
+      break;
+    case 'overflow':
+      for (const [u, v] of scatter(r, r.int(2, 4), radius - 0.5, 0.85)) {
+        put(r.pick(['crate-stack', 'sacks', 'barrel', 'pallet', 'crate-stack', 'sacks']), u, v, r.next() * 6.28);
+      }
+      break;
+    case 'handcart':
+      put('handcart', 0, 0, 0);
+      if (r.bool(0.7)) put('sacks', 0.2, 0.95, r.jitter(1));
+      if (r.bool(0.4)) put('crate-stack', -0.3, -0.95, r.jitter(1));
+      break;
+    case 'shrine':
+      put('shrine', 0, 0, 0);
+      put('doorstep-pots', 0.55, 0.45, r.jitter(0.5));
+      break;
+  }
+  return out;
 }
