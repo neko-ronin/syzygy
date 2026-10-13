@@ -17,7 +17,7 @@ import {
 } from '../world/geometry';
 import {
   type BuildingInstance, type Cable, type CityChunk, type PropInstance, PropKind,
-  buildingPoint, cityPlan, GROUND_Y, oldTownOf, towerTiers,
+  buildingPoint, cityPlan, GROUND_Y, oldTownOf, towerTiers, type TowerTier,
 } from '../world/citygen';
 import {
   districtAtField, districtPaletteLinear, districtStyle,
@@ -459,13 +459,53 @@ export function pushBuilding(
  * of its towers take B's scaffolding, which fits its industrial brief and leaves
  * its colour alone (D27).
  */
+// Raised 2026-10-13 (review 5: one stack on one tower). Copper Stacks stays the
+// lowest: it is the teal towers, which keep their colour (D27).
 const SCAFFOLD_CHANCE: Record<string, number> = {
-  'rust-hangars': 0.35, 'glass-foxholes': 0.35, 'canal-district': 0.3, 'copper-stacks': 0.12,
+  'rust-hangars': 0.5, 'glass-foxholes': 0.45, 'canal-district': 0.4, 'copper-stacks': 0.2,
 };
 const TERRACE_CHANCE: Record<string, number> = { 'botanical-dome': 0.6, 'verdant-canyon': 0.7, 'canal-district': 0.4 };
 const SCAFFOLD_DECK: Vec3 = [0.30, 0.22, 0.14];
 /** Sunlit terrace planting (sheet D measures ~(91,112,74) sRGB on its foliage). */
 const TERRACE_LEAF: Vec3[] = [[0.20, 0.33, 0.06], [0.26, 0.37, 0.07], [0.15, 0.28, 0.05], [0.30, 0.40, 0.09]];
+/**
+ * Rooms bolted round the top of an accreted tower (sheet B: its towers end in a
+ * crust of rooms on every side, not a clean roof line). Cantilevered off the top
+ * tier's walls on struts, one or two high, with lit windows and a few shacks on
+ * the roof itself.
+ */
+function pushAccretedCrown(
+  bld: MeshBuilder, b: BuildingInstance, TL: TowerTier, yBase: number, metal: Vec3, room: () => Vec3, r: Rng, lod: number,
+  lights?: BakedChunk['lights'],
+): void {
+  const yTop = yBase + TL.y1;
+  for (let face = 0; face < 4; face++) {
+    if (r.next() < 0.25) continue;
+    const half = face < 2 ? TL.hz : TL.hx, wall = face < 2 ? TL.hx : TL.hz;
+    const Q = (t: number, y: number, d: number): Vec3 => facePoint(b, face, wall, t, y, d);
+    const yaw = b.rotationY + (face < 2 ? Math.PI / 2 : 0);
+    for (let t = -half + 1.5; t < half - 1.5; t += 3.2 + r.next() * 3.5) {
+      if (r.next() < 0.2) continue;
+      let ry = yTop - 2.5 - r.next() * 9;
+      for (let n = 0, high = 1 + r.int(0, 1); n < high; n++) {
+        const sw = 2.4 + r.next() * 2.4, sh = 2.4 + r.next() * 0.9, sd = 1.8 + r.next() * 1.8, c = room();
+        const tt = t + r.jitter(0.8);
+        bld.pushBox(Q(tt, ry + sh / 2, sd / 2), [sw / 2, sh / 2, sd / 2], c, { faces: FACE_ALL, rotationY: yaw });
+        bld.pushBox(Q(tt, ry + sh + 0.06, sd / 2 + 0.15), [sw / 2 + 0.25, 0.06, sd / 2 + 0.3], tint3(c, 0.6), { faces: FACE_ALL, rotationY: yaw });
+        if (r.bool(0.6)) bld.pushQuad(Q(tt - 0.35, ry + sh * 0.42, sd + 0.02), Q(tt + 0.35, ry + sh * 0.42, sd + 0.02), Q(tt + 0.35, ry + sh * 0.74, sd + 0.02), Q(tt - 0.35, ry + sh * 0.74, sd + 0.02), [1.0, 0.72, 0.4], 1, { emissive: 3.0 });
+        if (n === 0 && lod < 1) for (const e of [-sw / 2 + 0.2, sw / 2 - 0.2]) bld.pushTubeAlongPath([Q(tt + e, ry - 2.0, 0.05), Q(tt + e, ry, sd - 0.2)], 0.06, 3, metal, { capEnds: false });
+        ry += sh + 0.12;
+      }
+    }
+  }
+  // Shacks on the roof, lit, and the odd one carrying the night's light.
+  for (let k = 0, n = 2 + r.int(0, 3); k < n; k++) {
+    const x = r.jitter(TL.hx * 0.75), z = r.jitter(TL.hz * 0.75), w = 2 + r.next() * 3, d = 2 + r.next() * 3, h = 2.4 + r.next();
+    bld.pushBox(buildingPoint(b, x, yTop + h / 2, z), [w / 2, h / 2, d / 2], room(), { faces: FACE_ALL, rotationY: b.rotationY + r.jitter(0.2) });
+    if (lights && lod < 1 && k === 0) lights.push({ pos: buildingPoint(b, x, yTop + h + 1.5, z), radius: 10, color: [1.0, 0.68, 0.34], intensity: 1.4 });
+  }
+}
+
 /** Spheres a terraced building spends on ivy and hanging masses at most; see `pushTerraces`. */
 const TERRACE_HANG_BUDGET = 360;
 /** Wall ivy: darker and cooler than the sunlit terrace masses. */
@@ -474,7 +514,9 @@ const IVY: Vec3[] = [[0.10, 0.22, 0.06], [0.13, 0.26, 0.07], [0.08, 0.19, 0.06]]
 const TERRACE_FLOWER: Vec3[] = [[0.72, 0.30, 0.38], [0.80, 0.62, 0.50], [0.66, 0.22, 0.30]];
 const TARPS: Vec3[] = [[0.14, 0.24, 0.34], [0.55, 0.28, 0.12], [0.22, 0.28, 0.20], [0.42, 0.40, 0.36]];
 /** Sheet B's bolted-on rooms: slate sheet, faded blue, rust-red panel, timber, near-black, grey (pale ones read as primitives, review 5). */
-const ROOMS: Vec3[] = [[0.22, 0.24, 0.26], [0.17, 0.22, 0.27], [0.40, 0.15, 0.10], [0.33, 0.24, 0.16], [0.13, 0.15, 0.17], [0.30, 0.31, 0.30]];
+const ROOMS: Vec3[] = [[0.22, 0.24, 0.26], [0.17, 0.22, 0.27], [0.40, 0.15, 0.10], [0.33, 0.24, 0.16], [0.13, 0.15, 0.17], [0.30, 0.31, 0.30],
+  // Weighted to rust, red panel and soot (review 5: the sheet's towers are crusted with dark rust and red panels).
+  [0.34, 0.12, 0.07], [0.46, 0.17, 0.09], [0.25, 0.13, 0.09], [0.10, 0.11, 0.12]];
 
 /** A point `t` along face `face`, `d` out from its wall, at local height `ly` (from the centre). */
 function facePoint(b: BuildingInstance, face: number, wall: number, t: number, ly: number, d: number): Vec3 {
@@ -487,14 +529,22 @@ export function pushScaffold(bld: MeshBuilder, b: BuildingInstance, dp: District
   if (!chance || lod >= 2) return;
   const r = makeRng((b.windowSeed ^ 0x5caff01d) >>> 0);
   if (!r.bool(chance)) return;
-  const T = towerTiers(b)[0], hy = b.halfExtents[1], yBase = -hy;
-  const face = r.int(0, 3);
+  const tiers = towerTiers(b), T = tiers[0], hy = b.halfExtents[1], yBase = -hy;
+  const metal = tint3(dp.palette.metal, 0.45), lift = 2.0;
+  const room = (): Vec3 => tint3(ROOMS[r.int(0, ROOMS.length - 1)], 0.62 + r.next() * 0.38);
+  const first = r.int(0, 3);
+  scaffoldFace(first);
+  // Sheet B's towers are crusted on more than one side (review 5: one stack, one tower).
+  if (r.bool(0.4)) scaffoldFace((first + 1 + r.int(0, 2)) % 4);
+  // Not on the teal towers: their tops are the skyline climax D27 keeps clean.
+  if (dp.style.key !== 'copper-stacks') pushAccretedCrown(bld, b, tiers[tiers.length - 1], yBase, metal, room, r, lod, lights);
+
+  function scaffoldFace(face: number): void {
   const half = face < 2 ? T.hz : T.hx, wall = face < 2 ? T.hx : T.hz;
   const Q = (t: number, y: number, d: number): Vec3 => facePoint(b, face, wall, t, y, d);
   // Sheet B is irregular: stacked segments of different widths and offsets,
   // decks cantilevered past the frame, X-braces, sparse tarps and shacks lit
   // from inside. A regular full-height lattice read as a ladder decal (R14).
-  const metal = tint3(dp.palette.metal, 0.45), lift = 2.0;
   let y = yBase + Math.min(7.5, hy * 2 * 0.25) + 0.5;
   const top = Math.min(yBase + T.y1 + (r.bool(0.4) ? 6 : -1), y + 22 + r.next() * 50);
   let mid = r.jitter(half * 0.4);
@@ -548,18 +598,18 @@ export function pushScaffold(bld: MeshBuilder, b: BuildingInstance, dp: District
     // Rooms bolted on over generations (sheet B): stacks of boxes hung off the
     // frame, wider and deeper than the decks, on struts back to the wall, each
     // with a lit window. The flush 2 m shacks hid behind the lattice (R14 review 4).
-    for (let st = 0, stacks = 1 + r.int(0, 2); st < stacks; st++) {
+    for (let st = 0, stacks = 2 + r.int(0, 2); st < stacks; st++) {
       // Not on the first lift of the first segment: a stack there swallowed the
       // scaffold's foot and read as a kiosk (R14 review 5).
       const lo = seg === 0 ? 2 : 0;
       let ry = y + lift * r.int(lo, Math.max(lo, Math.floor(h / lift) - 1)), rt = mid + r.jitter(W / 2);
-      for (let n = 0, high = 1 + r.int(0, 2); n < high && ry + 2.4 < top; n++) {
+      for (let n = 0, high = 1 + r.int(0, 3); n < high && ry + 2.4 < top; n++) {
         const sw = 2.4 + r.next() * 2.2, sh = 2.4 + r.next() * 0.8, sd = 2.2 + r.next() * 1.6;
-        const c = ROOMS[r.int(0, ROOMS.length - 1)], yaw = b.rotationY + (face < 2 ? Math.PI / 2 : 0);
+        const c = room(), yaw = b.rotationY + (face < 2 ? Math.PI / 2 : 0);
         const rd = dIn + sd / 2 + r.next() * 0.8;
-        bld.pushBox(Q(rt, ry + sh / 2, rd), [sw / 2, sh / 2, sd / 2], tint3(c, 0.85 + r.next() * 0.3), { faces: FACE_ALL, rotationY: yaw });
+        bld.pushBox(Q(rt, ry + sh / 2, rd), [sw / 2, sh / 2, sd / 2], c, { faces: FACE_ALL, rotationY: yaw });
         // A thin roof sheet with an overhang.
-        bld.pushBox(Q(rt, ry + sh + 0.06, rd + 0.15), [sw / 2 + 0.25, 0.06, sd / 2 + 0.3], tint3(c, 0.55), { faces: FACE_ALL, rotationY: yaw });
+        bld.pushBox(Q(rt, ry + sh + 0.06, rd + 0.15), [sw / 2 + 0.25, 0.06, sd / 2 + 0.3], tint3(c, 0.6), { faces: FACE_ALL, rotationY: yaw });
         const front = rd + sd / 2 + 0.02;
         for (let wn = 0, wins = sw > 3.4 ? 2 : 1; wn < wins; wn++) {
           if (!r.bool(0.75)) continue;
@@ -571,6 +621,7 @@ export function pushScaffold(bld: MeshBuilder, b: BuildingInstance, dp: District
       }
     }
     y += h;
+  }
   }
 }
 

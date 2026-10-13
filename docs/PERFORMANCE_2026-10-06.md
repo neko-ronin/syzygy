@@ -529,3 +529,12 @@ pairs (footway braziers now carry a fire light, ruins have two or three street-l
 yards with two lights each). Furniture over the self-test's 8 chunks: 148 items, 9.3k
 triangles, 17.8 lamps (old-town alleys now carry the lived kit at 0.4 of the street rate).
 
+## 2026-10-13 — sheet B accretion, same-window A/B
+
+Reports: `benchmarks/sheet-b-accretion-ab/` (against `17cd839`). Skyline, two pairs: GPU
+span 12.02, 12.00 -> 12.38, 12.27 ms (shadows +0.2-0.3). Hero, two clean pairs: 14.05,
+14.98 -> 14.74, 14.65 ms, about +0.2 ms; a third pair ran contended on both sides (TAA
+0.48 / 0.53 ms, 52 and 47/s) and is not counted. More scaffolds (rust 0.5, glass 0.45,
+canal 0.4, copper 0.2), denser room stacks, a second face on 40%, and crowns of rooms on
+the non-teal accreted towers.
+

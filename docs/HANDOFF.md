@@ -55,6 +55,10 @@ the world natural and lived in: furniture is no longer edge-only.
   pools, old-town alleys and walls furnished. Pose 15's near-black share barely moved
   (most of it is the open deck in the foreground); pose 14's alley braziers sit under the
   crowd. Awaiting review 6.
+- Item 4 **built**: more scaffolds per district, 2-4 room stacks per segment up to four
+  high, a second scaffold face on 40%, rooms weighted to rust / red panel / soot, and a
+  crown of cantilevered rooms on accreted towers (not Copper Stacks, D27). Pose 12 shows
+  two accreted scaffolds; skyline +0.3 ms. Awaiting review 6.
 - Self-tests: `vite-node` is **not** in `node_modules`; `npx vite-node` asks to download
   the latest from the registry. Run the cached copy instead:
   `~/.npm/_npx/f2342a4b64a2bc92/node_modules/.bin/vite-node <file>` (6.0.0, the one earlier
