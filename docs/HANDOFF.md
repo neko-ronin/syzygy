@@ -42,6 +42,17 @@ the world natural and lived in: furniture is no longer edge-only.
    before/after pairs, then an A/B benchmark; record both in the vision and
    performance docs.
 
+**Progress (2026-10-13 session, updated as items land):**
+
+- Item 1 **built** (`ee532e1`): islands on the market spine, lived-in footway kits, a
+  measured clear-route self-test (DECISIONS D30 "As built"). In the eye-height frames the
+  dense crowd hides most seated-height furniture; the tree crowns and parasols carry, and
+  `09-market-aisle-night` (6 m) sees over heads. Awaiting review 6.
+- Self-tests: `vite-node` is **not** in `node_modules`; `npx vite-node` asks to download
+  the latest from the registry. Run the cached copy instead:
+  `~/.npm/_npx/f2342a4b64a2bc92/node_modules/.bin/vite-node <file>` (6.0.0, the one earlier
+  sessions used), or pin it as a devDependency deliberately.
+
 **How this session worked (load-bearing):**
 
 - **Check the machine first:** `memory_pressure`, top CPU (`ps -Ao %cpu,comm -r`). Other
