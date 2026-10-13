@@ -59,6 +59,10 @@ the world natural and lived in: furniture is no longer edge-only.
   high, a second scaffold face on 40%, rooms weighted to rust / red panel / soot, and a
   crown of cantilevered rooms on accreted towers (not Copper Stacks, D27). Pose 12 shows
   two accreted scaffolds; skyline +0.3 ms. Awaiting review 6.
+- Item 5 **built**: goods hung from each stall's eave pole (above the crowd's heads),
+  baskets of produce under the canopy, crates and sacks behind the counter, fuller produce
+  heaps. +34k triangles per market chunk (+25%); its own GPU A/B ran contended (another
+  session's headed Playwright), so the cost is in the session-end A/B.
 - Self-tests: `vite-node` is **not** in `node_modules`; `npx vite-node` asks to download
   the latest from the registry. Run the cached copy instead:
   `~/.npm/_npx/f2342a4b64a2bc92/node_modules/.bin/vite-node <file>` (6.0.0, the one earlier

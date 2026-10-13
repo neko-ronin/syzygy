@@ -194,9 +194,85 @@ function bakeGoods(bld: MeshBuilder, s: MarketStall): void {
     if (r.next() < 0.15) continue;
     bld.pushBox(at(t, 0, top + 0.03), [0.21, 0.03, 0.19], TRAY, { rotationY: yaw });
     const c = PRODUCE[r.int(0, PRODUCE.length - 1)];
-    for (let k = 0, n = 3 + r.int(0, 2); k < n; k++) {
-      const rad = 0.07 + r.next() * 0.035;
+    // Heaped, not scattered: produce read as small at the hero's lens (review 5).
+    for (let k = 0, n = 4 + r.int(0, 3); k < n; k++) {
+      const rad = 0.085 + r.next() * 0.045;
       bld.pushSphere(at(t + r.jitter(0.12), r.jitter(0.1), top + 0.06 + rad * (k < 3 ? 0.8 : 1.9)), rad, 3, 4, [c[0] * (0.85 + r.next() * 0.25), c[1] * (0.85 + r.next() * 0.25), c[2]]);
+    }
+  }
+}
+
+const WICKER: Vec3 = [0.44, 0.31, 0.15];
+const SACKCLOTH: Vec3 = [0.42, 0.34, 0.21];
+/** Strings of chillies, garlic and dried goods; a woven basket; a cloth bag; a price board. */
+const HUNG: Vec3[] = [[0.58, 0.07, 0.03], [0.80, 0.74, 0.60], [0.52, 0.30, 0.10]];
+
+/**
+ * The stall's near read beyond the counter (review 5: produce visible but small):
+ * goods hung from the eave pole, at 1.8-2.3 m where the hero sees them over the
+ * crowd's heads; baskets of produce on the ground under the canopy; crates and
+ * sacks stacked behind the counter (D30's stall overflow). Bake-time, from the
+ * stall's own seed, so the grammar's layout and the hero subject do not move.
+ */
+function bakeDressing(bld: MeshBuilder, s: MarketStall, obstacles: CrowdObstacle[]): void {
+  const r = makeRng((Math.round(s.along * 131) * 2 + (s.side > 0 ? 1 : 0)) ^ 0xd2e55);
+  const yaw = yawFromDir(s.tx, s.tz), half = s.pitch * 0.42;
+  const at = (along: number, lat: number, y: number): Vec3 =>
+    [s.cx + s.nx * lat + s.tx * along, y, s.cz + s.nz * lat + s.tz * along];
+  const block = (along: number, lat: number, ha: number, hc: number, maxY: number, kind: string): void => {
+    const p = at(along, lat, GROUND_Y);
+    obstacles.push({ x: p[0], z: p[2], tx: s.tx, tz: s.tz, halfAlong: ha, halfAcross: hc, minY: GROUND_Y, maxY, kind });
+  };
+  const inward = Math.sign(s.counter - s.front) || 1;
+  // Hung from the eave pole along the front edge.
+  if (s.module !== 'bare') {
+    for (let k = 0, n = 2 + r.int(0, 3); k < n; k++) {
+      const u = (((k + 0.5) / n) * 2 - 1) * half + r.jitter(0.12), lat = s.front + inward * 0.06;
+      const drop = Math.max(0.25, s.eave - GROUND_Y - 2.15) + r.next() * 0.25, top = s.eave, low = top - drop;
+      bld.pushCylinder(at(u, lat, top), at(u, lat, low), 0.008, 3, [0.18, 0.17, 0.16]);
+      const kind = r.int(0, 3);
+      if (kind === 0) {
+        // A string of chillies or garlic: a short column of bulbs.
+        const c = HUNG[r.int(0, HUNG.length - 1)];
+        for (let i = 0; i < 5; i++) bld.pushSphere(at(u + r.jitter(0.03), lat, low - 0.05 - i * 0.075), 0.045 + r.next() * 0.015, 3, 4, c);
+      } else if (kind === 1) {
+        bld.pushCylinder(at(u, lat, low - 0.2), at(u, lat, low), 0.16, 7, WICKER, { radiusTop: 0.19, capEnds: true });
+      } else if (kind === 2) {
+        bld.pushBox(at(u, lat, low - 0.15), [0.1, 0.15, 0.07], [s.clothAlt[0] * 0.8, s.clothAlt[1] * 0.8, s.clothAlt[2] * 0.8], { rotationY: yaw + r.jitter(0.5) });
+      } else {
+        // A price board: dark, a chalked line.
+        bld.pushBox(at(u, lat, low - 0.16), [0.2, 0.15, 0.015], [0.05, 0.05, 0.045], { rotationY: yaw });
+        bld.pushBox(at(u, lat + inward * -0.017, low - 0.12), [0.14, 0.012, 0.004], [0.75, 0.72, 0.62], { rotationY: yaw });
+      }
+    }
+  }
+  // Baskets of produce on the ground in front of the counter, under the roof.
+  for (let k = 0, n = r.int(0, 2); k < n; k++) {
+    const u = r.jitter(half * 0.8), lat = s.counter - inward * (0.55 + r.next() * 0.15), rad = 0.2 + r.next() * 0.1, h = 0.26 + r.next() * 0.1;
+    bld.pushCylinder(at(u, lat, GROUND_Y), at(u, lat, GROUND_Y + h), rad, 7, WICKER, { radiusTop: rad * 1.15, capEnds: true });
+    const c = PRODUCE[r.int(0, PRODUCE.length - 1)];
+    for (let i = 0; i < 4; i++) bld.pushSphere(at(u + r.jitter(rad * 0.5), lat + r.jitter(rad * 0.5), GROUND_Y + h + 0.05), 0.08 + r.next() * 0.04, 3, 4, c);
+    block(u, lat, rad * 1.15, rad * 1.15, GROUND_Y + h + 0.12, 'market-basket');
+  }
+  // Behind the counter: stock waiting, crates half stacked and sacks.
+  const room = Math.abs(s.back - s.counter);
+  if (room > 0.9) {
+    for (let k = 0, n = 1 + r.int(0, 2); k < n; k++) {
+      const u = r.jitter(half * 0.75), lat = s.back - inward * (0.35 + r.next() * Math.min(0.3, room - 0.8));
+      if (r.bool(0.55)) {
+        const hx = 0.24 + r.next() * 0.1;
+        for (let i = 0, m = 1 + r.int(0, 2); i < m; i++) {
+          bld.pushBox(at(u + r.jitter(0.05), lat, GROUND_Y + hx * 0.75 + i * hx * 1.5), [hx, hx * 0.75, hx * 0.85], i % 2 ? TRAY : [0.30, 0.20, 0.11], { rotationY: yaw + r.jitter(0.35) });
+        }
+        block(u, lat, hx * 1.2, hx * 1.2, GROUND_Y + 1.0, 'market-crates');
+      } else {
+        for (let i = 0; i < 3; i++) {
+          // On the deck: centred at 0.2 m they sank 7 cm into it (__selftest_market).
+          const rad = 0.22 + r.next() * 0.05;
+          bld.pushSphere(at(u + (i - 1) * 0.3, lat + r.jitter(0.08), GROUND_Y + rad), rad, 3, 5, SACKCLOTH);
+        }
+        block(u, lat, 0.55, 0.3, GROUND_Y + 0.45, 'market-sacks');
+      }
     }
   }
 }
@@ -314,7 +390,7 @@ export function bakeMarketDetail(bld: MeshBuilder, ctx: GroundBakeCtx, emitted =
     bakeCanopy(bld, s);
     // A `bare` stall is a counter and crates in the open: no roof and no frame.
     if (detailed && s.module !== 'bare') bakeRigging(bld, s, result.obstacles);
-    if (detailed) { bakeCounter(bld, s, result.obstacles); bakeGoods(bld, s); }
+    if (detailed) { bakeCounter(bld, s, result.obstacles); bakeGoods(bld, s); bakeDressing(bld, s, result.obstacles); }
     // Crates ride the counter, not the floor, so a stack reads as goods on a
     // table rather than as a heap in the road.
     let ground = GROUND_Y + COUNTER_TOP;
