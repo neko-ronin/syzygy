@@ -106,7 +106,9 @@ export const DISTRICT_STYLES: DistrictStyle[] = [
   {
     id: 2, key: 'terracotta-tiers', name: 'Terracotta Tiers',
     palette: pal('#b5623a', '#9c4c30', '#d9a05b', '#7d8f9a', '#a8542f', '#7b6653', '#7f8f3f', '#8b6b4b', '#405b5d', '#ffb15e'),
-    heightRange: [55, 210], footprintRange: [25, 47],
+    // The old town's kiln and workshop quarter: dense mid-rise (D29, sheet C),
+    // low enough that downtown reads behind it.
+    heightRange: [35, 140], footprintRange: [25, 47],
     leanAmount: 0.008, gapBias: 1.32, greenery: 0.5, cableDensity: 0.7, clutterDensity: 0.5,
     windowStyle: 'stacked', accentColor: hexLinear('#e08a3c'), roofStyle: 'terraces',
     description: 'Stepped ziggurat blocks of terracotta and ochre, wide planted terrace shoulders.',

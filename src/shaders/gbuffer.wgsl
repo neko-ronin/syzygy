@@ -653,8 +653,18 @@ fn fs(i: VSOut) -> GOut {
     base = g.albedo; rough = g.roughness; metal = g.metallic; emis = g.emissive;
     ao *= g.occlusion;
   } else if ((i.matId == MAT_DIFFUSE || i.matId == MAT_PLASTER || i.matId == MAT_BRICK) && i.uv.x >= FACADE_UV) {
-    let mirror = select(0.0, 1.0, i.uv.x >= 2.0 * FACADE_UV);
-    let r = facade(i.world, n, i.color, i.color * 0.4 + vec3f(0.25, 0.12, 0.05), i.seed, 3.6, detail, mirror);
+    // Variant tag from the u offset: 1 plain, 2 reflective glass (D27), 3 ruin.
+    let tag = floor(i.uv.x / FACADE_UV);
+    let mirror = select(0.0, 1.0, tag == 2.0);
+    var r = facade(i.world, n, i.color, i.color * 0.4 + vec3f(0.25, 0.12, 0.05), i.seed, 3.6, detail, mirror);
+    if (tag >= 3.0) {
+      // Burnt out (sheet C): no light behind any window, openings charred black,
+      // soot in vertical streaks.
+      let soot = 0.55 + 0.45 * fbm2(vec2f(dot(i.world.xz, vec2f(0.7, 0.7)) * 0.9, i.world.y * 0.06), 3);
+      r.albedo = r.albedo * clamp(soot, 0.25, 1.0);
+      r.emissive = vec3f(0.0);
+      r.roughness = 0.9;
+    }
     base = r.albedo; rough = r.roughness; metal = r.metallic; emis = r.emissive; ao = r.occlusion;
     // Brick courses on the masonry districts.
     if (i.matId == MAT_BRICK) {

@@ -591,7 +591,10 @@ function makeBuilding(
   // Power law inside the district band, then a bounded local boost: a dense
   // mode of mid-rise with a thin tail of genuine supertalls.
   const cluster = fbm2(wx * 0.00092 + plan.districts.ox, wz * 0.00092 + plan.districts.oz, 3);
-  const core = smoothstep(1400, 220, Math.hypot(wx, wz));
+  // Tallest at the downtown heart (D29), not the origin: the origin is the old
+  // town, and a core boost there raised its kilns and workshops to 300 m.
+  const db = plan.districts.downtownBearing;
+  const core = smoothstep(1100, 200, Math.hypot(wx - Math.cos(db) * 900, wz - Math.sin(db) * 900));
   const arterial = 1 - clamp(s.dist / 260, 0, 1);
   const boost = 0.86 + 0.3 * (cluster * 0.5 + 0.5) + 0.18 * arterial + 0.34 * core;
   const [lo, hi] = style.heightRange;

@@ -157,6 +157,105 @@ export function profileFor(id: number): DistrictProfile {
  * vertical rib pilasters that catch the sun and give the canyon its rhythm.
  */
 /** Exported for `__selftest.ts` only. */
+/**
+ * The old town (sheet C, D29): the terracotta core at the canal-market crossing,
+ * which is the world origin by construction of the plan. A kiln, forge and
+ * lantern-workshop quarter, part of it burnt out in a great fire.
+ */
+const OLD_TOWN_R = 400;
+function oldTown(b: BuildingInstance): { ruin: boolean; kiln: boolean } | null {
+  if (b.districtId !== 2 || Math.hypot(b.position[0], b.position[2]) > OLD_TOWN_R) return null;
+  const r = makeRng((b.windowSeed ^ 0x0f1e1a7e) >>> 0);
+  const ruin = r.bool(0.17);
+  return { ruin, kiln: !ruin && r.bool(0.6) };
+}
+const EMBER: Vec3 = [1.0, 0.42, 0.13];
+
+/** Street-level fire: forge mouths glowing at the base, lighting the canyon from below. */
+export function pushOldTownFire(bld: MeshBuilder, b: BuildingInstance, lights: BakedChunk['lights'], lod: number): void {
+  const ot = oldTown(b);
+  if (!ot || lod >= 2) return;
+  const r = makeRng((b.windowSeed ^ 0x6f0e6e5) >>> 0);
+  const hy = b.halfExtents[1], yb = -hy, T = towerTiers(b)[0];
+  if (ot.ruin) {
+    // Smouldering inside the shell: an ember bed on the sunken floor.
+    const k = makeRng((b.windowSeed ^ 0x2b1a5e) >>> 0), top = yb + hy * 2 * (0.45 + k.next() * 0.3) - 2.5;
+    const w = T.hx * 0.7, d = T.hz * 0.7;
+    bld.pushQuad(buildingPoint(b, -w, top + 0.05, d), buildingPoint(b, w, top + 0.05, d), buildingPoint(b, w, top + 0.05, -d), buildingPoint(b, -w, top + 0.05, -d), EMBER, 1, { emissive: 2.4, doubleSided: true });
+    if (lod < 1) lights.push({ pos: buildingPoint(b, 0, top + 2.5, 0), radius: 14, color: [1.0, 0.45, 0.15], intensity: 2.4 });
+    return;
+  }
+  if (!ot.kiln) return;
+  for (let n = 0, faces = 1 + r.int(0, 1); n < faces; n++) {
+    const face = r.int(0, 3), half = face < 2 ? T.hz : T.hx, wall = (face < 2 ? T.hx : T.hz) + 0.3;
+    const t = r.jitter(half * 0.6), hw = 1.1 + r.next() * 0.6, h = 2.2 + r.next() * 0.6;
+    const Q = (tt: number, y: number, dd: number): Vec3 => facePoint(b, face, wall, tt, y, dd);
+    bld.pushQuad(Q(t - hw, yb + 0.1, 0.02), Q(t + hw, yb + 0.1, 0.02), Q(t + hw, yb + h, 0.02), Q(t - hw, yb + h, 0.02), [1.0, 0.5, 0.16], 1, { emissive: 3.0, doubleSided: true });
+    if (lod < 1) lights.push({ pos: Q(t, yb + 1.4, 1.6), radius: 12, color: [1.0, 0.5, 0.18], intensity: 2.6 });
+  }
+}
+
+/** Kiln stacks on a workshop roof, ember-mouthed. */
+function pushKilns(bld: MeshBuilder, b: BuildingInstance, P: (x: number, y: number, z: number) => Vec3, tx: number, tz: number, yRoof: number, dp: DistrictProfile): void {
+  const r = makeRng((b.windowSeed ^ 0x4b11a5) >>> 0);
+  const brick = tint3(dp.palette.trim, 0.7);
+  for (let k = 0, n = 1 + r.int(0, 2); k < n; k++) {
+    const x = r.jitter(tx * 0.6), z = r.jitter(tz * 0.6), rad = 0.9 + r.next() * 1.0, h = 6 + r.next() * 9;
+    bld.pushCylinder(P(x, yRoof, z), P(x, yRoof + h, z), rad, 7, brick, { radiusTop: rad * 0.75, capEnds: true });
+    bld.pushCylinder(P(x, yRoof + h, z), P(x, yRoof + h + 0.5, z), rad * 0.78, 7, EMBER, { capEnds: true, emissive: 3.4 });
+  }
+}
+
+/**
+ * Bunting across the old town's streets at several low levels (sheet C's
+ * signature): from a face to the building it faces, 6-40 m across. Pennants are
+ * warm only (D28). Near field.
+ */
+const PENNANTS: Vec3[] = [[0.78, 0.22, 0.10], [0.92, 0.55, 0.14], [0.86, 0.80, 0.62], [0.55, 0.16, 0.12], [0.80, 0.42, 0.20], [0.30, 0.42, 0.22]];
+export function pushOldTownBunting(bld: MeshBuilder, buildings: BuildingInstance[], lod: number): void {
+  if (lod >= 1) return;
+  for (const b of buildings) {
+    const inBazaar = b.districtId === 4 && Math.hypot(b.position[0], b.position[2]) < 700;
+    if (!oldTown(b) && !inBazaar) continue;
+    const r = makeRng((b.windowSeed ^ 0x0b0a7e) >>> 0);
+    const T = towerTiers(b)[0], yb = b.position[1] - b.halfExtents[1];
+    for (let face = 0; face < 4; face++) {
+      if (!r.bool(0.45)) continue;
+      const c = Math.cos(b.rotationY), sn = Math.sin(b.rotationY);
+      const lx = face === 0 ? 1 : face === 1 ? -1 : 0, lz = face === 2 ? 1 : face === 3 ? -1 : 0;
+      const nx = lx * c + lz * sn, nz = -lx * sn + lz * c;
+      const wall = face < 2 ? T.hx : T.hz;
+      const sx = b.position[0] + nx * wall, sz = b.position[2] + nz * wall;
+      let best = Infinity, top = 0;
+      for (const o of buildings) {
+        if (o === b) continue;
+        const vx = o.position[0] - sx, vz = o.position[2] - sz, along = vx * nx + vz * nz;
+        const rad = Math.min(o.halfExtents[0], o.halfExtents[2]);
+        if (along < 6 || along > 40 + rad) continue;
+        if (Math.hypot(vx - along * nx, vz - along * nz) > rad * 0.8) continue;
+        if (along - rad < best) { best = along - rad; top = o.position[1] + o.halfExtents[1]; }
+      }
+      if (!Number.isFinite(best) || best < 5) continue;
+      for (let k = 0, n = 1 + r.int(0, 2); k < n; k++) {
+        const y = yb + 5 + r.next() * 11 + k * 3.5;
+        if (y > top - 2 || y > yb + T.y1 - 2) break;
+        const a: Vec3 = [sx, y, sz], e: Vec3 = [sx + nx * best, y + r.jitter(1.2), sz + nz * best];
+        const sag = best * (0.05 + r.next() * 0.05);
+        const at = (t: number): Vec3 => [a[0] + (e[0] - a[0]) * t, a[1] + (e[1] - a[1]) * t - sag * 4 * t * (1 - t), a[2] + (e[2] - a[2]) * t];
+        const pts: Vec3[] = []; for (let i = 0; i <= 6; i++) pts.push(at(i / 6));
+        bld.pushTubeAlongPath(pts, 0.025, 3, [0.12, 0.1, 0.09], { capEnds: false });
+        const pal = r.bool(0.5) ? PENNANTS : [PENNANTS[r.int(0, 5)], PENNANTS[r.int(0, 5)], PENNANTS[2]];
+        const tx = -nz, tz = nx, m = Math.floor(best / 0.8);
+        for (let i = 1; i < m; i++) {
+          const p = at(i / m), drop = 0.42 + r.next() * 0.16, hw = 0.22, col = pal[i % pal.length];
+          bld.pushQuad([p[0] - nx * hw, p[1], p[2] - nz * hw], [p[0] + nx * hw, p[1], p[2] + nz * hw],
+            [p[0] + nx * 0.02 + tx * 0.01, p[1] - drop, p[2] + nz * 0.02 + tz * 0.01], [p[0] - nx * 0.02 + tx * 0.01, p[1] - drop, p[2] - nz * 0.02 + tz * 0.01], col, 1, { doubleSided: true });
+        }
+      }
+    }
+  }
+}
+
 export function pushBuilding(
   bld: MeshBuilder, b: BuildingInstance, dp: DistrictProfile, rng: Rng, lod: number,
 ): void {
@@ -190,14 +289,18 @@ export function pushBuilding(
   // --- stacked setbacks: the tower narrows in 1-3 steps toward the crown.
   // Tiers come from the building (`towerTiers`), not this chunk's RNG, so props,
   // downpipes and pilasters placed by the generator stand on these walls.
-  const tiers = towerTiers(b);
+  const ot = oldTown(b);
+  // A burnt-out shell (sheet C): the upper storeys are gone, the roof has fallen
+  // in below jagged wall stubs, the walls are sooted and no window is lit.
+  const ruinTop = ot?.ruin ? height * (0.45 + makeRng((b.windowSeed ^ 0x2b1a5e) >>> 0).next() * 0.3) : Infinity;
+  const tiers = towerTiers(b).filter((T) => T.y0 < ruinTop - 3).map((T) => ({ ...T, y1: Math.min(T.y1, ruinTop - 2.5) }));
   const totalH = height;
   for (let t = 0; t < tiers.length; t++) {
     const T = tiers[t], isLast = t === tiers.length - 1;
-    pushBoxShell(bld, P, T.hx, T.hz, yBase + T.y0, yBase + T.y1, base, mat, rough, seed + t, lod, yaw,
-      dp.style.reflectiveGlass ? FACADE_UV_REFLECTIVE : FACADE_UV);
+    pushBoxShell(bld, P, T.hx, T.hz, yBase + T.y0, yBase + T.y1, ot?.ruin ? tint3(base, 0.42) : base, mat, rough, seed + t, lod, yaw,
+      ot?.ruin ? FACADE_UV_RUIN : dp.style.reflectiveGlass ? FACADE_UV_REFLECTIVE : FACADE_UV);
     // Parapet lip on top of the tier.
-    if (!isLast || lod < 1) {
+    if ((!isLast || lod < 1) && !ot?.ruin) {
       pushBoxShell(
         bld, P, T.rimHx + 0.16, T.rimHz + 0.16, yBase + T.y1, yBase + T.y1 + (isLast ? 1.1 : 0.9),
         pal.trim, mat, rough * 0.9, seed + t + 40, 1, yaw,
@@ -208,7 +311,22 @@ export function pushBuilding(
   // A lit crown on tall towers: a warm band round the top parapet, so silhouettes
   // carry against the night sky (R14: crowns dissolved into the navy). Per-vertex
   // emissive, so it fades by day like every authored light (D27, D28).
-  if (height > 140 && lod < 2) {
+  if (ot?.ruin) {
+    // Jagged wall stubs round the fallen roof: the collapsed silhouette.
+    const T = tiers[tiers.length - 1], r = makeRng((b.windowSeed ^ 0x57ab5) >>> 0), y0 = yBase + T.y1;
+    const soot = tint3(base, 0.32);
+    for (const [ax, az, len] of [[0, T.hz, T.hx], [0, -T.hz, T.hx], [T.hx, 0, T.hz], [-T.hx, 0, T.hz]] as const) {
+      for (let u = -len + 1.2; u < len - 0.6; u += 2.0 + r.next() * 1.6) {
+        if (r.next() < 0.25) continue;
+        const h = 0.6 + r.next() * r.next() * 7.5, w = 0.8 + r.next() * 1.2;
+        const cx = ax === 0 ? u : ax, cz = ax === 0 ? az : u;
+        bld.pushBox(P(cx, y0 + h / 2, cz), ax === 0 ? [w / 2, h / 2, 0.3] : [0.3, h / 2, w / 2], soot, { faces: FACE_ALL, rotationY: yaw });
+      }
+    }
+  } else if (ot?.kiln && lod < 2) {
+    pushKilns(bld, b, P, tiers[tiers.length - 1].hx, tiers[tiers.length - 1].hz, yBase + tiers[tiers.length - 1].y1, dp);
+  }
+  if (height > 140 && lod < 2 && !ot) {
     // A lit top storey, 3 m: a thin parapet strip was 0.1 px at skyline range.
     const yc = yRoof - 1.6, cx = tx + 0.06, cz = tz + 0.06;
     const crown = { emissive: 2.6, doubleSided: true };
@@ -219,7 +337,7 @@ export function pushBuilding(
     bld.pushQuad(P(-cx, yc - 1.5, -cz), P(-cx, yc - 1.5, cz), P(-cx, yc + 1.5, cz), P(-cx, yc + 1.5, -cz), amber, 1, crown);
   }
   // Pilasters stand on the first tier's walls, so they stop where it does.
-  const tier0Top = yBase + tiers[0].y1;
+  const tier0Top = yBase + Math.min(tiers[0].y1, ruinTop);
 
   // --- plinth: the first 8m is a different material, like a real base course.
   if (lod < 2) {
@@ -262,8 +380,8 @@ export function pushBuilding(
     }
   }
 
-  // --- crown: whatever tops this district off.
-  pushCrown(bld, P, tx, tz, yRoof, dp, rng, lod);
+  // --- crown: whatever tops this district off (a ruin has none left).
+  if (!ot?.ruin) pushCrown(bld, P, tx, tz, yRoof, dp, rng, lod);
 }
 
 /**
@@ -416,13 +534,15 @@ const NO_FACES = 0;
  */
 const FACADE_UV = 4096;
 const FACADE_UV_REFLECTIVE = 8192;
+/** Three times FACADE_UV: a burnt-out ruin's walls (soot, no lit windows). */
+const FACADE_UV_RUIN = 12288;
 const ALL_FACES = FACE_ALL;
 
 function pushBoxShell(
   bld: MeshBuilder, P: (x: number, y: number, z: number) => Vec3,
   hx: number, hz: number, y0: number, y1: number,
   color: Vec3, mat: number, rough: number, seed: number, lod: number, yaw: number,
-  facade: 0 | typeof FACADE_UV | typeof FACADE_UV_REFLECTIVE = 0,
+  facade: 0 | typeof FACADE_UV | typeof FACADE_UV_REFLECTIVE | typeof FACADE_UV_RUIN = 0,
 ): void {
   const opts: MeshOpts = { emissive: 0, rotationY: 0, faces: ALL_FACES };
   void mat; void rough; void seed; void lod; void yaw; void opts; void NO_FACES;
@@ -947,6 +1067,7 @@ export function bakeChunk(chunk: CityChunk, lod: number, seed: number): BakedChu
     pushBuilding(solid, b, dp, rng, lod);
     pushScaffold(solid, b, dp, lod, lights);
     pushTerraces(solid, leaf, b, dp, lod);
+    pushOldTownFire(solid, b, lights, lod);
     // Ground footprint comes from the generator's actual occupied bounds.
     obstacles.push({ x: (b.aabbMin[0] + b.aabbMax[0]) * 0.5, z: (b.aabbMin[2] + b.aabbMax[2]) * 0.5,
       tx: 1, tz: 0, halfAlong: (b.aabbMax[0] - b.aabbMin[0]) * 0.5, halfAcross: (b.aabbMax[2] - b.aabbMin[2]) * 0.5,
@@ -1051,6 +1172,8 @@ export function bakeChunk(chunk: CityChunk, lod: number, seed: number): BakedChu
       });
     }
   }
+
+  pushOldTownBunting(solid, chunk.buildings, lod);
 
   // --- cables
   const cableSides = lod < 1 ? 4 : 3;

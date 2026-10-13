@@ -353,6 +353,29 @@ const POSES = [
     settle: 30,
   },
   {
+    // Sheet C (fire-lit) review: "close into the canyon". 22 m up in an old-town
+    // alley (x ~ 200, the densest stretch; D29: the old town is the terracotta
+    // core at the canal-market crossing), looking north along it, at dusk.
+    name: '14-old-town-c',
+    label: 'sheet C: an old-town alley at dusk: kilns, forges, ruins, bunting and smoke',
+    position: [200, 22, 275], lookAt: [194, 10, 170], fov: 1.05, roll: 0,
+    time: 'dusk',
+    weather: { sky: 'dusk', cloudCover: 0.35, haze: 0.3, bloomStrength: 0.6 },
+    lens: { fov: 1.0, saturation: 1.15, bloom: 0.7, vignette: 0.45 },
+    settle: 36,
+  },
+  {
+    // Sheet C at night, from 50 m onto three burnt-out shells beside the alley
+    // of 14-old-town-c: ember beds, jagged wall stubs, kiln mouths, street forges.
+    name: '15-old-town-ruins-night',
+    label: 'sheet C: old-town ruins and kilns from the rooftops, night',
+    position: [245, 50, 315], lookAt: [180, 18, 240], fov: 1.05, roll: 0,
+    time: 'night',
+    weather: { sky: 'night', cloudCover: 0.3, haze: 0.3 },
+    lens: { fov: 1.05, bloom: 0.8, exposure: 1.28, saturation: 1.18, vignette: 0.5 },
+    settle: 36,
+  },
+  {
     // R2 asks for the wide skyline at both phases, side by side: whether night
     // out-reads day is the owner's call from the pair, not from a mean.
     // Same camera, lens and weather; phase, exposure and bloom as 09-market-down.

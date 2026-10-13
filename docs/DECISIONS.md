@@ -732,3 +732,22 @@ the plan puts low districts in front of them and downtown behind the old town, s
 skyline reads low-historic foreground, spires mid-ground, towers behind. Verdant and
 canal heights were lowered for that reason (at 130-430 m and 45-190 m they walled every
 outer view).
+
+### Sheet C in the old town (2026-10-12)
+
+The old town (terracotta-tiers within ~400 m of the crossing) is a kiln, forge and
+lantern-workshop quarter, part of it burnt out in a great fire:
+
+- **Ruins** (17% of old-town buildings): the upper storeys gone, the roof fallen in
+  below jagged wall stubs, sooted walls with no lit window, an ember bed inside.
+- **Kilns** (60% of the rest): brick stacks with glowing mouths on the roofs, and forge
+  openings at street level whose light reaches up the facades: sheet C's "fire is the
+  key light and it comes from inside the canyon".
+- **Bunting** across old-town and inner-bazaar streets at several low levels.
+- **Smoke**: a low haze over the old town, grey-brown by day, lit amber from below at
+  night.
+- Terracotta-tiers became dense mid-rise (35-140 m), and the height boost moved from the
+  origin (now the old town) to the downtown heart.
+
+Review poses: `14-old-town-c` (22 m up an old-town alley at dusk) and
+`15-old-town-ruins-night` (rooftops onto three ruins at night).

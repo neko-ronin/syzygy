@@ -173,6 +173,61 @@ fn vsFullscreen(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
   return vec4f(p[vi], 0.0, 1.0);
 }
 
+/**
+ * Smoke over the old town (sheet C, D29): kiln and forge smoke lying in the
+ * canyon, grey-brown by day and lit amber from below at night by the fires in
+ * the streets. The old town sits at the canal-market crossing, which is the
+ * world origin by construction of the plan. Four samples along the ray, clipped
+ * to the smoke's bounding box; billowed with slow-drifting value noise.
+ */
+const SMOKE_R: f32 = 420.0;
+const SMOKE_H: f32 = 34.0;
+const SMOKE_DENSITY: f32 = 0.0022;
+fn oldTownSmoke(color: vec3f, ro: vec3f, rt: vec3f) -> vec3f {
+  let d = rt - ro;
+  let len = length(d);
+  if (len < 1.0) { return color; }
+  let dir = d / len;
+  let top = SMOKE_H * 4.0;
+  var t0 = 0.0;
+  var t1 = len;
+  // Clip rt the box |x|,|z| < R, y < top.
+  for (var k = 0; k < 3; k++) {
+    let o = select(select(ro.z, ro.y, k == 1), ro.x, k == 0);
+    let v = select(select(dir.z, dir.y, k == 1), dir.x, k == 0);
+    let lo = select(-SMOKE_R, -1e5, k == 1);
+    let hi = select(SMOKE_R, top, k == 1);
+    if (abs(v) < 1e-5) {
+      if (o < lo || o > hi) { return color; }
+    } else {
+      let a = (lo - o) / v;
+      let b = (hi - o) / v;
+      t0 = max(t0, min(a, b));
+      t1 = min(t1, max(a, b));
+    }
+  }
+  if (t1 <= t0) { return color; }
+  let fire = lightsOn();
+  var tau = 0.0;
+  var glow = 0.0;
+  // Four samples and one noise octave: six with two cost 1.9 ms full-screen.
+  let dt = (t1 - t0) / 4.0;
+  for (var i = 0; i < 4; i++) {
+    let p = ro + dir * (t0 + (f32(i) + 0.5) * dt);
+    let radial = smoothstep(SMOKE_R, SMOKE_R * 0.45, length(p.xz));
+    let billow = 0.4 + 1.2 * vnoise2(p.xz * 0.012 + vec2f(F.time.x * 0.02, 0.0));
+    let rho = SMOKE_DENSITY * radial * exp(-max(p.y, 0.0) / SMOKE_H) * max(billow, 0.0);
+    tau += rho * dt;
+    glow += rho * dt * exp(-max(p.y, 0.0) / 22.0);
+  }
+  if (tau < 1e-4) { return color; }
+  let day = F.fogColor.rgb * vec3f(1.0, 0.86, 0.72) * 0.9;
+  // Lit ro below: the share of the smoke near the ground carries the fire colour.
+  let ember = vec3f(1.0, 0.42, 0.13) * 0.55 * fire * (glow / tau);
+  let smokeCol = mix(day, day * 0.35, fire) + ember;
+  return mix(color, smokeCol, 1.0 - exp(-tau));
+}
+
 @fragment
 fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
   // Derive UV from the rasterised position: no varying, no interpolation.
@@ -186,7 +241,11 @@ fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
   // so an untouched depth texel is exactly the sky.
   if (depth <= 1e-7) {
     let dir = normalize(reconstructWorld(uv, 0.0) - F.camPos.xyz);
-    return vec4f(skyRadiance(dir), 1.0);
+    // Depth 0 is the far plane at infinity under reverse-Z: w = 0, so `dir` above
+    // is built from a non-finite point. The sky lookup tolerates that; a march
+    // turns it into NaN (a black sky). Any finite depth gives the same ray.
+    let sdir = normalize(reconstructWorld(uv, 0.001) - F.camPos.xyz);
+    return vec4f(oldTownSmoke(skyRadiance(dir), F.camPos.xyz, F.camPos.xyz + sdir * 3000.0), 1.0);
   }
 
   let p = vec2i(uv * F.screen.xy);
@@ -270,6 +329,7 @@ fn fs(@builtin(position) frag: vec4f) -> @location(0) vec4f {
   // --- fog last, so it occludes everything uniformly
   let Vdir = -V;
   color = applyFog(color, P, Vdir, dist, skyLut(Vdir) + sunDisc(Vdir));
+  color = oldTownSmoke(color, F.camPos.xyz, P);
 
   return vec4f(color, 1.0);
 }
