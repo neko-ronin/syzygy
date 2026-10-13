@@ -136,6 +136,15 @@ export function runCameraSelfTest(): string {
     check(Math.abs(cam.roll - 0.2) < 1e-3, `flyTo: roll ${f3(cam.roll)} != 0.2`);
     L.push(`flyTo        1.5s ease-in-out -> ${f3(err)}m error, roll ${f3(cam.roll)} rad`);
   }
+  // A snapped pose ends any flight in progress.
+  {
+    const cam = new FlightCamera({ world: defaultWorld(), start: [0, 40, 0] });
+    cam.flyTo({ to: [300, 180, -450], seconds: 1.5 });
+    cam.setPose({ position: [10, 6, 10], lookAt: [10, 1, -30] });
+    for (let f = 0; f < 30; f++) cam.update(DT, input());
+    const drift = dist(cam.position, [10, 6, 10]);
+    check(!cam.isFlying() && drift < 0.5, `setPose: a flight kept steering after the snap (${f3(drift)}m)`);
+  }
 
   // ---------------------------------------------------------- tours
   for (const name of TOUR_NAMES) {

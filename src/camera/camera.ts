@@ -451,6 +451,10 @@ export class FlightCamera {
 
   /** Snap instantly — tours, the screenshot harness, the conductor. */
   setPose(pose: Partial<CameraPose>): void {
+    // A snap is authoritative. An earlier flyTo (the conductor's) kept steering
+    // after it, so a capture asked for 6 m and the camera flew back to the
+    // previous pose's 2.5 m during the settle frames.
+    this.cancelFlight();
     if (pose.position && v3finite(pose.position)) this.position = v3clone(pose.position);
     if (pose.roll !== undefined && Number.isFinite(pose.roll)) {
       this.roll = clamp(pose.roll, -MAX_ROLL, MAX_ROLL);
