@@ -878,7 +878,9 @@ chosen.
 
 ## R14 — A richer city at 60 FPS during continuous travel
 
-**Status: performance clauses met; visual clauses open** (2026-10-11). Fixed and
+**Status: performance clauses met; visual clauses open** (2026-10-11; review 5,
+2026-10-13: skyline climax done (watch), night identity and pools done; sheets B, C, D and
+near richness open; owner direction D30, lived-in streets, is next — see HANDOFF). Fixed and
 adaptive, held views and flight with reversal, headless and headed: 60 fps at 1600 × 900
 ([PERFORMANCE](PERFORMANCE_2026-10-06.md)). Vision review: distance detail done; near
 street richness, district variety and night identity **more work needed**

@@ -147,7 +147,8 @@ export const CLUTTER_KINDS: readonly string[] = [
  * is explicit that furniture should "cluster beside building fronts and route
  * boundaries, leaving coherent walking areas" — which cannot be done if items
  * are scattered evenly across the width of the footway, where they read as
- * debris in the middle of the route.
+ * debris in the middle of the route. Superseded in part by DECISIONS D30
+ * (2026-10-13): wide walking areas also take furniture islands; not yet built.
  */
 export const CLUTTER_EDGE: Record<string, 'front' | 'kerb'> = {
   railing: 'kerb', 'step-edge': 'kerb', 'drain-cover': 'kerb', 'manhole': 'kerb',

@@ -1015,6 +1015,9 @@ function emitTrace(
         // Three rules, all from `docs/STREET_SPEC.md` section F, which names
         // "uniform procedural repetition" as the single risk to this work:
         //
+        //   (Rule 1 is superseded by DECISIONS D30, 2026-10-13: wide walking areas
+        //   also carry islands of furniture, keeping a ~3 m clear route. Not yet
+        //   implemented; this is still the edge-only placement.)
         //   1. EDGE, NOT MIDDLE. Items go to the building line or the kerb line
         //      per `CLUTTER_EDGE`, never scattered across the width. The spec
         //      wants "coherent open walking areas"; furniture in the middle of

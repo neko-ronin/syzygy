@@ -87,6 +87,12 @@ The contact sheet shows that the large skyline already carries extensive detail.
 
 ## F. One risk
 
+> **Superseded in part by [DECISIONS D30](DECISIONS.md) (owner, 2026-10-13):** furniture
+> now also stands inside wide walking areas, as islands people use, keeping a clear route
+> of at least ~3 m. The risk below (uniform repetition) and the irregular, clumped
+> placement still apply; "cluster furniture beside fronts and route boundaries" no longer
+> limits where furniture may go.
+
 **Uniform procedural repetition will turn the street into another noisy pattern.** Identical cracks, evenly spaced props and repeated canopy modules can fill the empty ground while destroying the references’ large value groups and section differences.
 
 Spend scarce geometry on **edges, thickness, posts, brackets and canopy silhouettes**. Put joints and restrained wear into procedural shading. Cluster furniture beside fronts and route boundaries, leaving coherent walking areas. Preserve A’s warm/cool planes, B’s cold surfaces with small warm accents, C’s dark foreground against lit galleries, and D’s timber/concrete/plant/water separation.

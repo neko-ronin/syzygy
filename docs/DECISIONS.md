@@ -751,3 +751,43 @@ lantern-workshop quarter, part of it burnt out in a great fire:
 
 Review poses: `14-old-town-c` (22 m up an old-town alley at dusk) and
 `15-old-town-ruins-night` (rooftops onto three ruins at night).
+
+## D30 — A lived-in street: furniture where people use it, not only at the edges
+
+**Owner direction, 2026-10-13:** "Change the rule for furniture. It's time to make the
+world look more natural and lived in."
+
+**What it supersedes.** STREET_SPEC §F said "cluster furniture beside fronts and route
+boundaries, leaving coherent walking areas", and the ground bake encodes that as rule 1,
+*edge, not middle* (`groundbake.ts` furniture placement, `CLUTTER_EDGE` in
+`groundgrammar.ts`): every item goes to the building line or the kerb line. It kept early
+streets from reading as debris, but it left wide walking areas empty. The market spine's
+foreground and the hero street are bare paving with people standing on it (R14 reviews 4
+and 5).
+
+**The concern it protected stays:** uniform procedural repetition reading as noise. §F's
+other two rules (irregular gaps, open stretches and clumps) still apply.
+
+### The rule now
+
+1. **Interiors, not just edges.** Wide walking areas (the market spine, plazas,
+   footways wider than ~6 m) carry furniture inside them as *islands people use*: a tree
+   with a ring bench, café tables and chairs spilling from a front, a kiosk, a water pump
+   or tank, planter groups, stacked crates and sacks behind a stall, handcarts, a shrine.
+2. **Keep a walking line.** Islands leave a continuous clear route at least ~3 m wide
+   along the street, and every item registers a crowd obstacle (the existing
+   `boundsSince` path), so the crowd flows around them rather than through.
+3. **Signs of use over decoration.** Things people left: chairs at angles, crates half
+   stacked, potted plants at doorsteps, a broom against a wall, laundry, a bicycle. Vary
+   kind, orientation and spacing; nothing on a grid.
+4. **District character**, from the section sheets: A (market) seating and stall overflow;
+   B (industrial) barrels, pallets, cable drums; C (old town) braziers, firewood, kiln
+   stock; D (verdant) planters, trees, café terraces. Light stays warm (D28).
+5. **Budget by measurement.** `CLUTTER_TRIS` (9,000 triangles per chunk) may be revisited,
+   but R14's 60 fps on this Mac stands; small items stay near-field (LOD 0).
+
+### Consequences
+
+- `groundbake.ts` rule 1 and `CLUTTER_EDGE` change; `__selftest_footway.ts` assumes one
+  ~1 m clutter line per footway and needs a clear-route check instead.
+- STREET_SPEC §F is annotated as superseded in part.

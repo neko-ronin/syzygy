@@ -1,5 +1,69 @@
 # Handoff
 
+## Next session — start here (2026-10-13)
+
+**State.** `main` at the commit that added this section (`5883cf6` is the last code change).
+R14 performance clauses are met (60 fps fixed/adaptive, headless/headed, held and flight).
+Review 5 ([VISION_2026-10-11_R14](VISION_2026-10-11_R14.md)): skyline climax **done
+(watch)**, night identity under D28 **done**, lantern pools **done**; sheets B, C, D and
+near richness **more work needed**. Owner direction since: **[D30](DECISIONS.md)**, make
+the world natural and lived in: furniture is no longer edge-only.
+
+**Work, in order.** Each item: change, capture before/after, check cost, then the next.
+
+1. **D30 furniture islands.** Wide walking areas (market spine, plazas, footways over
+   ~6 m) get islands people use (tree with ring bench, café tables, kiosk, pump, planter
+   groups, crates and sacks behind stalls, handcarts), signs of use, district character
+   per sheet, a clear route of at least ~3 m, every item a crowd obstacle.
+   Code: furniture placement in `src/render/groundbake.ts` (~line 1013, rule 1 is marked
+   superseded), `CLUTTER_KINDS` / `CLUTTER_EDGE` in `src/world/groundgrammar.ts`, market
+   stall data in `src/world/marketgrammar.ts` (bake in `src/render/marketbake.ts`).
+   `src/world/__selftest_footway.ts` assumes one 1 m clutter line: replace with a
+   clear-route check. Budget `CLUTTER_TRIS` 9,000/chunk, revisit by measurement.
+   Frames: hero pair, `01c-origin-avenue`, `01d-street-crowd`, `09-market-down-day`.
+2. **Sheet D, overgrown.** Foliage covers 9.4% of the terraced facade at pose 13 against
+   ~40% on the sheet; target 25–35%: denser masses spilling over the ledges, hanging leaf
+   masses instead of lime strip vines, planting on more buildings (the left one at pose 13
+   is bare). Code: `pushTerraces`, `TERRACE_LEAF`, `PropKind.VineCurtain` in
+   `src/render/citymesh.ts`.
+3. **Sheet C, fire at ground level.** Pose 15 is still 64% near-black and its fire sits on
+   the ruin roofs; pose 14 shows no brazier or forge in view and a flat tan wall. Ember
+   beds or yards at street level beside the ruins, braziers where the alley camera sees
+   them, wall clutter in the alley. Code: `pushOldTownFire`, `pushBuilding` (ruin stubs),
+   `gbuffer.wgsl` tags 3 (ruin) and 4 (old-town uplight), `oldTownSmoke` in
+   `lighting.wgsl`.
+4. **Sheet B, accretion across towers.** Pose 12 shows one room stack on one tower; the
+   sheet's towers are crusted with dark rust and red-panelled rooms. More stacks per
+   scaffold and more scaffolds per district. Code: `pushScaffold`, `ROOMS`,
+   `SCAFFOLD_CHANCE` in `src/render/citymesh.ts`.
+5. **Near richness.** Produce on the counters is visible but small; more stall dressing
+   (hanging goods, baskets, signs) once item 1 has furnished the aisle.
+6. **Review 6** by an independent read-only reviewer against the four sheets and
+   before/after pairs, then an A/B benchmark; record both in the vision and
+   performance docs.
+
+**How this session worked (load-bearing):**
+
+- **Check the machine first:** `memory_pressure`, top CPU (`ps -Ao %cpu,comm -r`). Other
+  apps (opencode, Brave, a VM) load it; the capture guard wants 250 MB unused.
+- **Captures:** `node tools/capture.mjs --dev --sequence --pose=<name> ...` (substring
+  match, several `--pose` allowed); `--hero-pair` for the hero. Delete your `shots/` runs
+  when done.
+- **Before/after:** `git worktree add <scratch>/base <previous commit>`, symlink
+  `node_modules`, copy the *new* `tools/capture.mjs` into it so cameras match; build pairs
+  with `magick before.png after.png -resize 1200x +append pair.png`. Hero pairs: shoot the
+  after side with `--scene=<base run>/_scene.json` (PITFALLS §27, the crowd varies run to
+  run).
+- **Benchmarks under load:** interleaved A/B against the worktree with
+  `node tools/benchmark.mjs --route=hero --gpu-passes --seconds=8 --warm-seconds=10
+  --output=<dir>`, alternating which side runs first; a rise on every pass at once is
+  contention, not content (PERFORMANCE, 2026-10-13).
+- **Sun path:** no time of day lights a −z face (PITFALLS §26); choose feature poses by
+  face normal.
+- **Owner constraints:** D27 (teal towers keep colour, reflective grids), D28 (warm amber
+  light only), D29 (the plan is a history), D30 (lived-in streets). Red paving lines and
+  night edge streaks are owner-accepted.
+
 ## Current work — updated 2026-10-07
 
 The owner authorised the street/hero batch, **then city richness and continuous
