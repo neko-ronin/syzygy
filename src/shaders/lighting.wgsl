@@ -181,8 +181,10 @@ fn vsFullscreen(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
  * to the smoke's bounding box; billowed with slow-drifting value noise.
  */
 const SMOKE_R: f32 = 420.0;
-const SMOKE_H: f32 = 34.0;
-const SMOKE_DENSITY: f32 = 0.0022;
+// Low (12 m scale, ~50 m ceiling): at 34 m it reached tower tops and turned the
+// market's night backdrop brown (R14 review 4).
+const SMOKE_H: f32 = 12.0;
+const SMOKE_DENSITY: f32 = 0.0018;
 fn oldTownSmoke(color: vec3f, ro: vec3f, rt: vec3f) -> vec3f {
   let d = rt - ro;
   let len = length(d);
@@ -223,7 +225,7 @@ fn oldTownSmoke(color: vec3f, ro: vec3f, rt: vec3f) -> vec3f {
   if (tau < 1e-4) { return color; }
   let day = F.fogColor.rgb * vec3f(1.0, 0.86, 0.72) * 0.9;
   // Lit ro below: the share of the smoke near the ground carries the fire colour.
-  let ember = vec3f(1.0, 0.42, 0.13) * 0.55 * fire * (glow / tau);
+  let ember = vec3f(1.0, 0.42, 0.13) * 1.1 * fire * (glow / tau);
   let smokeCol = mix(day, day * 0.35, fire) + ember;
   return mix(color, smokeCol, 1.0 - exp(-tau));
 }

@@ -657,7 +657,18 @@ fn fs(i: VSOut) -> GOut {
     let tag = floor(i.uv.x / FACADE_UV);
     let mirror = select(0.0, 1.0, tag == 2.0);
     var r = facade(i.world, n, i.color, i.color * 0.4 + vec3f(0.25, 0.12, 0.05), i.seed, 3.6, detail, mirror);
-    if (tag >= 3.0) {
+    if (tag >= 4.0) {
+      // Old town (sheet C): the street's forges and braziers light the walls from
+      // below, strongest at the foot and patchy along it. Stylised, like the
+      // ground pools: the key light comes from inside the canyon.
+      let rise = max(i.world.y - 0.35, 0.0);
+      let ax = select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 0.0, 1.0), abs(n.x) > 0.5);
+      let spot = 0.35 + 0.65 * vnoise2(vec2f(dot(i.world, ax) * 0.09, 3.7));
+      // Amber, from a grey-weighted albedo: multiplying the red brick alone
+      // clipped it to flat poster red (R14 review 4).
+      let lit = mix(r.albedo, vec3f(dot(r.albedo, vec3f(0.3, 0.5, 0.2))), 0.6);
+      r.emissive += lit * vec3f(1.0, 0.62, 0.28) * 2.2 * exp(-rise / 11.0) * spot * lightsOn();
+    } else if (tag >= 3.0) {
       // Burnt out (sheet C): no light behind any window, openings charred black,
       // soot in vertical streaks.
       let soot = 0.55 + 0.45 * fbm2(vec2f(dot(i.world.xz, vec2f(0.7, 0.7)) * 0.9, i.world.y * 0.06), 3);

@@ -180,8 +180,12 @@ export function pushOldTownFire(bld: MeshBuilder, b: BuildingInstance, lights: B
   if (ot.ruin) {
     // Smouldering inside the shell: an ember bed on the sunken floor.
     const k = makeRng((b.windowSeed ^ 0x2b1a5e) >>> 0), top = yb + hy * 2 * (0.45 + k.next() * 0.3) - 2.5;
-    const w = T.hx * 0.7, d = T.hz * 0.7;
-    bld.pushQuad(buildingPoint(b, -w, top + 0.05, d), buildingPoint(b, w, top + 0.05, d), buildingPoint(b, w, top + 0.05, -d), buildingPoint(b, -w, top + 0.05, -d), EMBER, 1, { emissive: 2.4, doubleSided: true });
+    // Patches of embers among char: one bright sheet read as a skylight (R14 review 4).
+    for (let i = 0, n = 4 + k.int(0, 4); i < n; i++) {
+      const cx = k.jitter(T.hx * 0.6), cz = k.jitter(T.hz * 0.6), w = 0.6 + k.next() * 1.8, d = 0.6 + k.next() * 1.8;
+      const glow = 0.5 + k.next() * 1.3;
+      bld.pushQuad(buildingPoint(b, cx - w, top + 0.05, cz + d), buildingPoint(b, cx + w, top + 0.05, cz + d), buildingPoint(b, cx + w, top + 0.05, cz - d), buildingPoint(b, cx - w, top + 0.05, cz - d), [0.9, 0.22 + k.next() * 0.2, 0.05], 1, { emissive: glow, doubleSided: true });
+    }
     if (lod < 1) lights.push({ pos: buildingPoint(b, 0, top + 2.5, 0), radius: 14, color: [1.0, 0.45, 0.15], intensity: 2.4 });
     return;
   }
@@ -192,6 +196,27 @@ export function pushOldTownFire(bld: MeshBuilder, b: BuildingInstance, lights: B
     const Q = (tt: number, y: number, dd: number): Vec3 => facePoint(b, face, wall, tt, y, dd);
     bld.pushQuad(Q(t - hw, yb + 0.1, 0.02), Q(t + hw, yb + 0.1, 0.02), Q(t + hw, yb + h, 0.02), Q(t - hw, yb + h, 0.02), [1.0, 0.5, 0.16], 1, { emissive: 3.0, doubleSided: true });
     if (lod < 1) lights.push({ pos: Q(t, yb + 1.4, 1.6), radius: 12, color: [1.0, 0.5, 0.18], intensity: 2.6 });
+  }
+}
+
+/**
+ * Sheet C's vertical chaos: rooms built onto the roof over generations, stacked
+ * two or three high, some hanging past the parapet, a few with a lit window.
+ */
+function pushShanties(bld: MeshBuilder, b: BuildingInstance, P: (x: number, y: number, z: number) => Vec3, tx: number, tz: number, yRoof: number, dp: DistrictProfile, lod: number): void {
+  const r = makeRng((b.windowSeed ^ 0x5a17e5) >>> 0);
+  if (!r.bool(0.7)) return;
+  const tones = [tint3(dp.palette.base, 0.75), tint3(dp.palette.secondary, 0.7), tint3(dp.palette.trim, 0.65), [0.36, 0.30, 0.24] as Vec3];
+  for (let s = 0, stacks = 1 + r.int(0, 2); s < stacks; s++) {
+    let x = r.jitter(tx * 0.8), z = r.jitter(tz * 0.8), y = yRoof;
+    for (let k = 0, n = 1 + r.int(0, 2); k < n; k++) {
+      const w = 1.6 + r.next() * 2.8, d = 1.6 + r.next() * 2.4, h = 2.4 + r.next() * 1.2;
+      bld.pushBox(P(x, y + h / 2, z), [w / 2, h / 2, d / 2], tones[r.int(0, tones.length - 1)], { faces: FACE_ALL, rotationY: b.rotationY + r.jitter(0.15) });
+      if (lod < 1 && r.bool(0.5)) {
+        bld.pushBox(P(x, y + h * 0.55, z + d / 2 + 0.03), [0.35, 0.3, 0.02], [1.0, 0.68, 0.36], { faces: FACE_ALL, emissive: 2.4, rotationY: b.rotationY });
+      }
+      y += h; x += r.jitter(1.2); z += r.jitter(1.2);
+    }
   }
 }
 
@@ -292,13 +317,16 @@ export function pushBuilding(
   const ot = oldTown(b);
   // A burnt-out shell (sheet C): the upper storeys are gone, the roof has fallen
   // in below jagged wall stubs, the walls are sooted and no window is lit.
+  // Old-town brick is sooted toward grey (generations of kilns). Full-saturation
+  // terracotta clipped to flat red under the dusk sun (R14 review 4).
+  const sootBase: Vec3 = ot ? [base[0] * 0.62 + 0.38 * (base[0] * 0.3 + base[1] * 0.5 + base[2] * 0.2), base[1] * 0.62 + 0.38 * (base[0] * 0.3 + base[1] * 0.5 + base[2] * 0.2), base[2] * 0.62 + 0.38 * (base[0] * 0.3 + base[1] * 0.5 + base[2] * 0.2)] : base;
   const ruinTop = ot?.ruin ? height * (0.45 + makeRng((b.windowSeed ^ 0x2b1a5e) >>> 0).next() * 0.3) : Infinity;
   const tiers = towerTiers(b).filter((T) => T.y0 < ruinTop - 3).map((T) => ({ ...T, y1: Math.min(T.y1, ruinTop - 2.5) }));
   const totalH = height;
   for (let t = 0; t < tiers.length; t++) {
     const T = tiers[t], isLast = t === tiers.length - 1;
-    pushBoxShell(bld, P, T.hx, T.hz, yBase + T.y0, yBase + T.y1, ot?.ruin ? tint3(base, 0.42) : base, mat, rough, seed + t, lod, yaw,
-      ot?.ruin ? FACADE_UV_RUIN : dp.style.reflectiveGlass ? FACADE_UV_REFLECTIVE : FACADE_UV);
+    pushBoxShell(bld, P, T.hx, T.hz, yBase + T.y0, yBase + T.y1, ot?.ruin ? tint3(sootBase, 0.42) : sootBase, mat, rough, seed + t, lod, yaw,
+      ot?.ruin ? FACADE_UV_RUIN : ot ? FACADE_UV_OLDTOWN : dp.style.reflectiveGlass ? FACADE_UV_REFLECTIVE : FACADE_UV);
     // Parapet lip on top of the tier.
     if ((!isLast || lod < 1) && !ot?.ruin) {
       pushBoxShell(
@@ -323,8 +351,10 @@ export function pushBuilding(
         bld.pushBox(P(cx, y0 + h / 2, cz), ax === 0 ? [w / 2, h / 2, 0.3] : [0.3, h / 2, w / 2], soot, { faces: FACE_ALL, rotationY: yaw });
       }
     }
-  } else if (ot?.kiln && lod < 2) {
-    pushKilns(bld, b, P, tiers[tiers.length - 1].hx, tiers[tiers.length - 1].hz, yBase + tiers[tiers.length - 1].y1, dp);
+  } else if (ot && lod < 2) {
+    const T = tiers[tiers.length - 1], top = yBase + T.y1;
+    if (ot.kiln) pushKilns(bld, b, P, T.hx, T.hz, top, dp);
+    pushShanties(bld, b, P, T.hx, T.hz, top, dp, lod);
   }
   if (height > 140 && lod < 2 && !ot) {
     // A lit top storey, 3 m: a thin parapet strip was 0.1 px at skyline range.
@@ -343,7 +373,7 @@ export function pushBuilding(
   if (lod < 2) {
     const plinthH = Math.min(7.5, totalH * 0.25);
     pushBoxShell(bld, P, hx + 0.28, hz + 0.28, yBase, yBase + plinthH,
-      pal.secondary, MAT.DIFFUSE, STONE + 0.15, seed + 7, 0, yaw, FACADE_UV);
+      pal.secondary, MAT.DIFFUSE, STONE + 0.15, seed + 7, 0, yaw, ot && !ot.ruin ? FACADE_UV_OLDTOWN : FACADE_UV);
   }
 
   // --- vertical pilasters. These are the single cheapest thing that makes a
@@ -536,13 +566,15 @@ const FACADE_UV = 4096;
 const FACADE_UV_REFLECTIVE = 8192;
 /** Three times FACADE_UV: a burnt-out ruin's walls (soot, no lit windows). */
 const FACADE_UV_RUIN = 12288;
+/** Four times: an old-town wall, lit from below by the street's fires (sheet C). */
+const FACADE_UV_OLDTOWN = 16384;
 const ALL_FACES = FACE_ALL;
 
 function pushBoxShell(
   bld: MeshBuilder, P: (x: number, y: number, z: number) => Vec3,
   hx: number, hz: number, y0: number, y1: number,
   color: Vec3, mat: number, rough: number, seed: number, lod: number, yaw: number,
-  facade: 0 | typeof FACADE_UV | typeof FACADE_UV_REFLECTIVE | typeof FACADE_UV_RUIN = 0,
+  facade: 0 | typeof FACADE_UV | typeof FACADE_UV_REFLECTIVE | typeof FACADE_UV_RUIN | typeof FACADE_UV_OLDTOWN = 0,
 ): void {
   const opts: MeshOpts = { emissive: 0, rotationY: 0, faces: ALL_FACES };
   void mat; void rough; void seed; void lod; void yaw; void opts; void NO_FACES;

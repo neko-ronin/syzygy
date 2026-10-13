@@ -141,7 +141,8 @@ export const DISTRICT_STYLES: DistrictStyle[] = [
   {
     id: 6, key: 'monastery-spire', name: 'Monastery Spire',
     palette: pal('#ddd7c9', '#c9c1b1', '#2f8f6a', '#a8c8c4', '#a9a395', '#8b8579', '#4f8a4a', '#9b9589', '#2b5b59', '#ffd8a8'),
-    heightRange: [270, 600], footprintRange: [13, 23],
+    // An accent, not a climax (D29): at 270-600 m the spires outgrew downtown.
+    heightRange: [110, 260], footprintRange: [13, 23],
     leanAmount: 0.052, gapBias: 1.06, greenery: 0.82, cableDensity: 1.7, clutterDensity: 0.6,
     windowStyle: 'arcade', accentColor: hexLinear('#2f9a72'), roofStyle: 'spire',
     description: 'Pale stone needle towers, verdigris domes, terraced herb gardens between them.',
@@ -359,14 +360,15 @@ export function districtAtField(f: DistrictField, x: number, z: number): number 
   const fx = (x + f.ox) * 0.0021, fz = (z + f.oz) * 0.0021;
   const n1 = fbm2(fx + 3.1, fz - 1.7, 3), n2 = fbm2(fx * 1.3 - 8.2, fz * 1.3 + 2.6, 3);
   const r = Math.hypot(x, z) + 150 * n1;
-  let th = Math.atan2(z, x) - f.downtownBearing + 0.3 * n2;
+  let th = Math.atan2(z, x) - f.downtownBearing + 0.55 * n2;
   th = Math.atan2(Math.sin(th), Math.cos(th));
 
   // The market road and its bazaar, from the old town outward.
   if (dMarket < f.market.width * 0.55 + 115 + 45 * n2 && r < 1150) return 4;
   if (r < 360) return 2;
 
-  if (Math.abs(th) < 1.3 && r < 1800) {
+  // Warped hard: at 0.3 the wedge read as a straight-edged pie slice from the air.
+  if (Math.abs(th) < 1.3 + 0.3 * n1 && r < 1800) {
     const hx = Math.cos(f.downtownBearing) * 900, hz = Math.sin(f.downtownBearing) * 900;
     if (Math.hypot(x - hx, z - hz) * (1 + 0.25 * Math.sin(Math.atan2(z - hz, x - hx) * 3)) + 110 * n1 < 250) return 7;
     return Math.abs(th) > 1.07 || r > 1620 ? 3 : 1;

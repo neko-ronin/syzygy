@@ -108,7 +108,8 @@ export const defaultCityConfig = (seed: number): CityConfig => ({
   radiusChunks: 6,
   buildingsPerChunk: 24,
   propsPerChunk: 1200,
-  maxHeight: 600,
+  // 600 -> 820 m: the downtown crown hit the cap and flattened into a plateau.
+  maxHeight: 820,
   detail: 1,
 });
 
@@ -594,9 +595,12 @@ function makeBuilding(
   // Tallest at the downtown heart (D29), not the origin: the origin is the old
   // town, and a core boost there raised its kilns and workshops to 300 m.
   const db = plan.districts.downtownBearing;
-  const core = smoothstep(1100, 200, Math.hypot(wx - Math.cos(db) * 900, wz - Math.sin(db) * 900));
+  // Peaked: a broad rise and a sharp crown at the heart, so downtown reads as the
+  // skyline's climax (D27, R14 review 4: it read as an even plateau).
+  const dh = Math.hypot(wx - Math.cos(db) * 900, wz - Math.sin(db) * 900);
+  const core = 0.3 * smoothstep(1200, 250, dh) + 0.7 * smoothstep(650, 80, dh);
   const arterial = 1 - clamp(s.dist / 260, 0, 1);
-  const boost = 0.86 + 0.3 * (cluster * 0.5 + 0.5) + 0.18 * arterial + 0.34 * core;
+  const boost = 0.86 + 0.3 * (cluster * 0.5 + 0.5) + 0.18 * arterial + core;
   const [lo, hi] = style.heightRange;
   let height = (lo + (hi - lo) * Math.pow(r.next(), 2.6)) * boost;
   height = Math.max(9, Math.min(cfg.maxHeight, height));

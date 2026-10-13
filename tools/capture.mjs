@@ -361,7 +361,8 @@ const POSES = [
     position: [200, 22, 275], lookAt: [194, 10, 170], fov: 1.05, roll: 0,
     time: 'dusk',
     weather: { sky: 'dusk', cloudCover: 0.35, haze: 0.3, bloomStrength: 0.6 },
-    lens: { fov: 1.0, saturation: 1.15, bloom: 0.7, vignette: 0.45 },
+    // No saturation boost: at 1.15 the dusk terracotta clipped to flat red (B = 0).
+    lens: { fov: 1.0, saturation: 1.0, bloom: 0.7, vignette: 0.45 },
     settle: 36,
   },
   {
@@ -369,7 +370,9 @@ const POSES = [
     // of 14-old-town-c: ember beds, jagged wall stubs, kiln mouths, street forges.
     name: '15-old-town-ruins-night',
     label: 'sheet C: old-town ruins and kilns from the rooftops, night',
-    position: [245, 50, 315], lookAt: [180, 18, 240], fov: 1.05, roll: 0,
+    // Steeply onto the largest ruin, (353, -128): 43 m across, 28 of 52 m left
+    // standing, so its fallen roof and ember beds face the camera.
+    position: [372, 72, -62], lookAt: [353, 22, -128], fov: 1.05, roll: 0,
     time: 'night',
     weather: { sky: 'night', cloudCover: 0.3, haze: 0.3 },
     lens: { fov: 1.05, bloom: 0.8, exposure: 1.28, saturation: 1.18, vignette: 0.5 },
