@@ -13,6 +13,24 @@
         "--strictPort"
       ],
       "port": 5180
+    },
+    {
+      "name": "syzygy-dev-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--mode", "web", "--port", "5181", "--strictPort"],
+      "port": 5181
+    },
+    {
+      "name": "syzygy-web",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "WRANGLER_SEND_METRICS=false",
+        "./node_modules/.bin/wrangler",
+        "dev",
+        "--port",
+        "8787"
+      ],
+      "port": 8787
     }
   ]
 }

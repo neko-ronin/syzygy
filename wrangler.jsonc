@@ -1,0 +1,17 @@
+{
+  // Cloudflare Workers Static Assets config for syzygy, mirroring orbius.
+  // Pure static site: no Worker script (`main`), no bindings, no secrets.
+  // The dev-server API (server/plugin.mjs) is Vite middleware and never ships.
+  // Deploy with `npm run deploy`, which builds with `--mode web` first.
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "syzygy",
+  "compatibility_date": "2026-10-03",
+  // Wrangler otherwise posts device ID, OS and Node version on every command.
+  // This misses the pre-config "autoconfig" events (verified on 4.142.0), so
+  // `npm run deploy` also sets WRANGLER_SEND_METRICS=false, which stops all.
+  "send_metrics": false,
+  "assets": {
+    "directory": "./dist"
+  },
+  "routes": [{ "pattern": "syzygy.catronin.com", "custom_domain": true }]
+}

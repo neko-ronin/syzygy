@@ -25,7 +25,7 @@
 
 import { clamp, damp, hexLinear, saturate, type Vec3 } from '../core/math';
 import {
-  clampWeather, defaultLens, defaultSun, defaultWeather,
+  clampWeather, defaultLens, defaultSun, defaultWeather, REAL_DAY,
   type EventKind,
   type Lens,
   type Precip,
@@ -224,6 +224,26 @@ const PHASE_LOOK: Record<string, PhaseLook> = {
     warp: 0.3, distortion: 0.09, horizonBend: 0.26,
     colorGrade: [1.06, 0.99, 0.94],
   },
+  // Blue hour: the sun 2-10° under the horizon, after sunset and again before
+  // sunrise. No direct light worth the name; the sky is the light source, so
+  // ambient carries a saturated blue and the windows (driven by `dayPhase`, not
+  // by this rig) are already coming on. A starting point between dusk and
+  // night, to be judged by frame review (PROCESS.md rule 1), not by numbers.
+  // Authored on the evening side; the azimuth satisfies the integrator.
+  bluehour: {
+    azimuth: 3.1851, elevation: -0.11,
+    sunColor: g('#5a78d8'), intensity: 0.9,
+    ambient: g('#2b4a9a'), ambientIntensity: 0.8,
+    bounce: g('#2a2f5e'), bounceIntensity: 0.18,
+    sky: 'bluehour', precip: 'none',
+    cloudCover: 0.3, storminess: 0, haze: 0.4, hazeFalloff: 0.07,
+    windSpeed: 3.2, wetness: 0.16, aerialHaze: 0.42, godRays: 0.2, motes: 0.3,
+    bloomStrength: 0.7, scatter: 0.5,
+    fov: 56 * D2R, chroma: 0.5, grain: 0.26, exposure: 1.4, saturation: 1.22,
+    bloom: 0.76, vignette: 0.52, tiltShift: 0.66, focusWidth: 0.26, bokeh: 0.58,
+    warp: 0.26, distortion: 0.08, horizonBend: 0.22,
+    colorGrade: [0.94, 1.0, 1.1],
+  },
   // Night. Measured, not guessed — `docs/NIGHT_REPORT.md` has the numbers and
   // the controls behind each of these.
   //
@@ -260,18 +280,43 @@ export const PHASES: readonly string[] = Object.keys(PHASE_LOOK);
 const PHASE_ALIAS: Record<string, string> = {
   'sunrise': 'dawn', 'sunset': 'dusk', 'midnight': 'night',
   'day': 'noon', 'midday': 'noon', 'evening': 'dusk', 'morning-dawn': 'dawn',
+  'blue hour': 'bluehour', 'blue-hour': 'bluehour', 'twilight': 'bluehour',
 };
+
+/** Below this the sun is down far enough that the sky, not the sun, lights the city. */
+const BLUE_HOUR_TOP = -0.035;
 
 /** Name the current part of the day from sun elevation and azimuth. */
 export function phaseOf(w: WorldState): string {
   const el = w.sun.elevation;
-  // Azimuth 0 is sunrise and runs to sunset at PI, so the quadrant test is
-  // against PI/2, not PI: that is what the authored phase rig uses.
+  // Azimuth 0 is sunrise, PI/2 noon, PI sunset, 3PI/2 midnight. The sun is
+  // rising across the half-turn centred on sunrise, so the pre-dawn sky (az just
+  // under 2PI) is dawn, not dusk: testing only `az < PI/2` lit it with the sunset rig.
   const az = ((w.sun.azimuth % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+  const rising = az < Math.PI / 2 || az > Math.PI * 1.5;
   if (el < -0.18) return 'night';
-  if (el < 0.1) return az < Math.PI / 2 ? 'dawn' : 'dusk';
-  if (el < 0.55) return az < Math.PI / 2 ? 'morning' : 'afternoon';
+  if (el < BLUE_HOUR_TOP) return 'bluehour';
+  if (el < 0.1) return rising ? 'dawn' : 'dusk';
+  if (el < 0.55) return rising ? 'morning' : 'afternoon';
   return 'noon';
+}
+
+/** How much faster plain daylight runs on the public site. */
+const SHOWCASE_FAST = 20;
+/** Setting-sun height where golden hour is about to begin (~7.5°). */
+const SHOWCASE_GOLDEN = 0.13;
+
+/**
+ * The public site's sun speed. From sunrise until the setting sun reaches
+ * golden-hour height, plain daylight runs at 20x; golden hour, blue hour, night
+ * and dawn run in real time, so a visitor spends the visit in the best light.
+ * Only the sun is sped up: `world.timeScale` (crowd, traffic) is untouched.
+ */
+export function showcaseDayLength(w: WorldState): number {
+  const az = ((w.sun.azimuth % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+  const setting = az > Math.PI / 2 && az < Math.PI * 1.5;
+  const daylight = w.sun.elevation >= 0 && !(setting && w.sun.elevation < SHOWCASE_GOLDEN);
+  return daylight ? REAL_DAY / SHOWCASE_FAST : REAL_DAY;
 }
 
 const resolvePhase = (phase: string, fallback: string): string => {

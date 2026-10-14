@@ -16,6 +16,7 @@ import { ToolExecutor, type ToolCall } from './tools';
 /** A tool call on the wire, carrying the block id the API needs for the result. */
 type WireCall = ToolCall & { id: string };
 import { localBrain } from './localbrain';
+import { STATIC_SITE } from '../core/site';
 import type { WorldState } from '../core/state';
 
 export const DEFAULT_MODEL = 'claude-sonnet-4-5';
@@ -89,7 +90,8 @@ export class Conductor {
   private readonly maxIter: number;
   private readonly fetchImpl: typeof fetch;
   private readonly messages: ChatMessage[] = [];
-  private mode: ConductorMode = 'llm';
+  // The static site never tries the remote path: `send` routes on mode alone.
+  private mode: ConductorMode = STATIC_SITE ? 'local' : 'llm';
   private controller: AbortController | null = null;
   private busy = false;
 
@@ -217,6 +219,9 @@ export class Conductor {
         signal: controller.signal,
       });
 
+      // No conductor server at all (a static host serving a non-web build):
+      // treat it like a missing key and fall through to the local brain.
+      if (res.status === 404) return { text, calls, blocks: [], stopped: false, needsKey: true };
       if (!res.ok) {
         const detail = await safeText(res);
         return { text, calls, blocks: [], stopped: false, needsKey: false, error: `conductor: ${res.status} ${detail}` };

@@ -166,3 +166,27 @@ The sequence takes ~9 minutes for 9 poses, dominated by streaming: the renderer
 bakes one chunk per frame under a 4 ms budget, so filling the view is ~60 frames
 before the first shot is meaningful. Reducing that is the single biggest win for
 iteration speed and is why `--pose=` exists.
+
+## Public build, viewpoints, blue hour (2026-10-14)
+
+D31 has the why. What changed and what it uncovered:
+
+- `npm run build:web` / `npm run deploy` build the public site (`STATIC_SITE`): no
+  conductor, stats, tool buttons, controls help, quality toasts or `__syzygy`; URL
+  parameters ignored. Kept: compass, crosshair, flight, `P`, `H`, and the new viewpoints.
+- Viewpoint strip and keys 1-8 in every build; the showcase clock in the public build only.
+- New `bluehour` phase rig and sky ramp in every build; `set_time`, `/time`, the local
+  brain ("blue hour", "twilight") and `phaseNameOf` know it.
+- **Found while measuring, all pre-existing:**
+  - `phaseOf` named the pre-dawn sky `dusk` (rising test was `az < PI/2`, but before
+    sunrise az is just under 2PI). Real-time day order is now asserted in the sim self-test.
+  - The first frame after boot, or after any synchronous warm, ran with a negative `dt`
+    (rAF frame-start stamp earlier than a `performance.now()` `last`). Harmless-looking at
+    1x; at 20x it inverted the integrator's ease and threw the sun to -7 rad. Clamped at 0.
+  - The compass clock was read from `dayPhase` (a height), so every afternoon ran backwards.
+    Now from azimuth.
+  - `#console` had no `position: fixed`, so it was always on screen; that hid the next one.
+  - `T` and the console button were bound by both `main.ts` and `ConductorUI`, so each press
+    opened and closed the panel. The conductor could not be opened. `ConductorUI` owns both.
+  - `tools.ts` kept its own copy of `phaseOf` that had drifted (`az < PI`). It calls
+    `phaseOf` now.

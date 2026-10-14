@@ -9,6 +9,7 @@
 
 import { describeWorld, type ToolCall } from './tools';
 import type { WorldState } from '../core/state';
+import { STATIC_SITE } from '../core/site';
 
 /** Text to speak plus the calls to run, in order. */
 export interface LocalPlan {
@@ -95,7 +96,8 @@ const RULES: Rule[] = [
   { re: /\b(morning|forenoon)\b/, calls: () => [{ name: 'set_time', input: { phase: 'morning' } }], say: 'Morning.' },
   { re: /\b(noon|midday|high sun|overhead)\b/, calls: () => [{ name: 'set_time', input: { phase: 'noon' } }], say: 'Noon. Hard light, short shadows.' },
   { re: /\b(afternoon|late afternoon)\b/, calls: () => [{ name: 'set_time', input: { phase: 'afternoon' } }], say: 'Afternoon.' },
-  { re: /\b(sunset|sundown|dusk|golden hour|golden light|golden|magic hour|evening|twilight)\b/, calls: () => [{ name: 'set_time', input: { phase: 'dusk' } }], say: 'Golden hour. Everything goes amber.' },
+  { re: /\b(blue hour|twilight|after sunset|gloaming)\b/, calls: () => [{ name: 'set_time', input: { phase: 'bluehour' } }], say: 'Blue hour. The sky does the lighting now.' },
+  { re: /\b(sunset|sundown|dusk|golden hour|golden light|golden|magic hour|evening)\b/, calls: () => [{ name: 'set_time', input: { phase: 'dusk' } }], say: 'Golden hour. Everything goes amber.' },
   { re: /\b(night|midnight|dark|after dark|black|nighttime|lights on)\b/, calls: () => [{ name: 'set_time', input: { phase: 'night' } }], say: 'Night.' },
   { re: /\b(freeze time|stop time|hold time|freeze the (?:clock|time|sun))\b/, calls: () => [{ name: 'set_time', input: { freeze: true } }], say: 'Time held.' },
   { re: /\b(unfreeze|resume time|let time (?:run|flow|go)|start the day)\b/, calls: () => [{ name: 'set_time', input: { freeze: false, dayLengthSeconds: 900 } }], say: 'Time moves again.' },
@@ -212,7 +214,9 @@ export function localBrain(input: string, world: WorldState, cam: [number, numbe
     calls.push({ name: 'describe_world', input: {} });
     return {
       text:
-        `I can't steer that without an API key configured (set ANTHROPIC_API_KEY and restart the dev server).\n\n` +
+        (STATIC_SITE
+          ? `I didn't catch that.\n\n`
+          : `I can't steer that without an API key configured (set ANTHROPIC_API_KEY and restart the dev server).\n\n`) +
         `What I do understand: weather ("make it rain", "storm", "fog", "clear it up"), ` +
         `time ("golden hour", "night", "freeze time", "faster"), camera ("go to the canyon", "orbit", "fly up"), ` +
         `lens ("miniature", "blurrier", "dutch angle", "warp"), and events ("lanterns", "festival").\n\n` +
@@ -231,6 +235,6 @@ export const SLASH_COMMANDS = [
   '/weather storm|rain|snow|fog|clear|cloud|haze|ash|pollen',
   '/tour canyon|skyline|canal|aerial|ground|vertical-drop|orbit',
   '/lens miniature|soft|sharp|wide|tele|dutch|normal|warp',
-  '/time dawn|morning|noon|afternoon|dusk|night',
+  '/time dawn|morning|noon|afternoon|dusk|bluehour|night',
   '/event lantern-rise|bloom-festival|migration|aurora-borealis|lightning|monsoon',
 ] as const;

@@ -14,7 +14,7 @@ import {
   type Vehicle, type VehicleKind, type VehicleMeshKey,
 } from './traffic';
 import { entityMeshes, INSTANCE_FLOATS } from '../render/citymesh';
-import { PHASES, WeatherDirector, phaseOf } from './weather';
+import { PHASES, WeatherDirector, phaseOf, showcaseDayLength } from './weather';
 
 const now = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
@@ -125,6 +125,7 @@ const resolveExpect = (name: string): string => {
   if (p === 'sunrise') return 'dawn';
   if (p === 'sunset' || p === 'evening') return 'dusk';
   if (p === 'midnight') return 'night';
+  if (p === 'blue hour' || p === 'twilight') return 'bluehour';
   if (p === 'high noon') return 'noon';
   return 'afternoon';
 };
@@ -290,8 +291,8 @@ export function runSimSelfTest(): string {
 
   // -- every published phase name and alias must resolve to a real rig.
   {
-    const names = ['dawn', 'morning', 'noon', 'afternoon', 'dusk', 'night',
-      'sunrise', 'sunset', 'midnight', 'DAWN', '  dusk  ', 'high noon', 'evening'];
+    const names = ['dawn', 'morning', 'noon', 'afternoon', 'dusk', 'night', 'bluehour',
+      'sunrise', 'sunset', 'midnight', 'DAWN', '  dusk  ', 'high noon', 'evening', 'blue hour', 'twilight'];
     for (const n of names) {
       dir.setPhase(n);
       const got = dir.phase;
@@ -839,6 +840,67 @@ export function runSimSelfTest(): string {
     if (at === 'night' && d.phase !== 'night') note(`sun is down (el ${f2(w.sun.elevation)}) but the director is still authoring "${d.phase}"`);
     if (at === 'night' && w.weather.sky !== 'night') note(`sun is down but sky is "${w.weather.sky}"`);
     L.push(`              running clock: sun ${at}, director ${d.phase}, sky ${w.weather.sky}, sun i ${f2(w.sun.intensity)}, exposure ${f2(w.lens.exposure)}`);
+  }
+
+  // -- a real-time day visits every phase in order, blue hour on both sides of
+  // the night. Consecutive repeats are collapsed, so this is the sequence a
+  // viewer would see, not a sampling artefact.
+  {
+    const w = newWorld(42);
+    const d = new WeatherDirector(w);
+    d.setPhase('afternoon');
+    d.snap();
+    const seq: string[] = [];
+    const dt = 1 / 20;
+    w.sun.dayLength = 900;
+    for (let t = 0; t < w.sun.dayLength * 1.02; t += dt) {
+      integrateWorld(w, dt); d.update(dt);
+      const p = phaseOf(w);
+      if (seq[seq.length - 1] !== p) seq.push(p);
+    }
+    const want = ['afternoon', 'dusk', 'bluehour', 'night', 'bluehour', 'dawn', 'morning', 'noon', 'afternoon'];
+    if (seq.join() !== want.join()) note(`day order is ${seq.join(' → ')}, want ${want.join(' → ')}`);
+    L.push(`              real-time day: ${seq.join(' → ')}`);
+  }
+
+  // -- the public build's showcase clock: daylight before golden hour runs at
+  // 20x, golden hour through dawn at real time. Durations are what a visitor
+  // sits through, so they are measured off the loop, not derived from the curve.
+  {
+    const w = newWorld(42);
+    const d = new WeatherDirector(w);
+    d.setPhase('afternoon');
+    d.snap();
+    const dt = 1 / 20;
+    const spent: Record<string, number> = {};
+    let fast = 0;
+    let wasFast = false;
+    const fastStarts: number[] = [];
+    let slowAt: { el: number; phase: string } | null = null;
+    let goldenAfterSwitch = -1;
+    for (let t = 0; t < 1800; t += dt) {
+      w.sun.dayLength = showcaseDayLength(w);
+      const isFast = w.sun.dayLength < 900;
+      if (isFast && !wasFast) fastStarts.push(t);
+      if (!isFast && wasFast && fastStarts.length === 2) slowAt = { el: w.sun.elevation, phase: phaseOf(w) };
+      wasFast = isFast;
+      integrateWorld(w, dt); d.update(dt);
+      const p = phaseOf(w);
+      // The first daylight stretch starts mid-afternoon; measure the next, full loop.
+      if (fastStarts.length === 2) {
+        if (isFast) fast += dt;
+        else spent[p] = (spent[p] ?? 0) + dt;
+        if (slowAt && goldenAfterSwitch < 0 && p === 'dusk') goldenAfterSwitch = t;
+      }
+    }
+    const loop = fastStarts.length >= 3 ? fastStarts[2] - fastStarts[1] : NaN;
+    if (!(loop > 360 && loop < 660)) note(`showcase loop is ${f2(loop)} s, want 6-11 min`);
+    if (!(fast > 15 && fast < 40)) note(`showcase spends ${f2(fast)} s at 20x, want 15-40 s`);
+    if (!slowAt || slowAt.phase !== 'afternoon') note(`showcase slows in "${slowAt?.phase}", want just before golden hour (afternoon)`);
+    if (!((spent.dusk ?? 0) > 15)) note(`showcase golden hour lasts ${f2(spent.dusk ?? 0)} s at real time, want > 15 s`);
+    if (!((spent.bluehour ?? 0) > 10)) note(`showcase blue hour lasts ${f2(spent.bluehour ?? 0)} s in total, want > 10 s`);
+    L.push(`              showcase loop ${f2(loop)} s: 20x for ${f2(fast)} s, slows at el ${f2(slowAt?.el ?? NaN)} (${slowAt?.phase}); ` +
+      Object.entries(spent).map(([k, v]) => `${k} ${Math.round(v)} s`).join(', '));
   }
 
   L.push('');

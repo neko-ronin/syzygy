@@ -8,6 +8,7 @@
 
 import { Conductor, type ConductorMode, type ConductorOptions } from './conductor';
 import { localBrain, SLASH_COMMANDS } from './localbrain';
+import { STATIC_SITE } from '../core/site';
 import { ToolExecutor, type CameraPort, type ToolCall } from './tools';
 import type { WorldState } from '../core/state';
 
@@ -106,8 +107,9 @@ export class ConductorUI {
     };
     window.addEventListener('keydown', this.hotkeyHandler);
 
+    // The llm/local badge means nothing on the static site, which is always local.
     const header = this.panel.querySelector('header p');
-    if (header && !this.modeBadge) {
+    if (header && !this.modeBadge && !STATIC_SITE) {
       this.modeBadge = document.createElement('span');
       header.appendChild(document.createTextNode(' · '));
       header.appendChild(this.modeBadge);
@@ -116,7 +118,7 @@ export class ConductorUI {
 
     this.pushBot(
       `Steer the city in plain language — weather, time of day, camera, lens, events. ` +
-      `No API key? The built-in director still handles the basics.\n${SLASH_COMMANDS.map((c) => `  ${c}`).join('\n')}`,
+      `${STATIC_SITE ? '' : 'No API key? The built-in director still handles the basics.'}\n${SLASH_COMMANDS.map((c) => `  ${c}`).join('\n')}`,
     );
   }
 
@@ -243,7 +245,7 @@ export class ConductorUI {
         return;
       }
       case 'time': {
-        const phases = ['dawn', 'morning', 'noon', 'afternoon', 'dusk', 'night'];
+        const phases = ['dawn', 'morning', 'noon', 'afternoon', 'dusk', 'bluehour', 'night'];
         if (!phases.includes(arg)) { this.pushBot(`Usage: /time ${phases.join('|')}`); return; }
         await this.apply([{ name: 'set_time', input: { phase: arg } }], '');
         return;

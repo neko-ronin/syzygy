@@ -19,7 +19,9 @@ import { ToolExecutor, type CameraPort } from './agent/tools';
 import { ConductorUI, toast } from './agent/ui';
 import { CrowdSim } from './sim/crowd';
 import { TrafficSim, buildVehicleInstances, makeVehicleInstances } from './sim/traffic';
-import { WeatherDirector } from './sim/weather';
+import { WeatherDirector, showcaseDayLength } from './sim/weather';
+import { STATIC_SITE } from './core/site';
+import { VIEWPOINTS } from './camera/viewpoints';
 import {
   derivePose, deriveTrafficPose, deriveHeroWalk, poseIsHeld,
   type DerivedPoseId, type DerivedPoseResult,
@@ -49,6 +51,8 @@ const dom = {
   btnShot: $('btn-shot'),
   btnCine: $('btn-cine'),
   btnDev: $('btn-dev'),
+  viewpoints: $('viewpoints'),
+  veil: $('veil'),
 };
 
 // ---------------------------------------------------------------- boot ui
@@ -97,7 +101,9 @@ export interface WarmReport {
  *             left to do, so this is a ceiling rather than a duration)
  */
 const BOOT = (() => {
-  const q = new URLSearchParams(location.search);
+  // The public site takes no harness instructions. A foreign seed would also put
+  // every viewpoint somewhere other than the place it names.
+  const q = new URLSearchParams(STATIC_SITE ? '' : location.search);
   const int = (k: string, d: number): number => {
     const v = Number.parseInt(q.get(k) ?? '', 10);
     return Number.isFinite(v) ? v : d;
@@ -132,7 +138,8 @@ class App {
   private issuedEntityDraws: string[] = [];
   weather!: WeatherDirector;
   tools!: ToolExecutor;
-  ui!: ConductorUI;
+  /** Null on the public site, which has no conductor. */
+  ui: ConductorUI | null = null;
   port!: CameraPort;
 
   private running = false;
@@ -186,13 +193,19 @@ class App {
     setBoot(0.64, 'tuning the weather');
     this.weather = new WeatherDirector(this.world);
 
-    setBoot(0.74, 'wiring the conductor');
-    // The agent layer talks to the camera through a narrow port, so it never
-    // needs to know the camera is a drone.
-    this.port = makeCameraPort(this.camera);
-    this.tools = new ToolExecutor(this.world, this.port);
-    this.ui = new ConductorUI(this.tools, this.world, this.port);
-    this.ui.mount();
+    if (STATIC_SITE) {
+      // The public site is a place to look at: no conductor, no debug readout,
+      // no tool buttons. Removed rather than hidden, so nothing reaches them.
+      for (const el of [dom.stats, dom.keys, dom.btnConsole.parentElement!, $('console')]) el.remove();
+    } else {
+      setBoot(0.74, 'wiring the conductor');
+      // The agent layer talks to the camera through a narrow port, so it never
+      // needs to know the camera is a drone.
+      this.port = makeCameraPort(this.camera);
+      this.tools = new ToolExecutor(this.world, this.port);
+      this.ui = new ConductorUI(this.tools, this.world, this.port);
+      this.ui.mount();
+    }
     this.wireUi();
 
     setBoot(0.86, 'compiling shaders');
@@ -351,34 +364,85 @@ class App {
   // ---------------------------------------------------------------- ui wiring
 
   private wireUi(): void {
-    dom.btnConsole.onclick = () => this.toggleConsole();
-    dom.btnCine.onclick = () => this.toggleCinematic();
-    dom.btnShot.onclick = () => this.screenshot();
-    dom.btnDev.onclick = () => this.toggleDev();
+    this.mountViewpoints();
+    if (!STATIC_SITE) {
+      // The console button and T belong to ConductorUI, which binds both itself.
+      // Binding them here too toggled the panel twice per press: it never opened.
+      dom.btnCine.onclick = () => this.toggleCinematic();
+      dom.btnShot.onclick = () => this.screenshot();
+      dom.btnDev.onclick = () => this.toggleDev();
+    }
 
     addEventListener('keydown', (e) => {
       if (e.target instanceof HTMLInputElement) return;
+      // Cmd/Ctrl+digit is the browser's tab switcher; leave it alone.
+      const digit = /^Digit([1-8])$/.exec(e.code);
+      if (digit && !e.metaKey && !e.ctrlKey && !e.altKey) { this.goToViewpoint(Number(digit[1]) - 1); return; }
       switch (e.code) {
-        case 'KeyT': this.toggleConsole(); break;
+        case 'KeyH': this.toggleHud(); return;
+        case 'KeyP': this.world.paused = !this.world.paused; return;
+        default: break;
+      }
+      if (STATIC_SITE) return;
+      switch (e.code) {
         case 'KeyC': this.toggleCinematic(); break;
         case 'F2': e.preventDefault(); this.screenshot(); break;
-        case 'KeyH': this.toggleHud(); break;
         case 'Backquote': this.toggleDev(); break;
-        case 'KeyP': this.world.paused = !this.world.paused; break;
         default: break;
       }
     });
 
     // Click the canvas to capture the mouse.
     dom.canvas.addEventListener('click', () => {
-      if (this.ui.isOpen) return;
+      if (this.ui?.isOpen) return;
       this.input.requestPointerLock();
     });
   }
 
-  private toggleConsole(): void {
-    this.ui.toggle();
-    dom.btnConsole.classList.toggle('on', this.ui.isOpen);
+  // ---------------------------------------------------------------- viewpoints
+
+  private viewpointBusy = false;
+  private viewpointOn = -1;
+
+  private mountViewpoints(): void {
+    VIEWPOINTS.forEach((vp, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      const n = document.createElement('span');
+      n.className = 'n';
+      n.textContent = String(i + 1);
+      b.append(n, vp.name);
+      b.onclick = () => this.goToViewpoint(i);
+      dom.viewpoints.appendChild(b);
+    });
+  }
+
+  private markViewpoint(i: number): void {
+    this.viewpointOn = i;
+    [...dom.viewpoints.children].forEach((b, j) => b.classList.toggle('on', j === i));
+  }
+
+  /**
+   * Cut to a viewpoint behind the veil. A glide would fly a straight line
+   * through towers and arrive before the city around the new spot had streamed
+   * in; the veil hides both the cut and the warm-up.
+   */
+  private goToViewpoint(i: number): void {
+    const vp = VIEWPOINTS[i];
+    if (!vp || this.viewpointBusy) return;
+    this.viewpointBusy = true;
+    dom.veil.classList.add('on');
+    setTimeout(() => {
+      this.camera.stopTour();
+      dom.btnCine.classList.remove('on');
+      this.camera.setPose(vp);
+      // ponytail: synchronous warm capped at 1.2 s while the veil is down; an
+      // async warm would let the veil lift sooner if jumps ever feel slow.
+      this.warmChunks(64, 120, 1200);
+      this.markViewpoint(i);
+      dom.veil.classList.remove('on');
+      this.viewpointBusy = false;
+    }, 360);
   }
 
   private toggleCinematic(): void {
@@ -398,12 +462,13 @@ class App {
 
   private toggleHud(): void {
     this.uiVisible = !this.uiVisible;
-    for (const el of [dom.stats, dom.compass, dom.keys, dom.btnConsole.parentElement!]) {
+    for (const el of [dom.stats, dom.compass, dom.keys, dom.btnConsole.parentElement!, dom.viewpoints]) {
       (el as HTMLElement).style.display = this.uiVisible ? '' : 'none';
     }
   }
 
   private toggleDev(): void {
+    if (!this.ui) return;
     if (!this.ui.isOpen) this.ui.open();
     void this.ui.send('/state');
   }
@@ -423,8 +488,11 @@ class App {
 
     let dt = (now - this.last) / 1000;
     this.last = now;
-    // Clamp so an alt-tab or a long GC pause does not teleport the sim.
-    dt = Math.min(dt, 1 / 15);
+    // Clamp so an alt-tab or a long GC pause does not teleport the sim, and so
+    // time never runs backwards: `now` is the rAF frame-start stamp, which can
+    // predate a `last` taken with performance.now() at boot or after a warm.
+    // A negative step inverted the integrator's ease and threw the sun to -7 rad.
+    dt = Math.min(Math.max(dt, 0), 1 / 15);
 
     const simStart = performance.now();
     if (!this.world.paused) {
@@ -438,9 +506,11 @@ class App {
         this.camera.stopTour();
         dom.btnCine.classList.remove('on');
       }
+      if (active > 0.02 && this.viewpointOn >= 0) this.markViewpoint(-1);
       this.camera.update(dt, this.input.state);
 
       const simDt = dt * this.world.timeScale;
+      if (STATIC_SITE) this.world.sun.dayLength = showcaseDayLength(this.world);
       integrateWorld(this.world, simDt);
       this.weather.update(simDt);
       const blockers = this.renderer.crowdObstacles();
@@ -560,13 +630,14 @@ class App {
       const n = Math.round(clamp(v, 0, 1) * 10);
       return '▰'.repeat(n) + '▱'.repeat(10 - n);
     };
-    const clock = formatClock(w.dayPhase);
+    const clock = formatClock(w.sun.azimuth);
 
     dom.compass.innerHTML =
       `<span style="color:var(--accent)">${cardinal}</span> ${compassDeg.toFixed(0).padStart(3, '0')}°` +
-      `&nbsp;&nbsp;·&nbsp;&nbsp;${clock}&nbsp;&nbsp;·&nbsp;&nbsp;${w.weather.sky}` +
+      `&nbsp;&nbsp;·&nbsp;&nbsp;${clock}&nbsp;&nbsp;·&nbsp;&nbsp;${w.weather.sky === 'bluehour' ? 'blue hour' : w.weather.sky}` +
       (w.weather.precip !== 'none' ? ` / ${w.weather.precip}` : '');
 
+    if (STATIC_SITE) return;
     const loadCls = s.fps > 50 ? 'spark' : s.fps > 28 ? '' : 'warn';
     dom.stats.innerHTML = [
       `<b>${fps.toFixed(0)}</b> fps <span class="${loadCls}">${bar(fps / 60)}</span>`,
@@ -651,7 +722,7 @@ class App {
         this.renderer.setQuality(next);
         this.qualityHold = 0;
         this.qualitySettle = 2;
-        toast(`quality → ${next} (${fps.toFixed(0)} fps)`);
+        if (!STATIC_SITE) toast(`quality → ${next} (${fps.toFixed(0)} fps)`);
       }
     } else if (fps > 58 && cur < this.qualityCeiling) {
       this.qualityHold--;
@@ -950,7 +1021,7 @@ class App {
       cameraChunk: () => app.renderer.cameraChunk(app.camera.position),
       camLook: () => app.camera.lookTarget.slice() as [number, number, number],
       frameUniforms: () => Array.from(app.renderer.frameData.slice(0, 256)),
-      ask: (text: string) => app.ui.send(text),
+      ask: (text: string) => app.ui?.send(text),
     };
   }
 }
@@ -972,8 +1043,14 @@ function makeCameraPort(cam: FlightCamera): CameraPort {
   };
 }
 
-function formatClock(dayPhase: number): string {
-  const h = (dayPhase * 24 + 6) % 24;
+/**
+ * Wall-clock time from the sun's azimuth: 0 is sunrise (06:00), PI/2 noon, PI
+ * sunset (18:00). Not from `dayPhase`, which is a height: it reads the same
+ * before and after noon, so the afternoon clock ran backwards.
+ */
+function formatClock(azimuth: number): string {
+  const turn = ((azimuth / (Math.PI * 2)) % 1 + 1) % 1;
+  const h = (turn * 24 + 6) % 24;
   const m = Math.floor((h % 1) * 60);
   return `${String(Math.floor(h)).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
@@ -981,7 +1058,8 @@ function formatClock(dayPhase: number): string {
 // ---------------------------------------------------------------- entry
 
 const app = new App();
-(globalThis as unknown as { __syzygy: unknown }).__syzygy = app.automation();
+// The capture harness's surface. Not on the public site: nothing drives it there.
+if (!STATIC_SITE) (globalThis as unknown as { __syzygy: unknown }).__syzygy = app.automation();
 app.start().catch(fatal);
 
 export { app };

@@ -21,6 +21,7 @@ import {
   type WorldEvent,
   type WorldState,
 } from '../core/state';
+import { phaseOf } from '../sim/weather';
 
 // ---------------------------------------------------------------- ports
 
@@ -134,7 +135,7 @@ export const EVENT_KINDS: readonly EventKind[] = [
 ];
 
 export const SKY_STATES: readonly SkyState[] = [
-  'clear', 'hazy', 'overcast', 'storm', 'dusk', 'dawn', 'night',
+  'clear', 'hazy', 'overcast', 'storm', 'dusk', 'dawn', 'bluehour', 'night',
 ];
 
 export const PRECIP_KINDS: readonly Precip[] = [
@@ -291,10 +292,10 @@ export function buildTour(preset: TourPreset, from: Vec3 = [0, 40, 320]): TourDe
 
 // ---------------------------------------------------------------- phases
 
-export type PhaseName = 'dawn' | 'morning' | 'noon' | 'afternoon' | 'dusk' | 'night';
+export type PhaseName = 'dawn' | 'morning' | 'noon' | 'afternoon' | 'dusk' | 'bluehour' | 'night';
 
 export const PHASES: readonly PhaseName[] = [
-  'dawn', 'morning', 'noon', 'afternoon', 'dusk', 'night',
+  'dawn', 'morning', 'noon', 'afternoon', 'dusk', 'bluehour', 'night',
 ];
 
 interface PhaseDef {
@@ -317,6 +318,7 @@ const PHASE_LOOK: Record<PhaseName, PhaseDef> = {
   noon: { azimuth: 1.5708, elevation: 1.09, color: '#fffaf0', intensity: 4.6, ambient: '#8fb4dd', ambientIntensity: 0.6, bloom: 0.34 },
   afternoon: { azimuth: 2.6722, elevation: 0.46, color: '#ffe9c0', intensity: 3.9, ambient: '#7fa4cc', ambientIntensity: 0.55, bloom: 0.42 },
   dusk: { azimuth: 3.0816, elevation: 0.009, color: '#ff8f52', intensity: 2.4, ambient: '#3d4d86', ambientIntensity: 0.5, bloom: 0.82 },
+  bluehour: { azimuth: 3.1851, elevation: -0.11, color: '#5a78d8', intensity: 0.9, ambient: '#2b4a9a', ambientIntensity: 0.8, bloom: 0.76 },
   night: { azimuth: 3.49, elevation: -0.45, color: '#5f74c8', intensity: 0.45, ambient: '#1d2547', ambientIntensity: 0.35, bloom: 0.58 },
 };
 
@@ -353,15 +355,13 @@ function numRecord(v: unknown): Record<string, number> {
   return out;
 }
 
-/** Name the current part of the day from sun elevation + azimuth. */
-export function phaseNameOf(w: WorldState): PhaseName {
-  const el = w.sun.elevation;
-  const az = ((w.sun.azimuth % TAU) + TAU) % TAU;
-  if (el < -0.18) return 'night';
-  if (el < 0.1) return az < Math.PI ? 'dawn' : 'dusk';
-  if (el < 0.55) return az < Math.PI ? 'morning' : 'afternoon';
-  return 'noon';
-}
+/**
+ * Name the current part of the day. One source: this used to be a private copy
+ * of `phaseOf` that had drifted (an `az < PI` rising test where the director
+ * uses the half-turn around sunrise), so the conductor and the director could
+ * name the same sky differently.
+ */
+export const phaseNameOf = (w: WorldState): PhaseName => phaseOf(w) as PhaseName;
 
 const r2 = (x: number): string => String(Math.round(x * 100) / 100);
 

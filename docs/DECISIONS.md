@@ -829,3 +829,36 @@ other two rules (irregular gaps, open stretches and clumps) still apply.
 - **Budget.** `CLUTTER_TRIS` went 9000 -> 12000 and back to 9000 the same day: with the
   lived kits it doubled footway furniture near the hero and the session-end A/B lost 60 fps
   there (PERFORMANCE, 2026-10-13). Islands carry their own tally.
+
+## D31 — A public build that shows the place, and a clock that spends it in the best light
+
+**Owner direction, 2026-10-14:** "In essence we want to present the city in its best
+lighting, golden hour, blue hour, and night." The public deploy (Cloudflare, static
+files, `syzygy.catronin.com`) drops the conductor, the debug readout and the tool buttons.
+
+**One flag, decided at build time.** `STATIC_SITE` (`src/core/site.ts`) is
+`import.meta.env.MODE === 'web'`, true only for `npm run build:web` / `npm run deploy`.
+Vite inlines it, so the conductor, the agent tools and the `__syzygy` automation surface
+leave the bundle (452 kB -> 396 kB), not just the screen. Rejected: runtime detection by
+probing `/api/health`. orbius did that and a host's SPA fallback answered the probe with
+`index.html`, so the app believed a server was there (orbius DEPLOY_AUDIT_PLAN §5).
+
+**Viewpoints, all builds.** Eight named camera poses (`src/camera/viewpoints.ts`), copied
+from the curated establishing poses in `tools/capture.mjs`, on a bottom strip and keys
+1-8. A jump cuts behind a dark veil and warms chunks first: a glide flies a straight line
+through towers and arrives before the city around it has streamed in.
+
+**Showcase clock, public only.** `showcaseDayLength()` runs the sun at 20x from sunrise
+until the setting sun is at golden-hour height (0.13 rad), and in real time from there
+through golden hour, blue hour, night and dawn. Only the sun: `timeScale` is untouched,
+so the crowd and trams do not race. Measured loop: 502 s, of which 21 s at 20x, ~20 s
+golden hour, 36 s blue hour (both sides), 420 s night (`src/sim/__selftest.ts`).
+
+**Blue hour, all builds.** A `bluehour` phase rig between dusk/dawn and night (sun -2° to
+-10°), and a matching ramp in `skyGradient` (common.wgsl). Without the sky ramp the rig lit
+the city blue under dusk's orange horizon. Values are a first pass for frame review.
+
+**Integrator lag scales with sun pace.** `integrateWorld` eases elevation toward the
+azimuth's height at `0.35 * (REAL_DAY / dayLength)` per second, so a fast day keeps the
+same curve. At a fixed 0.35/s a 20x sun trailed its azimuth by ~0.4 rad and golden hour
+lasted 1.4 s.

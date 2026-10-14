@@ -12,7 +12,7 @@ import { clamp, lerp, saturate, TAU, type Vec3 } from './math';
 
 // ---------------------------------------------------------------- weather
 
-export type SkyState = 'clear' | 'hazy' | 'overcast' | 'storm' | 'dusk' | 'dawn' | 'night';
+export type SkyState = 'clear' | 'hazy' | 'overcast' | 'storm' | 'dusk' | 'dawn' | 'bluehour' | 'night';
 export type Precip = 'none' | 'rain' | 'drizzle' | 'snow' | 'pollen' | 'ash' | 'spores';
 
 export interface Weather {
@@ -82,10 +82,13 @@ export interface Sun {
   bounceIntensity: number;
 }
 
+/** Seconds per full revolution of the sun at real-time pace. */
+export const REAL_DAY = 900;
+
 export const defaultSun = (): Sun => ({
   azimuth: 2.1,
   elevation: 0.62,
-  dayLength: 900,
+  dayLength: REAL_DAY,
   color: [1.0, 0.93, 0.82],
   intensity: 4.2,
   ambient: [0.42, 0.56, 0.72],
@@ -278,9 +281,13 @@ export function integrateWorld(w: WorldState, dt: number): void {
   if (w.sun.dayLength > 0) {
     w.sun.azimuth = (w.sun.azimuth + (TAU / w.sun.dayLength) * dt) % TAU;
   }
-  // Elevation follows the azimuth with a slight lag, so dawn/dusk linger.
+  // Elevation follows the azimuth with a slight lag, so dawn/dusk linger. The
+  // lag scales with the sun's pace: it is a share of the sun's path, not of
+  // wall time. At a fixed 0.35/s a 20x day trailed its azimuth by ~0.4 rad, so
+  // golden hour began after the azimuth had already set and lasted a second.
+  const pace = w.sun.dayLength > 0 ? REAL_DAY / w.sun.dayLength : 1;
   const target = Math.sin(w.sun.azimuth) * 1.15 - 0.06;
-  w.sun.elevation = lerp(w.sun.elevation, target, 1 - Math.exp(-0.35 * dt));
+  w.sun.elevation = lerp(w.sun.elevation, target, 1 - Math.exp(-0.35 * pace * dt));
   w.dayPhase = saturate((w.sun.elevation + 0.35) / 1.5);
 
   // Weather relaxes toward a coherent state: clouds and storminess co-vary,

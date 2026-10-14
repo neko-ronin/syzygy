@@ -165,8 +165,17 @@ fn skyGradient(dir: vec3f) -> vec3f {
   let zenithNight = vec3f(0.005, 0.009, 0.026);
   let horizonNight= vec3f(0.024, 0.034, 0.068);
 
-  let zen = mix(mix(zenithDusk, zenithDay, dayK), zenithNight, nightK);
-  let hor = mix(mix(horizonDusk, horizonDay, dayK), horizonNight, nightK);
+  // Blue hour, the sun 4-10° down: the sky is the light source and it is blue
+  // all round. Without this ramp dusk's orange horizon ran straight into
+  // night's black, so blue hour lit the city blue under an orange sky. The
+  // warm band toward the sun survives below as `horizonGlow`, which is the
+  // afterglow a real blue hour keeps.
+  let blueK = smoothstep(-0.24, -0.11, elev) * (1.0 - smoothstep(-0.07, 0.01, elev));
+  let zenithBlue  = vec3f(0.018, 0.042, 0.135);
+  let horizonBlue = vec3f(0.11, 0.18, 0.40);
+
+  let zen = mix(mix(mix(zenithDusk, zenithDay, dayK), zenithNight, nightK), zenithBlue, blueK);
+  let hor = mix(mix(mix(horizonDusk, horizonDay, dayK), horizonNight, nightK), horizonBlue, blueK);
 
   // Gradient biased so the interesting band sits just above the skyline. A
   // higher exponent than the "physically correct" 1-2 keeps the warm band tight
