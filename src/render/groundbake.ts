@@ -301,6 +301,8 @@ export function bakeGroundDetail(
   // Market lanterns offered by every trace, adjudicated once at the end. See the
   // block at the `bakeMarketDetail` call site for why this cannot be per-trace.
   const pendingMarket: GroundLight[] = [];
+  // Braziers' fire lights wait behind the market (see the adjudication below).
+  const pendingFire: GroundLight[] = [];
   // The grammar is a pure function of (seed, plan, chunk, kind, districtId) and is
   // re-derived once per market carriageway, so every trace in a chunk offers the
   // SAME lanterns. Measured: 5 traces offered 240 entries, 48 distinct. Deduplicate
@@ -384,7 +386,7 @@ export function bakeGroundDetail(
     clipToChunk(trace, minX, minZ, maxX, maxZ);
     if (trace.to - trace.from < 1) continue;
     emitTrace(
-      bld, chunk, plan, trace, lod, rng, lights, footwayCells, pendingMarket,
+      bld, chunk, plan, trace, lod, rng, lights, footwayCells, pendingMarket, pendingFire,
       marketSeenKeys, marketState, minX, minZ, size, res, lightCap,
     );
     res.roads++;
@@ -432,6 +434,14 @@ export function bakeGroundDetail(
     }
     res.clutter.marketLights = added;
     res.clutter.marketLightsDropped = pendingMarket.length - added;
+  }
+  // Footway braziers take what the market left. Spent as they were placed, they
+  // came out of the same budget first: chunk (0,-1) then dropped 11 of its 48
+  // lanterns, and the middle-first order drops the spine's ends, which is where
+  // pose 09 stands (the origin is a chunk corner). The aisle went black (review 6).
+  for (const l of pendingFire) {
+    if (lights.length - res.clutter.stallLights >= lightCap) break;
+    lights.push(l);
   }
 
   res.fieldMs = Date.now() - t0;
@@ -504,14 +514,14 @@ function edgeOffset(
  * at the placement site — and `clutterPlaced` / `clutterWanted` are reported so
  * the shortfall is visible rather than silent.
  *
- * 9000 -> 12000 for D30 (2026-10-13), measured over the self-test's 8 chunks:
- * the lived-in kits cost 5.9-7.7k triangles per chunk, past the throttle's 55%
- * knee at 9000, and widened every gap including the lamp brackets'. At 12000:
- * 135 items, 7.6k triangles, 18.5 lamps; with no budget at all 18.9 (base 20.6,
- * the rest is a different draw sequence, not a rate). Market islands are not
- * in this budget (`GroundBakeResult.islands`).
+ * Raised to 12000 for D30 (2026-10-13) and put back the same day: with the
+ * lived-in kits and alleys it doubled footway furniture in the hero's nine near
+ * chunks (51k -> 101k triangles), every shadow cascade re-renders it, and the
+ * hero fell to 57/s (session-end A/B). At 9000 the throttle keeps the lived
+ * kinds, sparser. Market islands are not in this budget
+ * (`GroundBakeResult.islands`).
  */
-const CLUTTER_TRIS = 12000;
+const CLUTTER_TRIS = 9000;
 
 /**
  * Compensates the mean of the clump/open gap draw so the AUTHORED
@@ -943,7 +953,7 @@ function pushClutterItem(
       for (let i = 0; i < n; i++) {
         const x = -0.28 + (i * 0.56) / Math.max(1, n - 1) + rng.jitter(0.05), r = rng.range(0.12, 0.2), h = rng.range(0.22, 0.38);
         bld.pushCylinder(P(x, 0, rng.jitter(0.05)), P(x, h, 0), r, 6, POT, { radiusTop: r * 1.18, capEnds: true });
-        bld.pushSphere(P(x, h + r * 0.7, 0), r * rng.range(1.1, 1.6), 3, 5, LEAVES[rng.int(0, LEAVES.length - 1)]);
+        bld.pushSphere(P(x, h + r * 0.7, 0), r * rng.range(1.1, 1.6), 2, 5, LEAVES[rng.int(0, LEAVES.length - 1)]);
       }
       break;
     }
@@ -1012,7 +1022,7 @@ function pushClutterItem(
       }
       bld.pushTubeAlongPath([P(0.05, 0.36, -0.5), P(0.05, 0.36, 0.5)], 0.025, 3, IRON, { capEnds: false });
       bld.pushTubeAlongPath([P(0.5, 0.6, 0), P(0.52, 0, 0)], 0.03, 3, TIMBER, { capEnds: false });
-      if (rng.bool(0.6)) for (let i = 0; i < 3; i++) bld.pushSphere(P(-0.3 + i * 0.3, 0.86, rng.jitter(0.15)), rng.range(0.18, 0.24), 3, 5, BURLAP);
+      if (rng.bool(0.6)) for (let i = 0; i < 3; i++) bld.pushSphere(P(-0.3 + i * 0.3, 0.86, rng.jitter(0.15)), rng.range(0.18, 0.24), 2, 5, BURLAP);
       else bld.pushBox(P(0, 0.88, 0), [0.32, 0.22, 0.28], TIMBER, { faces: FACE_ALL, rotationY: P.yaw + rng.jitter(0.4) });
       break;
     }
@@ -1021,7 +1031,7 @@ function pushClutterItem(
       for (let i = 0; i < n; i++) {
         const top = i === n - 1 && n > 3;
         const r = rng.range(0.2, 0.27);
-        bld.pushSphere(P(top ? 0 : (i - 1) * 0.36 + rng.jitter(0.05), top ? 0.5 : r * 0.85, rng.jitter(0.1)), r, 3, 5,
+        bld.pushSphere(P(top ? 0 : (i - 1) * 0.36 + rng.jitter(0.05), top ? 0.5 : r, rng.jitter(0.1)), r, 2, 5,
           [BURLAP[0] * rng.range(0.85, 1.1), BURLAP[1] * rng.range(0.85, 1.1), BURLAP[2]]);
       }
       break;
@@ -1031,7 +1041,7 @@ function pushClutterItem(
       bld.pushCylinder(P(0, 0.6, 0), P(0, 1.55, 0), 0.05, 4, BARK, { capEnds: false });
       for (let i = 0; i < 3; i++) {
         const a = (i / 3) * Math.PI * 2 + rng.jitter(0.5);
-        bld.pushSphere(P(Math.cos(a) * 0.25, rng.range(1.5, 1.95), Math.sin(a) * 0.25), rng.range(0.32, 0.48), 3, 5, LEAVES[rng.int(0, LEAVES.length - 1)]);
+        bld.pushSphere(P(Math.cos(a) * 0.25, rng.range(1.5, 1.95), Math.sin(a) * 0.25), rng.range(0.32, 0.48), 2, 5, LEAVES[rng.int(0, LEAVES.length - 1)]);
       }
       break;
     }
@@ -1099,7 +1109,7 @@ function bakeIslands(
 /** Emit kerb, kerb top, footway band and paint for one traced carriageway. */
 function emitTrace(
   bld: MeshBuilder, chunk: CityChunk, plan: CityPlan, t: Trace, lod: number, rng: Rng,
-  lights: GroundLight[], footwayCells: Set<number>, pendingMarket: GroundLight[],
+  lights: GroundLight[], footwayCells: Set<number>, pendingMarket: GroundLight[], pendingFire: GroundLight[],
   marketSeenKeys: Set<string>, marketState: { seen: boolean; emitted: MarketBakeState },
   minX: number, minZ: number, size: number, res: GroundBakeResult, maxLights: number,
 ): void {
@@ -1376,10 +1386,9 @@ function emitTrace(
               if (CLUTTER_KINDS[d] === 'lamp-post' && lights.length - res.clutter.stallLights < maxLights) {
                 lights.push({ pos: [px, yHi + 4.6, pz], radius: 13, color: [1.0, 0.72, 0.42], intensity: 2.6 });
               }
-              // A brazier's fire lays its own pool (sheet C: the street is lit by fire).
-              if (name === 'brazier' && lights.length - res.clutter.stallLights < maxLights) {
-                lights.push({ pos: [px, yHi + 1.4, pz], radius: 12, color: [1.0, 0.46, 0.16], intensity: 2.4 });
-              }
+              // A brazier's fire lays its own pool (sheet C: the street is lit by fire),
+              // from what the chunk's budget has left once the market is lit.
+              if (name === 'brazier') pendingFire.push({ pos: [px, yHi + 1.4, pz], radius: 12, color: [1.0, 0.46, 0.16], intensity: 2.4 });
             }
           }
         }

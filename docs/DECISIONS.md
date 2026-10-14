@@ -812,8 +812,9 @@ other two rules (irregular gaps, open stretches and clumps) still apply.
 - **The walking line.** Islands keep `|lateral| + radius <= half - 2.6 - 3.2`: a 3.2 m lane
   in front of the deepest stall overhang on both sides, which is also where the hero
   corridor stands. Measured on the baked chunks (`__selftest_footway.ts`): narrowest
-  clear run across the spine 11.2 m over 1301 cross-sections; 470/470 solid pieces carry a
-  crowd obstacle; no at-grade tram passes an island.
+  clear run across the spine 11.2 m over 1301 cross-sections (10.6 m once the stalls were
+  dressed); every solid piece carries a crowd obstacle; no at-grade tram passes an island;
+  every spine chunk lights all its market lanterns (PITFALLS §29).
 - **An arterial runs inside the spine** either side of the origin (along -20..52 at the
   default seed), and the street field reports `artery` there. Islands accept any walkable
   carriageway (not canal, not rail), or every market review camera would look down the
@@ -825,5 +826,6 @@ other two rules (irregular gaps, open stretches and clumps) still apply.
   (`clutterReach`). Front items stand their own depth off the building line (they were
   placed by their centre, half inside the wall), and every clutter box now carries its
   placer's yaw.
-- **Budget.** `CLUTTER_TRIS` 9000 -> 12000 (measured, see the constant); islands carry
-  their own tally. Hero GPU span +0.2 ms (PERFORMANCE, 2026-10-13).
+- **Budget.** `CLUTTER_TRIS` went 9000 -> 12000 and back to 9000 the same day: with the
+  lived kits it doubled footway furniture near the hero and the session-end A/B lost 60 fps
+  there (PERFORMANCE, 2026-10-13). Islands carry their own tally.

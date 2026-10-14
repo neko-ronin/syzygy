@@ -535,9 +535,13 @@ export function pushScaffold(bld: MeshBuilder, b: BuildingInstance, dp: District
   const first = r.int(0, 3);
   scaffoldFace(first);
   // Sheet B's towers are crusted on more than one side (review 5: one stack, one tower).
-  if (r.bool(0.4)) scaffoldFace((first + 1 + r.int(0, 2)) % 4);
+  // Near field only, with the extra room stacks below: the far shadow cascades
+  // re-render all of it and the hero lost 60 fps (session-end A/B, 2026-10-13).
+  if (r.bool(0.4) && lod < 1) scaffoldFace((first + 1 + r.int(0, 2)) % 4);
   // Not on the teal towers: their tops are the skyline climax D27 keeps clean.
-  if (dp.style.key !== 'copper-stacks') pushAccretedCrown(bld, b, tiers[tiers.length - 1], yBase, metal, room, r, lod, lights);
+  // Near field only: at LOD 1 the crowns were 1-3 px flecks on the skyline that
+  // read as dirt (review 6), and the far shadow cascades paid for them.
+  if (dp.style.key !== 'copper-stacks' && lod < 1) pushAccretedCrown(bld, b, tiers[tiers.length - 1], yBase, metal, room, r, lod, lights);
 
   function scaffoldFace(face: number): void {
   const half = face < 2 ? T.hz : T.hx, wall = face < 2 ? T.hx : T.hz;
@@ -598,7 +602,7 @@ export function pushScaffold(bld: MeshBuilder, b: BuildingInstance, dp: District
     // Rooms bolted on over generations (sheet B): stacks of boxes hung off the
     // frame, wider and deeper than the decks, on struts back to the wall, each
     // with a lit window. The flush 2 m shacks hid behind the lattice (R14 review 4).
-    for (let st = 0, stacks = 2 + r.int(0, 2); st < stacks; st++) {
+    for (let st = 0, stacks = lod < 1 ? 2 + r.int(0, 2) : 1; st < stacks; st++) {
       // Not on the first lift of the first segment: a stack there swallowed the
       // scaffold's foot and read as a kiosk (R14 review 5).
       const lo = seg === 0 ? 2 : 0;

@@ -195,9 +195,11 @@ function bakeGoods(bld: MeshBuilder, s: MarketStall): void {
     bld.pushBox(at(t, 0, top + 0.03), [0.21, 0.03, 0.19], TRAY, { rotationY: yaw });
     const c = PRODUCE[r.int(0, PRODUCE.length - 1)];
     // Heaped, not scattered: produce read as small at the hero's lens (review 5).
-    for (let k = 0, n = 4 + r.int(0, 3); k < n; k++) {
+    // Two-ring spheres: at 10 cm a third ring is below a pixel at every review
+    // lens, and the hero's shadow cascades paid for it (session-end A/B).
+    for (let k = 0, n = 3 + r.int(0, 2); k < n; k++) {
       const rad = 0.085 + r.next() * 0.045;
-      bld.pushSphere(at(t + r.jitter(0.12), r.jitter(0.1), top + 0.06 + rad * (k < 3 ? 0.8 : 1.9)), rad, 3, 4, [c[0] * (0.85 + r.next() * 0.25), c[1] * (0.85 + r.next() * 0.25), c[2]]);
+      bld.pushSphere(at(t + r.jitter(0.12), r.jitter(0.1), top + 0.06 + rad * (k < 3 ? 0.8 : 1.9)), rad, 2, 4, [c[0] * (0.85 + r.next() * 0.25), c[1] * (0.85 + r.next() * 0.25), c[2]]);
     }
   }
 }
@@ -234,9 +236,9 @@ function bakeDressing(bld: MeshBuilder, s: MarketStall, obstacles: CrowdObstacle
       if (kind === 0) {
         // A string of chillies or garlic: a short column of bulbs.
         const c = HUNG[r.int(0, HUNG.length - 1)];
-        for (let i = 0; i < 5; i++) bld.pushSphere(at(u + r.jitter(0.03), lat, low - 0.05 - i * 0.075), 0.045 + r.next() * 0.015, 3, 4, c);
+        for (let i = 0; i < 4; i++) bld.pushSphere(at(u + r.jitter(0.03), lat, low - 0.05 - i * 0.08), 0.05 + r.next() * 0.015, 2, 4, c);
       } else if (kind === 1) {
-        bld.pushCylinder(at(u, lat, low - 0.2), at(u, lat, low), 0.16, 7, WICKER, { radiusTop: 0.19, capEnds: true });
+        bld.pushCylinder(at(u, lat, low - 0.2), at(u, lat, low), 0.16, 6, WICKER, { radiusTop: 0.19, capEnds: true });
       } else if (kind === 2) {
         bld.pushBox(at(u, lat, low - 0.15), [0.1, 0.15, 0.07], [s.clothAlt[0] * 0.8, s.clothAlt[1] * 0.8, s.clothAlt[2] * 0.8], { rotationY: yaw + r.jitter(0.5) });
       } else {
@@ -249,9 +251,9 @@ function bakeDressing(bld: MeshBuilder, s: MarketStall, obstacles: CrowdObstacle
   // Baskets of produce on the ground in front of the counter, under the roof.
   for (let k = 0, n = r.int(0, 2); k < n; k++) {
     const u = r.jitter(half * 0.8), lat = s.counter - inward * (0.55 + r.next() * 0.15), rad = 0.2 + r.next() * 0.1, h = 0.26 + r.next() * 0.1;
-    bld.pushCylinder(at(u, lat, GROUND_Y), at(u, lat, GROUND_Y + h), rad, 7, WICKER, { radiusTop: rad * 1.15, capEnds: true });
+    bld.pushCylinder(at(u, lat, GROUND_Y), at(u, lat, GROUND_Y + h), rad, 6, WICKER, { radiusTop: rad * 1.15, capEnds: true });
     const c = PRODUCE[r.int(0, PRODUCE.length - 1)];
-    for (let i = 0; i < 4; i++) bld.pushSphere(at(u + r.jitter(rad * 0.5), lat + r.jitter(rad * 0.5), GROUND_Y + h + 0.05), 0.08 + r.next() * 0.04, 3, 4, c);
+    for (let i = 0; i < 3; i++) bld.pushSphere(at(u + r.jitter(rad * 0.5), lat + r.jitter(rad * 0.5), GROUND_Y + h + 0.05), 0.09 + r.next() * 0.04, 2, 4, c);
     block(u, lat, rad * 1.15, rad * 1.15, GROUND_Y + h + 0.12, 'market-basket');
   }
   // Behind the counter: stock waiting, crates half stacked and sacks.
@@ -269,7 +271,7 @@ function bakeDressing(bld: MeshBuilder, s: MarketStall, obstacles: CrowdObstacle
         for (let i = 0; i < 3; i++) {
           // On the deck: centred at 0.2 m they sank 7 cm into it (__selftest_market).
           const rad = 0.22 + r.next() * 0.05;
-          bld.pushSphere(at(u + (i - 1) * 0.3, lat + r.jitter(0.08), GROUND_Y + rad), rad, 3, 5, SACKCLOTH);
+          bld.pushSphere(at(u + (i - 1) * 0.3, lat + r.jitter(0.08), GROUND_Y + rad), rad, 2, 5, SACKCLOTH);
         }
         block(u, lat, 0.55, 0.3, GROUND_Y + 0.45, 'market-sacks');
       }

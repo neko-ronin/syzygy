@@ -885,8 +885,10 @@ function placeProps(
   // The old town's walls are sheet C's: two faces a floor and more wall lamps
   // (pose 14 looked along a bare tan wall). Ruins keep their sooted shells.
   const ot = oldTownOf(b.districtId, b.position[0], b.position[2], b.windowSeed);
+  // Doubled only on the lower twelve storeys, the walls a street or alley camera
+  // sees: on every floor of 140 m blocks the far shadow cascades paid for it.
   const walls = ot && !ot.ruin ? 2 : 1, lampChance = ot && !ot.ruin ? 0.24 : 0.10 * dense;
-  for (let f = streetFloors; f < facadeFloors; f++) for (let wv = 0; wv < walls; wv++) {
+  for (let f = streetFloors; f < facadeFloors; f++) for (let wv = 0; wv < (f < 12 ? walls : 1); wv++) {
     const y = baseY + f * b.floorHeight + 1.05;
     if (y > roofY - 1) break;
     const face = r.int(0, 3);

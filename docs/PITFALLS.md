@@ -861,6 +861,33 @@ partly a furniture statistic, and adding furniture on footways moved it.
 check fails after a change to something else, run the base as a control first (it passed),
 then ask what the check's population actually contains.
 
+## 29. A new light source blacked out an old one
+
+**Symptom:** review 6 found the market aisle at night near-black (pose
+`09-market-aisle-night`, 6.3% -> 36% near-black); the lantern cores still glowed.
+
+**Cause:** footway braziers were given a fire light, spent from the chunk's 48-light ground
+budget as each trace was emitted. Market lanterns are adjudicated afterwards from what is
+left, middle of the spine first, so the spine's ends lose. The review camera stands at the
+origin, a chunk corner, which is the end of every adjacent chunk's spine stretch. Chunk
+(0,-1) dropped 11 of 48 lanterns, the ones over that aisle. The per-tile bin cap was the
+first theory and was refuted by measurement (busiest tile 61 of 96, none refused).
+
+**Fix:** brazier lights queue behind the market (`pendingFire`). `__selftest_footway.ts`
+asserts every spine chunk lights all its lanterns. **Catch it next time:** a shared budget
+has a spending order; adding a consumer can starve a later one that did not change.
+
+## 30. The night skyline "lost its roof lights": capture history, not content
+
+**Symptom:** review 6 compared a 3-pose base run with a 12-pose after run and found the
+night skyline's roof-edge lights halved (warm-bright 0.6% -> 0.3% in the upper frame).
+
+**Cause:** the last pose of the long run inherited far chunks at LOD 2 (`lodHistogram
+[9, 33, 123, 0]`); the base had them at LOD 1. Shot with the base's own sequence, the after
+frame reads 0.6% with `[9, 140, 0, 0]`. **Catch it next time:** compare frames from the same
+pose sequence, and read `lodHistogram` in `_capture.json` before believing a far-field
+difference.
+
 ## Working norms that held up
 
 - **Measure before theorising.** Every bug above cost far less time to measure

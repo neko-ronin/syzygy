@@ -679,7 +679,7 @@ export function runCitySelfTest(): string {
   for (let d = 0; d < DISTRICT_STYLES.length; d++) L.push(`              ${groundRow(d)}`);
   L.push(`              family decode ${decodeOk}/${decodeTotal} pairs; bands ${bandOk}/${BAND_ORDER.length} uniquely decodable; kerbTone honoured on all ${DISTRICT_STYLES.length * ROAD_KINDS.length}`);
   L.push(`ground detail  ${gRes.triangles} tris in ${verts} verts, ${gRes.roads} carriageways, ${Math.round(gRes.edgeMetres)}m of edge, ${gRes.fieldMs}ms, ${gLights.length} lights`);
-  L.push(`              furniture ${gRes.clutter.placed} placed / ${gRes.clutter.wanted} wanted, ${gRes.clutter.tris} tris, ${gRes.clutter.lamps} lamps (budget 12000 tris/chunk)`);
+  L.push(`              furniture ${gRes.clutter.placed} placed / ${gRes.clutter.wanted} wanted, ${gRes.clutter.tris} tris, ${gRes.clutter.lamps} lamps (budget 9000 tris/chunk)`);
   L.push(`              ${faceVerts} unambiguous kerb-face vertices sit on the carriageway edge: p50 ${f2(faceP50)}m, p90 ${f2(faceP90)}m; ` +
     `${deckInCorridor}/${deckVerts} deck vertices inside a street corridor (worst ${f2(deckWorst)}m clear)`);
   L.push(`              chunk overhang ${outside} vertices, of which ${ownOutside} on raised/kerb surfaces (bundle includes another module's market detail; reported, not asserted)`);

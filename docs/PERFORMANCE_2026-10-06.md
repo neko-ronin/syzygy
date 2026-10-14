@@ -538,3 +538,33 @@ span 12.02, 12.00 -> 12.38, 12.27 ms (shadows +0.2-0.3). Hero, two clean pairs: 
 canal 0.4, copper 0.2), denser room stacks, a second face on 40%, and crowns of rooms on
 the non-teal accreted towers.
 
+## 2026-10-13 — session end: the per-item checks missed a regression
+
+Reports: `benchmarks/session-end-ab/` (`first-*` at `166f659`, `final-*` after the fixes,
+both against the session start `69e675d`, interleaved, on a quiet machine).
+
+**First pass, `166f659`:** hero GPU span 13.84, 13.88, 13.69 -> 14.92, 15.05, 14.99 ms and
+**57.0-57.5 submitted/s against 60.0**: R14 broken at the hero. Skyline 11.99, 12.02 ->
+12.23, 12.11 ms (60/s); garden 11.44 -> 11.90 ms (60/s). The per-item A/Bs had each looked
+small (+0.1 to +0.3 ms, two of them run contended), and they did not add up to this.
+
+**Where it was:** CPU unchanged (simulation 3.9 -> 4.0 ms). Shadows +0.85-1.0 ms, G-buffer
++0.2. Triangles in the hero's 5x5 neighbourhood 1.59M -> 1.87M (stall dressing +97k, sheet B
++82k with 50k at LOD 1, D30 +60k, sheet C +41k); the far cascades sweep LOD 1 out to 7 chunks.
+
+**Trims, measured each time:** small spheres in produce, dressing and furniture 3 rings -> 2
+and produce heaps back to 3-5 (-72k triangles, ~-0.1 ms); sheet B crowns, second scaffold face
+and extra room stacks near-field only (LOD 1 across the residency 4.64M -> 4.68M, i.e. back to
++1%; the crowns were also the "flecks" review 6 flagged); old-town wall props doubled on the
+lower twelve storeys only; `CLUTTER_TRIS` 12000 -> 9000.
+
+**Final, three rounds:** base 13.93, 13.75, 13.73 ms at 60.07, 59.98, 59.99/s; now 14.37,
+14.34, 14.42 ms at **59.85, 59.85, 59.35/s** (p95 17.6 ms both; base drops no frame, now an
+occasional single 33 ms frame, 475-479 of 480 in 8 s). Net cost of the session **+0.58 ms**.
+A variant without the D30 lived kits measured 14.12, 14.38, 14.18 ms: they cost ~0.15 ms.
+The hero is inside the band earlier sessions recorded as meeting R14 (59.1-60.1/s), not at
+the clean 60.0 it started at.
+
+**Lesson:** per-item A/Bs of a few tenths each, two of them contended, hid a 1.1 ms sum. Run
+the session-start vs HEAD A/B before the review, not after.
+

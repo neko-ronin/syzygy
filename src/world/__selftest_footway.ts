@@ -87,11 +87,17 @@ for (let a = -400; a <= 900; a += 8) {
 }
 const obstacles: CrowdObstacle[] = [];
 const islands: MarketIsland[] = [];
+// Market lanterns must not lose their budget to the furniture's lights: footway
+// braziers once spent it first, and pose 09's aisle went black (review 6).
+let lanternsProduced = 0, lanternsDropped = 0;
 const footprints: [number, number, number, number][] = [];
 for (const [cx, cz] of keys.values()) {
   const ch = city.getChunk(cx, cz);
   if (!ch) continue;
-  obstacles.push(...bakeChunk(ch, 0, SEED).obstacles);
+  const baked = bakeChunk(ch, 0, SEED);
+  obstacles.push(...baked.obstacles);
+  lanternsProduced += baked.marketLights?.produced ?? 0;
+  lanternsDropped += baked.marketLights?.dropped ?? 0;
   const mid = [(ch.boundsMin[0] + ch.boundsMax[0]) / 2, (ch.boundsMin[2] + ch.boundsMax[2]) / 2];
   islands.push(...marketGrammarFor({ seed: SEED, plan, chunk: ch, kind: 'market', districtId: districtAtField(plan.districts, mid[0], mid[1]) }).islands);
   for (const b of ch.buildings) { const [lo, hi] = footprintAabb(b); footprints.push([lo[0], lo[2], hi[0], hi[2]]); }
@@ -170,12 +176,14 @@ for (const line of buildRailLines(city, SEED)) {
   }
 }
 if (tramHits > 0) problems.push(`${tramHits} at-grade tram points pass through an island`);
+if (lanternsDropped > 0) problems.push(`${lanternsDropped}/${lanternsProduced} market lanterns lost their light to the chunk budget`);
 
 const byKind: Record<string, number> = {};
 for (const i of islands) byKind[i.kind] = (byKind[i.kind] ?? 0) + 1;
 console.log(`\nSPINE (seed ${SEED.toString(16)}, ${keys.size} chunks, width ${spine.width.toFixed(1)} m, island band |lat|+r <= ${band.toFixed(2)} m)`);
 console.log(`  islands ${islands.length} ${JSON.stringify(byKind)}; solid pieces with an obstacle ${covered}/${pieces} (${[...SOLID_KINDS].join(',')})`);
 console.log(`  deepest island reach ${worstLat.toFixed(2)} m of ${band.toFixed(2)}; tram points through an island ${tramHits}`);
+console.log(`  market lanterns lit ${lanternsProduced - lanternsDropped}/${lanternsProduced}`);
 console.log(`  clear route over ${samples} cross-sections: narrowest ${worst.toFixed(2)} m at along ${worstAt} (need ${CLEAR_ROUTE})`);
 
 console.log(`\nVIOLATIONS ${problems.length === 0 ? 'none' : problems.length}`);
