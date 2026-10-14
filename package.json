@@ -8,9 +8,10 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "build:web": "tsc --noEmit && vite build --mode web",
-    "deploy": "npm run build:web && WRANGLER_SEND_METRICS=false wrangler deploy",
+    "deploy": "npm run build:web && node tools/hygiene.mjs --dir dist && WRANGLER_SEND_METRICS=false wrangler deploy",
     "preview": "vite preview --port 4173 --strictPort",
     "typecheck": "tsc --noEmit",
+    "hygiene": "node tools/hygiene.mjs --tree",
     "shot": "node tools/capture.mjs",
     "shots": "node tools/capture.mjs --sequence"
   },

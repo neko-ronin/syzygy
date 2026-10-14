@@ -1,0 +1,4 @@
+#!/bin/sh
+# Hygiene screen on the staged changes (tools/hygiene.mjs). Blocks the commit.
+cd "$(git rev-parse --show-toplevel)" || exit 1
+exec node tools/hygiene.mjs --staged

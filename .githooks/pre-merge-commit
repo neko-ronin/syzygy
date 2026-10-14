@@ -1,0 +1,5 @@
+#!/bin/sh
+# Hygiene screen on a merge's result before the merge commit is made.
+# Fast-forward merges make no commit and skip this; pre-push catches them.
+cd "$(git rev-parse --show-toplevel)" || exit 1
+exec node tools/hygiene.mjs --staged

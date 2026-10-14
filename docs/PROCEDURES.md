@@ -416,6 +416,36 @@ wrong and why it was invisible.
 `docs/` is the other half. If you learn something the hard way, write it in
 `PITFALLS.md` before you forget it.
 
+### Publishing: every commit to main goes live
+
+The repo is public on GitHub and `main` is the live site (D31). Git hooks in
+`.githooks/` do both jobs; a clone turns them on once:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+- **Screened before it lands** (`tools/hygiene.mjs`): `pre-commit` and
+  `pre-merge-commit` check staged lines and file names, `commit-msg` the message
+  (no `Co-Authored-By`), and `pre-push` every commit being pushed, including its
+  author and committer (GitHub no-reply addresses only). Fast-forward merges skip
+  the commit hooks; `pre-push` is what catches them. `npm run deploy` screens
+  `dist/` before Wrangler uploads it. The rules block local paths, emails, phone
+  numbers, IP addresses, card numbers, keys and tokens, and image metadata.
+- **Private terms** (a real name, workspace folder names, account IDs) go in
+  `.git/hygiene-deny`, one per line. It is never committed, so the hook never
+  publishes what it protects. A push or deploy refuses to run without it; an
+  empty file means none.
+- **Published after it lands** (`tools/publish.mjs`, from `post-commit` and
+  `post-merge`): on `main` with a clean working tree it pushes to `origin`,
+  runs `npm run deploy` and checks that the live site serves the new bundle. It
+  never force-pushes and never deploys a dirty tree. Logs:
+  `logs/publish/<date>.jsonl`.
+- **Escape hatches:** `SYZYGY_PUBLISH=0 git commit …` commits without
+  publishing; `SYZYGY_PUBLISH_DRY=1` rehearses with dry-run push and deploy;
+  `node tools/publish.mjs` publishes by hand; `npm run hygiene` audits `HEAD`.
+- **Tests:** `node tools/__selftest_hygiene.mjs`.
+
 ---
 
 ## 10. Working with the other agents

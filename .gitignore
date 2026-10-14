@@ -32,3 +32,6 @@ shots/
 
 # Wrangler scratch state.
 .wrangler/
+
+# Runtime logs (tools/publish.mjs): local diagnostics, may hold local paths.
+logs/

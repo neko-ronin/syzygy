@@ -1,0 +1,7 @@
+#!/bin/sh
+# After a merge on main: push, deploy to Cloudflare, check the live site
+# (tools/publish.mjs). Off main, or with SYZYGY_PUBLISH=0, it does nothing.
+# The merge itself is already done; a failed publish is reported, not undone.
+cd "$(git rev-parse --show-toplevel)" || exit 0
+node tools/publish.mjs --trigger merge || echo "publish: failed; the merge is kept. Fix the cause, then run: node tools/publish.mjs"
+exit 0

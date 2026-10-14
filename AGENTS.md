@@ -77,6 +77,7 @@ npx vite-node@6.0.0 src/world/__selftest.ts       # citygen   — prints "VIOLAT
 npx vite-node@6.0.0 src/sim/__selftest.ts         # sim       — ALL PASS
 npx vite-node@6.0.0 src/camera/__selftest.ts      # camera    — ALL PASS
 node tools/lsp-check.mjs                    # 5/5 language servers
+node tools/__selftest_hygiene.mjs           # hygiene screen — ALL PASS
 ```
 
 `vite-node` is **not** a project dependency. The `@6.0.0` pin is deliberate: a bare

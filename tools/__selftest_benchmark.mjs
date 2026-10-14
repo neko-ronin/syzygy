@@ -231,7 +231,7 @@ await assert.rejects(cleanupOwnedResources({ closeBrowser: () => new Promise(() 
 assert.equal(timeoutReleased, false, 'bounded cleanup timeout fails closed');
 // A committed report names no machine paths: repo, output dir and home become placeholders.
 {
-  const root = '/home/ana/code/syzygy', out = '/tmp/session-7/bench', home = '/home/ana';
+  const root = '/opt/user/code/syzygy', out = '/tmp/session-7/bench', home = '/opt/user';
   const text = portableReport({ options: { output: out }, browser: { executablePath: `${home}/.cache/ms-playwright/chrome` },
     error: `Error: x\n    at main (file://${root}/tools/benchmark.mjs:1:1)`, saved: `${root}/benchmarks/a` }, out, root, home);
   for (const leak of [root, out, home]) assert.ok(!text.includes(leak), `report leaks ${leak}`);
