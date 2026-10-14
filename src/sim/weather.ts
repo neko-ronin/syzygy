@@ -734,6 +734,7 @@ export class WeatherDirector {
     if (d <= 0) return;
     this.clock += d;
     this.ageQueue(d);
+    this.followSun();
     this.buildTarget();
     this.cohere();
     this.ease(d);
@@ -815,6 +816,23 @@ export class WeatherDirector {
     color: [1, 1, 1], ambient: [0, 0, 0], bounce: [0, 0, 0],
   };
   private baseGrade: Vec3 = [1, 1, 1];
+
+  /**
+   * Re-author the rig when the sun crosses into another part of the day, by the
+   * running clock or by anything that writes the sun directly (`set_time`).
+   * Without this the boot phase's rig was held all day, so a sunless city kept
+   * the afternoon sun, ambient and exposure. Skipped while `setPhase` is steering
+   * the sun, so a phase jump is not re-judged mid-flight. Only the look changes:
+   * the sun angle stays with `integrateWorld`, and `ease` blends the rig across.
+   */
+  private followSun(): void {
+    if (this.azSteering || this.elSteering) return;
+    const name = phaseOf(this.w);
+    if (name === this.phaseName) return;
+    this.phaseName = name;
+    this.look = PHASE_LOOK[name];
+    this.seedTargets();
+  }
 
   /** Age the director's own queue. It never owns `world.events`. */
   private ageQueue(dt: number): void {

@@ -824,6 +824,23 @@ export function runSimSelfTest(): string {
     L.push(`              frozen clock holds dusk: az ${f2(w.sun.azimuth)} (drift ${f2(driftAz)}), el ${f2(w.sun.elevation)} (drift ${f2(driftEl)})`);
   }
 
+  // -- a running clock must carry the rig with the sun. Every self-check above
+  // freezes the clock, so a director stuck on its boot phase passed all of them
+  // while the live app lit a sunless city with the afternoon rig.
+  {
+    const w = newWorld(42);
+    const d = new WeatherDirector(w);
+    d.setPhase('afternoon');
+    d.snap();
+    w.sun.dayLength = 120;
+    for (let i = 0; i < 60 * 60 && phaseOf(w) !== 'night'; i++) { integrateWorld(w, 1 / 60); d.update(1 / 60); }
+    for (let i = 0; i < 60 * 20; i++) { integrateWorld(w, 1 / 60); d.update(1 / 60); }
+    const at = phaseOf(w);
+    if (at === 'night' && d.phase !== 'night') note(`sun is down (el ${f2(w.sun.elevation)}) but the director is still authoring "${d.phase}"`);
+    if (at === 'night' && w.weather.sky !== 'night') note(`sun is down but sky is "${w.weather.sky}"`);
+    L.push(`              running clock: sun ${at}, director ${d.phase}, sky ${w.weather.sky}, sun i ${f2(w.sun.intensity)}, exposure ${f2(w.lens.exposure)}`);
+  }
+
   L.push('');
   L.push(fail.length === 0 ? 'ALL PASS' : `FAIL (${fail.length})\n  - ${fail.join('\n  - ')}`);
   return L.join('\n');
