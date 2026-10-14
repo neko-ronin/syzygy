@@ -882,7 +882,13 @@ function placeProps(
   // Facade: per-floor sill clutter on all four elevations, above the street band.
   const facadeStart = n;
   const facadeFloors = Math.min(floors, 60);
-  for (let f = streetFloors; f < facadeFloors; f++) {
+  // The old town's walls are sheet C's: two faces a floor and more wall lamps
+  // (pose 14 looked along a bare tan wall). Ruins keep their sooted shells.
+  const ot = oldTownOf(b.districtId, b.position[0], b.position[2], b.windowSeed);
+  // Doubled only on the lower twelve storeys, the walls a street or alley camera
+  // sees: on every floor of 140 m blocks the far shadow cascades paid for it.
+  const walls = ot && !ot.ruin ? 2 : 1, lampChance = ot && !ot.ruin ? 0.24 : 0.10 * dense;
+  for (let f = streetFloors; f < facadeFloors; f++) for (let wv = 0; wv < (f < 12 ? walls : 1); wv++) {
     const y = baseY + f * b.floorHeight + 1.05;
     if (y > roofY - 1) break;
     const face = r.int(0, 3);
@@ -894,7 +900,7 @@ function placeProps(
     else if (roll < 0.30 * dense + 0.22 * green + 0.20 + 0.14 * green) {
       put(PropKind.VineCurtain, faceAt(face, r.jitter(halfW * 0.7), y - 1.2), face, r.range(0.8, 1.6), style.palette.foliage, true);
     }
-    if (r.next() < 0.10 * dense) {
+    if (r.next() < lampChance) {
       put(PropKind.Lantern, faceAt(face, r.jitter(halfW * 0.8), y + 0.6), face, r.range(0.8, 1.5), style.palette.emissive, false);
     }
     if (n - facadeStart >= budget) return;

@@ -11,6 +11,9 @@ import { acquireLock, preflight, releaseLock } from './orchestrate.mjs';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const TIERS = ['potato', 'low', 'medium', 'high', 'ultra'];
 const ROUTES = ['hero', 'skyline', 'flight'];
+// Held cameras outside `all`, so earlier `--route=all` reports stay comparable.
+// garden: pose 13's camera in the green belt, where sheet D's terrace foliage is near (D30 session).
+const EXTRA_ROUTES = ['garden'];
 const FRAME_BUDGET_MS = 1000 / 60;
 
 export function parseArgs(argv) {
@@ -35,7 +38,7 @@ export function parseArgs(argv) {
   }
   if (opts.crowd !== null && !(Number.isSafeInteger(opts.crowd) && opts.crowd >= 0)) throw new Error('crowd must be a nonnegative integer');
   if (opts.set !== null && (typeof opts.set !== 'object' || Array.isArray(opts.set))) throw new Error('set must be a JSON object of quality fields');
-  if (!['all', ...ROUTES].includes(opts.route)) throw new Error('route must be hero, skyline, flight or all');
+  if (!['all', ...ROUTES, ...EXTRA_ROUTES].includes(opts.route)) throw new Error('route must be hero, skyline, flight, garden or all');
   if (!TIERS.includes(opts.quality)) throw new Error(`quality must be ${TIERS.join('|')}`);
   if (!Number.isFinite(opts.seconds) || opts.seconds < 5 || opts.seconds > 60) throw new Error('seconds must be 5..60 per leg');
   if (!Number.isFinite(opts.warmSeconds) || opts.warmSeconds < 0 || opts.warmSeconds > 60) throw new Error('warm-seconds must be 0..60');
@@ -266,6 +269,7 @@ async function runRoute(browser, route, opts, lifecycle) {
       let pose;
       if (route === 'hero') { pose = app.heroWalk(); if (!pose.ok) throw new Error(`hero unresolved: ${pose.reason}`); }
       else if (route === 'skyline') pose = { position: [900, 120, 1400], lookAt: [0, 200, 0], fov: 1.12, roll: 0 };
+      else if (route === 'garden') pose = { position: [288.8, 14, 1013.0], lookAt: [243.9, 30, 1015.1], fov: 1.0, roll: 0 };
       else pose = { position: from, lookAt: [0, 180, 0], fov: 1.12, roll: 0 };
       app.setPose(pose); app.setPaused(false);
       return { pose, durationMs: performance.now() - setupStart };

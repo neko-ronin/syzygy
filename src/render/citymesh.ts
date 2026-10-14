@@ -17,7 +17,7 @@ import {
 } from '../world/geometry';
 import {
   type BuildingInstance, type Cable, type CityChunk, type PropInstance, PropKind,
-  buildingPoint, cityPlan, GROUND_Y, oldTownOf, towerTiers,
+  buildingPoint, cityPlan, GROUND_Y, oldTownOf, towerTiers, type TowerTier,
 } from '../world/citygen';
 import {
   districtAtField, districtPaletteLinear, districtStyle,
@@ -167,40 +167,52 @@ export function pushOldTownFire(bld: MeshBuilder, b: BuildingInstance, lights: B
   const r = makeRng((b.windowSeed ^ 0x6f0e6e5) >>> 0);
   const hy = b.halfExtents[1], yb = -hy, tiers = towerTiers(b), T = tiers[0];
   if (ot.ruin) {
-    // Smouldering on the fallen roof, inside the wall stubs (the generator cut
-    // the building down to the shell).
     const k = makeRng((b.windowSeed ^ 0x2b1a5e) >>> 0), TL = tiers[tiers.length - 1], top = yb + TL.y1;
-    // Kiln yards in the roofless shell: ember beds among char, broken into cells
-    // (one flat sheet read as a skylight, R14 review 4), each bed a low fire light
-    // so the stubs and the neighbours' walls are lit from below.
-    const reach = Math.min(22, 9 + 0.5 * Math.max(TL.hx, TL.hz));
-    for (let i = 0, n = 4 + k.int(0, 4); i < n; i++) {
-      const cx = k.jitter(TL.hx * 0.6), cz = k.jitter(TL.hz * 0.6), w = 1.2 + k.next() * 2.4, d = 1.2 + k.next() * 2.4;
-      // A dim red halo round the bed: the char floor catching its glow. Halo
-      // clamped to the shell; each bed a centimetre above the last so beds that
-      // overlap do not z-fight.
-      const y = top + 0.02 + i * 0.012;
-      const hx0 = Math.max(cx - w * 2.2, -TL.hx), hx1 = Math.min(cx + w * 2.2, TL.hx), hz0 = Math.max(cz - d * 2.2, -TL.hz), hz1 = Math.min(cz + d * 2.2, TL.hz);
-      bld.pushQuad(buildingPoint(b, hx0, y, hz1), buildingPoint(b, hx1, y, hz1), buildingPoint(b, hx1, y, hz0), buildingPoint(b, hx0, y, hz0),
-        [0.55, 0.12, 0.03], 1, { emissive: 0.35, doubleSided: true });
-      for (let gx = 0; gx < 3; gx++) {
-        for (let gz = 0; gz < 3; gz++) {
-          if (k.next() < 0.3) continue;
-          const heat = k.next() * k.next();
-          const x0 = cx - w + (gx + k.next() * 0.3) * (2 * w / 3), x1 = x0 + (0.5 + k.next() * 0.5) * (2 * w / 3);
-          const z0 = cz - d + (gz + k.next() * 0.3) * (2 * d / 3), z1 = z0 + (0.5 + k.next() * 0.5) * (2 * d / 3);
-          bld.pushQuad(buildingPoint(b, x0, y + 0.006, z1), buildingPoint(b, x1, y + 0.006, z1), buildingPoint(b, x1, y + 0.006, z0), buildingPoint(b, x0, y + 0.006, z0),
-            [1.0, 0.16 + 0.34 * heat, 0.03 + 0.06 * heat], 1, { emissive: 0.5 + 2.2 * heat, doubleSided: true });
+    // One dim smoulder left on the stubs for the silhouette, unlit. The kiln
+    // yards that were up here put the fire on the ruin roofs, 20-40 m above a
+    // street that stayed near-black (R14 review 5, pose 15).
+    bld.pushQuad(buildingPoint(b, -TL.hx * 0.5, top + 0.02, TL.hz * 0.5), buildingPoint(b, TL.hx * 0.5, top + 0.02, TL.hz * 0.5),
+      buildingPoint(b, TL.hx * 0.5, top + 0.02, -TL.hz * 0.5), buildingPoint(b, -TL.hx * 0.5, top + 0.02, -TL.hz * 0.5),
+      [0.55, 0.12, 0.03], 1, { emissive: 0.3, doubleSided: true });
+    // Kiln yards at street level against one or two faces: brick-kerbed ember
+    // beds broken into cells (one flat sheet read as a skylight, review 4), each
+    // a low fire light, so the paving, the ruin's foot and the neighbours' walls
+    // are lit from the ground. Raised 0.28 m on their kerbs so a footway never
+    // swallows them.
+    // Two or three faces: on one random face, both ruins in pose 15 turned their
+    // fire away from the camera.
+    const order = k.shuffle([0, 1, 2, 3]);
+    for (let yi = 0, yards = 2 + (k.bool(0.5) ? 1 : 0); yi < yards; yi++) {
+      const face = order[yi], half = face < 2 ? T.hz : T.hx, wall = face < 2 ? T.hx : T.hz;
+      const Q = (t: number, y: number, d: number): Vec3 => facePoint(b, face, wall, t, y, d);
+      const yaw = b.rotationY + (face < 2 ? Math.PI / 2 : 0);
+      for (let i = 0, n = 2 + k.int(0, 1); i < n; i++) {
+        // Spread along the face: independent draws stacked three beds on one spot.
+        const t = half * 0.75 * (((i + 0.5) / n) * 2 - 1) + k.jitter(half * 0.12), d = 1.5 + k.next() * 1.4, w = 0.8 + k.next() * 1.2, dd = 0.45 + k.next() * 0.35, y = yb + 0.28;
+        bld.pushBox(Q(t, yb + 0.14, d), [w + 0.12, 0.14, dd + 0.12], [0.16, 0.08, 0.05], { faces: FACE_ALL, rotationY: yaw });
+        for (let g = 0; g < 4; g++) {
+          if (k.next() < 0.2) continue;
+          const heat = k.next() * k.next(), t0 = t - w + (g + k.next() * 0.2) * (w / 2), t1 = t0 + (0.6 + k.next() * 0.4) * (w / 2);
+          bld.pushQuad(Q(t0, y + 0.005, d - dd), Q(t1, y + 0.005, d - dd), Q(t1, y + 0.005, d + dd), Q(t0, y + 0.005, d + dd),
+            [1.0, 0.16 + 0.34 * heat, 0.03 + 0.06 * heat], 1, { emissive: 0.8 + 2.4 * heat, doubleSided: true });
         }
+        if (lod < 1 && i < 2) lights.push({ pos: Q(t, yb + 1.3, d), radius: 14, color: [1.0, 0.4, 0.12], intensity: 2.8 });
       }
-      if (lod < 1 && i < 3) lights.push({ pos: buildingPoint(b, cx, top + 1.2, cz), radius: reach, color: [1.0, 0.4, 0.12], intensity: 2.8 });
+      // The shell burning inside, seen through its ground-floor openings.
+      for (let m = 0, nm = 2 + k.int(0, 1); m < nm; m++) {
+        const t = k.jitter(half * 0.75), hw = 0.6 + k.next() * 0.5, h = 2.0 + k.next() * 0.6;
+        bld.pushQuad(Q(t - hw, yb + 0.1, 0.04), Q(t + hw, yb + 0.1, 0.04), Q(t + hw, yb + h, 0.04), Q(t - hw, yb + h, 0.04),
+          [1.0, 0.36, 0.1], 1, { emissive: 2.6, doubleSided: true });
+      }
     }
     return;
   }
   if (!ot.kiln) {
     // A brazier on the footway: a fire basket on a post. The street's light is
-    // fire, not lamps (sheet C), and 2.8 m up it lays a pool on the paving.
-    const face = r.int(0, 3), half = face < 2 ? T.hz : T.hx, wall = face < 2 ? T.hx : T.hz;
+    // fire, not lamps (sheet C), and 2.8 m up it lays a pool on the paving. On a
+    // local z face: lots are yawed to their street, so +-z is front or back; a
+    // random face put half of them on side walls no street sees (pose 14).
+    const face = 2 + r.int(0, 1), half = face < 2 ? T.hz : T.hx, wall = face < 2 ? T.hx : T.hz;
     const t = r.jitter(half * 0.7);
     const Q = (y: number): Vec3 => facePoint(b, face, wall, t, y, 1.3);
     bld.pushCylinder(Q(yb), Q(yb + 1.7), 0.06, 5, [0.16, 0.13, 0.11]);
@@ -210,7 +222,7 @@ export function pushOldTownFire(bld: MeshBuilder, b: BuildingInstance, lights: B
     return;
   }
   for (let n = 0, faces = 1 + r.int(0, 1); n < faces; n++) {
-    const face = r.int(0, 3), half = face < 2 ? T.hz : T.hx, wall = (face < 2 ? T.hx : T.hz) + 0.3;
+    const face = 2 + r.int(0, 1), half = face < 2 ? T.hz : T.hx, wall = (face < 2 ? T.hx : T.hz) + 0.3;
     const t = r.jitter(half * 0.6), hw = 1.1 + r.next() * 0.6, h = 2.2 + r.next() * 0.6;
     const Q = (tt: number, y: number, dd: number): Vec3 => facePoint(b, face, wall, tt, y, dd);
     bld.pushQuad(Q(t - hw, yb + 0.1, 0.02), Q(t + hw, yb + 0.1, 0.02), Q(t + hw, yb + h, 0.02), Q(t - hw, yb + h, 0.02), [1.0, 0.5, 0.16], 1, { emissive: 3.0, doubleSided: true });
@@ -390,10 +402,12 @@ export function pushBuilding(
   const tier0Top = yBase + tiers[0].y1;
 
   // --- plinth: the first 8m is a different material, like a real base course.
+  // A ruin's plinth is burnt too: tagged plain, it kept lit shop displays and neon
+  // under a sooted shell, which read as an intact building (R14 review 5).
   if (lod < 2) {
     const plinthH = Math.min(7.5, totalH * 0.25);
     pushBoxShell(bld, P, hx + 0.28, hz + 0.28, yBase, yBase + plinthH,
-      pal.secondary, MAT.DIFFUSE, STONE + 0.15, seed + 7, 0, yaw, ot && !ot.ruin ? FACADE_UV_OLDTOWN : FACADE_UV);
+      pal.secondary, MAT.DIFFUSE, STONE + 0.15, seed + 7, 0, yaw, ot?.ruin ? FACADE_UV_RUIN : ot ? FACADE_UV_OLDTOWN : FACADE_UV);
   }
 
   // --- vertical pilasters. These are the single cheapest thing that makes a
@@ -445,16 +459,64 @@ export function pushBuilding(
  * of its towers take B's scaffolding, which fits its industrial brief and leaves
  * its colour alone (D27).
  */
+// Raised 2026-10-13 (review 5: one stack on one tower). Copper Stacks stays the
+// lowest: it is the teal towers, which keep their colour (D27).
 const SCAFFOLD_CHANCE: Record<string, number> = {
-  'rust-hangars': 0.35, 'glass-foxholes': 0.35, 'canal-district': 0.3, 'copper-stacks': 0.12,
+  'rust-hangars': 0.5, 'glass-foxholes': 0.45, 'canal-district': 0.4, 'copper-stacks': 0.2,
 };
 const TERRACE_CHANCE: Record<string, number> = { 'botanical-dome': 0.6, 'verdant-canyon': 0.7, 'canal-district': 0.4 };
 const SCAFFOLD_DECK: Vec3 = [0.30, 0.22, 0.14];
 /** Sunlit terrace planting (sheet D measures ~(91,112,74) sRGB on its foliage). */
 const TERRACE_LEAF: Vec3[] = [[0.20, 0.33, 0.06], [0.26, 0.37, 0.07], [0.15, 0.28, 0.05], [0.30, 0.40, 0.09]];
+/**
+ * Rooms bolted round the top of an accreted tower (sheet B: its towers end in a
+ * crust of rooms on every side, not a clean roof line). Cantilevered off the top
+ * tier's walls on struts, one or two high, with lit windows and a few shacks on
+ * the roof itself.
+ */
+function pushAccretedCrown(
+  bld: MeshBuilder, b: BuildingInstance, TL: TowerTier, yBase: number, metal: Vec3, room: () => Vec3, r: Rng, lod: number,
+  lights?: BakedChunk['lights'],
+): void {
+  const yTop = yBase + TL.y1;
+  for (let face = 0; face < 4; face++) {
+    if (r.next() < 0.25) continue;
+    const half = face < 2 ? TL.hz : TL.hx, wall = face < 2 ? TL.hx : TL.hz;
+    const Q = (t: number, y: number, d: number): Vec3 => facePoint(b, face, wall, t, y, d);
+    const yaw = b.rotationY + (face < 2 ? Math.PI / 2 : 0);
+    for (let t = -half + 1.5; t < half - 1.5; t += 3.2 + r.next() * 3.5) {
+      if (r.next() < 0.2) continue;
+      let ry = yTop - 2.5 - r.next() * 9;
+      for (let n = 0, high = 1 + r.int(0, 1); n < high; n++) {
+        const sw = 2.4 + r.next() * 2.4, sh = 2.4 + r.next() * 0.9, sd = 1.8 + r.next() * 1.8, c = room();
+        const tt = t + r.jitter(0.8);
+        bld.pushBox(Q(tt, ry + sh / 2, sd / 2), [sw / 2, sh / 2, sd / 2], c, { faces: FACE_ALL, rotationY: yaw });
+        bld.pushBox(Q(tt, ry + sh + 0.06, sd / 2 + 0.15), [sw / 2 + 0.25, 0.06, sd / 2 + 0.3], tint3(c, 0.6), { faces: FACE_ALL, rotationY: yaw });
+        if (r.bool(0.6)) bld.pushQuad(Q(tt - 0.35, ry + sh * 0.42, sd + 0.02), Q(tt + 0.35, ry + sh * 0.42, sd + 0.02), Q(tt + 0.35, ry + sh * 0.74, sd + 0.02), Q(tt - 0.35, ry + sh * 0.74, sd + 0.02), [1.0, 0.72, 0.4], 1, { emissive: 3.0 });
+        if (n === 0 && lod < 1) for (const e of [-sw / 2 + 0.2, sw / 2 - 0.2]) bld.pushTubeAlongPath([Q(tt + e, ry - 2.0, 0.05), Q(tt + e, ry, sd - 0.2)], 0.06, 3, metal, { capEnds: false });
+        ry += sh + 0.12;
+      }
+    }
+  }
+  // Shacks on the roof, lit, and the odd one carrying the night's light.
+  for (let k = 0, n = 2 + r.int(0, 3); k < n; k++) {
+    const x = r.jitter(TL.hx * 0.75), z = r.jitter(TL.hz * 0.75), w = 2 + r.next() * 3, d = 2 + r.next() * 3, h = 2.4 + r.next();
+    bld.pushBox(buildingPoint(b, x, yTop + h / 2, z), [w / 2, h / 2, d / 2], room(), { faces: FACE_ALL, rotationY: b.rotationY + r.jitter(0.2) });
+    if (lights && lod < 1 && k === 0) lights.push({ pos: buildingPoint(b, x, yTop + h + 1.5, z), radius: 10, color: [1.0, 0.68, 0.34], intensity: 1.4 });
+  }
+}
+
+/** Spheres a terraced building spends on ivy and hanging masses at most; see `pushTerraces`. */
+const TERRACE_HANG_BUDGET = 360;
+/** Wall ivy: darker and cooler than the sunlit terrace masses. */
+const IVY: Vec3[] = [[0.10, 0.22, 0.06], [0.13, 0.26, 0.07], [0.08, 0.19, 0.06]];
+/** Blooms on the odd terrace mass: warm pink and cream (sheet D's balcony flowers). */
+const TERRACE_FLOWER: Vec3[] = [[0.72, 0.30, 0.38], [0.80, 0.62, 0.50], [0.66, 0.22, 0.30]];
 const TARPS: Vec3[] = [[0.14, 0.24, 0.34], [0.55, 0.28, 0.12], [0.22, 0.28, 0.20], [0.42, 0.40, 0.36]];
 /** Sheet B's bolted-on rooms: slate sheet, faded blue, rust-red panel, timber, near-black, grey (pale ones read as primitives, review 5). */
-const ROOMS: Vec3[] = [[0.22, 0.24, 0.26], [0.17, 0.22, 0.27], [0.40, 0.15, 0.10], [0.33, 0.24, 0.16], [0.13, 0.15, 0.17], [0.30, 0.31, 0.30]];
+const ROOMS: Vec3[] = [[0.22, 0.24, 0.26], [0.17, 0.22, 0.27], [0.40, 0.15, 0.10], [0.33, 0.24, 0.16], [0.13, 0.15, 0.17], [0.30, 0.31, 0.30],
+  // Weighted to rust, red panel and soot (review 5: the sheet's towers are crusted with dark rust and red panels).
+  [0.34, 0.12, 0.07], [0.46, 0.17, 0.09], [0.25, 0.13, 0.09], [0.10, 0.11, 0.12]];
 
 /** A point `t` along face `face`, `d` out from its wall, at local height `ly` (from the centre). */
 function facePoint(b: BuildingInstance, face: number, wall: number, t: number, ly: number, d: number): Vec3 {
@@ -467,14 +529,26 @@ export function pushScaffold(bld: MeshBuilder, b: BuildingInstance, dp: District
   if (!chance || lod >= 2) return;
   const r = makeRng((b.windowSeed ^ 0x5caff01d) >>> 0);
   if (!r.bool(chance)) return;
-  const T = towerTiers(b)[0], hy = b.halfExtents[1], yBase = -hy;
-  const face = r.int(0, 3);
+  const tiers = towerTiers(b), T = tiers[0], hy = b.halfExtents[1], yBase = -hy;
+  const metal = tint3(dp.palette.metal, 0.45), lift = 2.0;
+  const room = (): Vec3 => tint3(ROOMS[r.int(0, ROOMS.length - 1)], 0.62 + r.next() * 0.38);
+  const first = r.int(0, 3);
+  scaffoldFace(first);
+  // Sheet B's towers are crusted on more than one side (review 5: one stack, one tower).
+  // Near field only, with the extra room stacks below: the far shadow cascades
+  // re-render all of it and the hero lost 60 fps (session-end A/B, 2026-10-13).
+  if (r.bool(0.4) && lod < 1) scaffoldFace((first + 1 + r.int(0, 2)) % 4);
+  // Not on the teal towers: their tops are the skyline climax D27 keeps clean.
+  // Near field only: at LOD 1 the crowns were 1-3 px flecks on the skyline that
+  // read as dirt (review 6), and the far shadow cascades paid for them.
+  if (dp.style.key !== 'copper-stacks' && lod < 1) pushAccretedCrown(bld, b, tiers[tiers.length - 1], yBase, metal, room, r, lod, lights);
+
+  function scaffoldFace(face: number): void {
   const half = face < 2 ? T.hz : T.hx, wall = face < 2 ? T.hx : T.hz;
   const Q = (t: number, y: number, d: number): Vec3 => facePoint(b, face, wall, t, y, d);
   // Sheet B is irregular: stacked segments of different widths and offsets,
   // decks cantilevered past the frame, X-braces, sparse tarps and shacks lit
   // from inside. A regular full-height lattice read as a ladder decal (R14).
-  const metal = tint3(dp.palette.metal, 0.45), lift = 2.0;
   let y = yBase + Math.min(7.5, hy * 2 * 0.25) + 0.5;
   const top = Math.min(yBase + T.y1 + (r.bool(0.4) ? 6 : -1), y + 22 + r.next() * 50);
   let mid = r.jitter(half * 0.4);
@@ -528,18 +602,18 @@ export function pushScaffold(bld: MeshBuilder, b: BuildingInstance, dp: District
     // Rooms bolted on over generations (sheet B): stacks of boxes hung off the
     // frame, wider and deeper than the decks, on struts back to the wall, each
     // with a lit window. The flush 2 m shacks hid behind the lattice (R14 review 4).
-    for (let st = 0, stacks = 1 + r.int(0, 2); st < stacks; st++) {
+    for (let st = 0, stacks = lod < 1 ? 2 + r.int(0, 2) : 1; st < stacks; st++) {
       // Not on the first lift of the first segment: a stack there swallowed the
       // scaffold's foot and read as a kiosk (R14 review 5).
       const lo = seg === 0 ? 2 : 0;
       let ry = y + lift * r.int(lo, Math.max(lo, Math.floor(h / lift) - 1)), rt = mid + r.jitter(W / 2);
-      for (let n = 0, high = 1 + r.int(0, 2); n < high && ry + 2.4 < top; n++) {
+      for (let n = 0, high = 1 + r.int(0, 3); n < high && ry + 2.4 < top; n++) {
         const sw = 2.4 + r.next() * 2.2, sh = 2.4 + r.next() * 0.8, sd = 2.2 + r.next() * 1.6;
-        const c = ROOMS[r.int(0, ROOMS.length - 1)], yaw = b.rotationY + (face < 2 ? Math.PI / 2 : 0);
+        const c = room(), yaw = b.rotationY + (face < 2 ? Math.PI / 2 : 0);
         const rd = dIn + sd / 2 + r.next() * 0.8;
-        bld.pushBox(Q(rt, ry + sh / 2, rd), [sw / 2, sh / 2, sd / 2], tint3(c, 0.85 + r.next() * 0.3), { faces: FACE_ALL, rotationY: yaw });
+        bld.pushBox(Q(rt, ry + sh / 2, rd), [sw / 2, sh / 2, sd / 2], c, { faces: FACE_ALL, rotationY: yaw });
         // A thin roof sheet with an overhang.
-        bld.pushBox(Q(rt, ry + sh + 0.06, rd + 0.15), [sw / 2 + 0.25, 0.06, sd / 2 + 0.3], tint3(c, 0.55), { faces: FACE_ALL, rotationY: yaw });
+        bld.pushBox(Q(rt, ry + sh + 0.06, rd + 0.15), [sw / 2 + 0.25, 0.06, sd / 2 + 0.3], tint3(c, 0.6), { faces: FACE_ALL, rotationY: yaw });
         const front = rd + sd / 2 + 0.02;
         for (let wn = 0, wins = sw > 3.4 ? 2 : 1; wn < wins; wn++) {
           if (!r.bool(0.75)) continue;
@@ -552,6 +626,18 @@ export function pushScaffold(bld: MeshBuilder, b: BuildingInstance, dp: District
     }
     y += h;
   }
+  }
+}
+
+/** A draped leaf mass hanging from (t, y): two abreast, tapering slowly as it falls. */
+function hangLeaves(leafBld: MeshBuilder, Q: (t: number, y: number, d: number) => Vec3, t: number, y: number, d: number, fall: number, leaf: Vec3, r: Rng): void {
+  let yy = y, rad = 0.6 + r.next() * 0.35;
+  for (let step = 0; yy > y - fall && rad > 0.24 && step < 12; step++) {
+    const c = tint3(leaf, 0.62 + r.next() * 0.2);
+    leafBld.pushSphere(Q(t - rad * 0.45, yy - rad * 0.5, d), rad, 5, 3, c);
+    leafBld.pushSphere(Q(t + rad * 0.5, yy - rad * 0.8, d - 0.1), rad * 0.85, 5, 3, c);
+    yy -= rad * 1.25; rad *= 0.9; t += r.jitter(0.3);
+  }
 }
 
 export function pushTerraces(bld: MeshBuilder, leafBld: MeshBuilder, b: BuildingInstance, dp: DistrictProfile, lod: number): void {
@@ -559,54 +645,107 @@ export function pushTerraces(bld: MeshBuilder, leafBld: MeshBuilder, b: Building
   if (!chance || lod >= 2) return;
   const r = makeRng((b.windowSeed ^ 0x7e44ace5) >>> 0);
   if (!r.bool(chance)) return;
-  const T = towerTiers(b)[0], hy = b.halfExtents[1], yBase = -hy, fh = b.floorHeight;
+  const hy = b.halfExtents[1], yBase = -hy, fh = b.floorHeight;
   const faces = [r.int(0, 3)];
   if (r.bool(0.6)) faces.push(faces[0] ^ 1);
-  const every = 2 + r.int(0, 1);
+  const every = 2 + (r.bool(0.3) ? 1 : 0);
   const slabCol = tint3(dp.palette.secondary, 0.95), timber: Vec3 = [0.42, 0.24, 0.11];
-  for (const face of faces) {
-    const half = face < 2 ? T.hz : T.hx, wall = face < 2 ? T.hx : T.hz, w = half * 0.86;
-    // Ten bands at most per face: a 180 m tier would otherwise carry 25.
-    for (let f = 2, n = 0; n < 10 && yBase + (f + 1) * fh < yBase + T.y1; f += every, n++) {
-      const y = yBase + f * fh, depth = 2.6 + r.next() * 1.0;
+  // Every tier, not only the base: a setback tower left its upper tier bare above
+  // three planted bands (R14 review 5, pose 13). Eight bands at most per face.
+  const tiers = towerTiers(b), gap = fh * every;
+  // Ivy and hanging masses scale with face width x bands, which put 139k leaf
+  // triangles on one 123 m tower and 1.04M on chunk (1,4). Their density is
+  // scaled so a building spends about TERRACE_HANG_BUDGET spheres on them,
+  // evenly over every band (a running counter would starve the upper bands).
+  let planted = 0;
+  for (const T of tiers) for (const face of faces) {
+    const w = (face < 2 ? T.hz : T.hx) * 0.86;
+    planted += w * Math.min(8, Math.max(0, Math.floor((T.y1 / fh - Math.ceil(T.y0 / fh) - 3) / every) + 1));
+  }
+  const thin = Math.min(1, TERRACE_HANG_BUDGET / Math.max(1, planted * 3.2));
+  const bands = [0, 0, 0, 0];
+  for (const T of tiers) {
+    for (const face of faces) {
+      const half = face < 2 ? T.hz : T.hx, wall = face < 2 ? T.hx : T.hz, w = half * 0.86;
       const Q = (t: number, yy: number, d: number): Vec3 => facePoint(b, face, wall, t, yy, d);
-      // Slab, a warm timber fascia (sheet D's timber edges; the soffit alone was
-      // unseen from above), its soffit, and the shadow it casts on the wall.
-      bld.pushQuad(Q(-w, y, 0), Q(w, y, 0), Q(w, y, depth), Q(-w, y, depth), slabCol, 1, { doubleSided: true });
-      bld.pushQuad(Q(-w, y - 0.55, depth), Q(w, y - 0.55, depth), Q(w, y, depth), Q(-w, y, depth), timber, 1, { doubleSided: true });
       if (lod < 1) {
-        bld.pushQuad(Q(-w, y - 0.5, 0), Q(-w, y - 0.5, depth), Q(w, y - 0.5, depth), Q(w, y - 0.5, 0), timber, 1, { doubleSided: true });
-        bld.pushQuad(Q(-w, y - 1.6, 0.03), Q(w, y - 1.6, 0.03), Q(w, y - 0.5, 0.03), Q(-w, y - 0.5, 0.03), tint3(dp.palette.base, 0.45), 1);
-      }
-      // A warm lamp strip under the fascia: a continuous line at night, at any distance.
-      bld.pushQuad(Q(-w, y - 0.62, depth - 0.15), Q(w, y - 0.62, depth - 0.15), Q(w, y - 0.55, depth - 0.15), Q(-w, y - 0.55, depth - 0.15), [1.0, 0.74, 0.42], 1, { emissive: 2.2, doubleSided: true });
-      // Sunlit yellow-green, not the street planters' shade green.
-      const leaf = tint3(TERRACE_LEAF[r.int(0, TERRACE_LEAF.length - 1)], 1);
-      // Overgrown, not potted (sheet D): masses of mixed size, mostly small with
-      // the odd big one, stacked at different heights and spilling past the edge,
-      // lighter on top. Equal blobs at one height in single file read as topiary
-      // (R14 review 4).
-      for (let t = -w + 0.6; lod < 1 && t < w - 0.4; t += 0.8 + r.next() * 1.8) {
-        for (let k = 0, nk = 1 + r.int(0, 2); k < nk; k++) {
-          const rad = 0.35 + r.next() * r.next() * 1.2;
-          const lit = 0.75 + r.next() * 0.35 + (rad > 0.9 ? 0.2 : 0);
-          leafBld.pushSphere(Q(t + r.jitter(0.7), y + rad * 0.55 + r.next() * 0.7, 0.5 + r.next() * (depth - 0.2)), rad, 5, 3, tint3(leaf, lit));
+        // A garden on the tier's top edge (the setback or the roof), spilling over
+        // and hanging down the wall: the top floors of a tier sit above its last
+        // band and were bare.
+        const yt = yBase + T.y1, leaf = TERRACE_LEAF[r.int(0, TERRACE_LEAF.length - 1)];
+        for (let t = -w; t < w; t += 0.8 + r.next() * 1.2) {
+          const rad = 0.5 + r.next() * r.next() * 1.1;
+          leafBld.pushSphere(Q(t + r.jitter(0.4), yt + rad * 0.3, -0.4 + r.next() * 0.9), rad, 5, 3, tint3(leaf, 0.75 + r.next() * 0.35));
+          if (r.next() < 0.35 * thin) hangLeaves(leafBld, Q, t, yt - 0.2, 0.35, 1.0 + r.next() * r.next() * gap * 0.7, leaf, r);
         }
       }
-      for (let k = 0, nt = lod < 1 ? (r.next() < 0.7 ? 1 : 0) + (w > 10 && r.next() < 0.5 ? 1 : 0) : 0; k < nt; k++) {
-        const t = r.jitter(w * 0.75), th = 2.0 + r.next() * 1.2;
-        bld.pushCylinder(Q(t, y, depth * 0.5), Q(t, y + th, depth * 0.5), 0.09, 4, [0.12, 0.08, 0.05]);
-        // A crown of several masses, not one ball on a stick (review 5).
-        for (let m = 0, nm = 4 + r.int(0, 2); m < nm; m++) {
-          const mr = m === 0 ? 1.1 + r.next() * 0.3 : 0.6 + r.next() * 0.45;
-          leafBld.pushSphere(Q(t + (m ? r.jitter(1.1) : 0), y + th + (m ? r.jitter(0.6) : 0.4), depth * 0.5 + (m ? r.jitter(0.8) : 0)), mr, 5, 3, tint3(leaf, 0.8 + r.next() * 0.35));
+      for (let f = Math.ceil(T.y0 / fh) + 2; bands[face] < 8 && (f + 1) * fh < T.y1; f += every, bands[face]++) {
+        const y = yBase + f * fh, depth = 2.6 + r.next() * 1.0;
+        // Slab, a warm timber fascia (sheet D's timber edges; the soffit alone was
+        // unseen from above), its soffit, and the shadow it casts on the wall.
+        bld.pushQuad(Q(-w, y, 0), Q(w, y, 0), Q(w, y, depth), Q(-w, y, depth), slabCol, 1, { doubleSided: true });
+        bld.pushQuad(Q(-w, y - 0.55, depth), Q(w, y - 0.55, depth), Q(w, y, depth), Q(-w, y, depth), timber, 1, { doubleSided: true });
+        if (lod < 1) {
+          bld.pushQuad(Q(-w, y - 0.5, 0), Q(-w, y - 0.5, depth), Q(w, y - 0.5, depth), Q(w, y - 0.5, 0), timber, 1, { doubleSided: true });
+          bld.pushQuad(Q(-w, y - 1.6, 0.03), Q(w, y - 1.6, 0.03), Q(w, y - 0.5, 0.03), Q(-w, y - 0.5, 0.03), tint3(dp.palette.base, 0.45), 1);
         }
-      }
-      // Vines spilling over the edge in narrow strands of mixed length: wide
-      // quads read as solid green panels.
-      for (let k = 0, nv = lod < 1 ? 7 + r.int(0, 8) : 0; k < nv; k++) {
-        const t = r.jitter(w * 0.9), hw = 0.08 + r.next() * 0.24, drop = 0.8 + r.next() * r.next() * 5.5;
-        leafBld.pushQuad(Q(t - hw, y - 0.55, depth + 0.04), Q(t + hw, y - 0.55, depth + 0.04), Q(t + hw, y - 0.55 - drop, depth + 0.04), Q(t - hw, y - 0.55 - drop, depth + 0.04), tint3(leaf, 0.9), 0.6, { doubleSided: true });
+        // A warm lamp strip under the fascia: a continuous line at night, at any distance.
+        bld.pushQuad(Q(-w, y - 0.62, depth - 0.15), Q(w, y - 0.62, depth - 0.15), Q(w, y - 0.55, depth - 0.15), Q(-w, y - 0.55, depth - 0.15), [1.0, 0.74, 0.42], 1, { emissive: 2.2, doubleSided: true });
+        if (lod >= 1) continue;
+        // Sunlit yellow-green, not the street planters' shade green.
+        const leaf = tint3(TERRACE_LEAF[r.int(0, TERRACE_LEAF.length - 1)], 1);
+        // Overgrown, not potted (sheet D): big overlapping masses across the
+        // whole band, stacked and spilling over the fascia, lighter on top, the
+        // odd one in flower. Single-file blobs covered 9.4% of the facade against
+        // the sheet's ~40% (review 5): coverage comes from size, not count.
+        for (let t = -w + 0.5; t < w - 0.4; t += 0.9 + r.next() * 1.3) {
+          for (let k = 0, nk = 1 + r.int(0, 1); k < nk; k++) {
+            const rad = 0.7 + r.next() * r.next() * 1.5;
+            const lit = 0.75 + r.next() * 0.35 + (rad > 1.1 ? 0.15 : 0);
+            const c = Q(t + r.jitter(0.5), y + rad * 0.5 + r.next() * 0.6, 0.6 + r.next() * (depth - 0.3));
+            leafBld.pushSphere(c, rad, 5, 3, tint3(leaf, lit));
+            // The odd mass in flower: a few small blooms on its crown.
+            if (r.next() < 0.08) {
+              const fc = TERRACE_FLOWER[r.int(0, TERRACE_FLOWER.length - 1)];
+              for (let fl = 0; fl < 3; fl++) leafBld.pushSphere([c[0] + r.jitter(rad * 0.6), c[1] + rad * 0.75, c[2] + r.jitter(rad * 0.6)], 0.14 + r.next() * 0.08, 3, 4, fc);
+            }
+          }
+          // Spilling over the edge, hanging in front of the fascia.
+          if (r.next() < 0.45) {
+            const rad = 0.45 + r.next() * 0.5;
+            leafBld.pushSphere(Q(t + r.jitter(0.4), y - 0.25 - r.next() * 0.6, depth + 0.15 + r.next() * 0.35), rad, 5, 3, tint3(leaf, 0.7 + r.next() * 0.2));
+          }
+        }
+        for (let k = 0, nt = (r.next() < 0.7 ? 1 : 0) + (w > 10 && r.next() < 0.5 ? 1 : 0); k < nt; k++) {
+          const t = r.jitter(w * 0.75), th = 2.0 + r.next() * 1.2;
+          bld.pushCylinder(Q(t, y, depth * 0.5), Q(t, y + th, depth * 0.5), 0.09, 4, [0.12, 0.08, 0.05]);
+          // A crown of several masses, not one ball on a stick (review 5).
+          for (let m = 0, nm = 4 + r.int(0, 2); m < nm; m++) {
+            const mr = m === 0 ? 1.1 + r.next() * 0.3 : 0.6 + r.next() * 0.45;
+            leafBld.pushSphere(Q(t + (m ? r.jitter(1.1) : 0), y + th + (m ? r.jitter(0.6) : 0.4), depth * 0.5 + (m ? r.jitter(0.8) : 0)), mr, 5, 3, tint3(leaf, 0.8 + r.next() * 0.35));
+          }
+        }
+        // Hanging leaf masses draped over the fascia, two abreast and tapering
+        // slowly: the lime strip vines read as paint (review 5), single spheres
+        // in a line as beads. Some fall most of the way to the band below.
+        for (let k = 0, nc = Math.round(w * (0.25 + r.next() * 0.2) * thin); k < nc; k++) {
+          hangLeaves(leafBld, Q, r.jitter(w * 0.92), y - 0.5, depth + 0.1 + r.next() * 0.3, 1.2 + r.next() * r.next() * gap * 0.8, leaf, r);
+        }
+        // Ivy climbing the wall up from the slab toward the band above: domes half
+        // sunk into the wall, the cheapest cover per triangle. Darker, cooler green.
+        for (let k = 0, ni = Math.round(w * (0.2 + r.next() * 0.14) * thin); k < ni; k++) {
+          let tt = r.jitter(w * 0.95), yy = y + 0.3, rad = 0.8 + r.next() * 0.45;
+          const top = y + gap * (0.4 + r.next() * 0.55);
+          const c = tint3(IVY[r.int(0, IVY.length - 1)], 0.85 + r.next() * 0.3);
+          // Bounded by count: the climb is a geometric series (rad shrinks), so
+          // `yy < top` alone never ends when top is more than ~19 radii up (it
+          // hung the boot). Each step spreads sideways: a patch, not a column.
+          for (let step = 0; yy < top && step < 14; step++) {
+            leafBld.pushSphere(Q(tt, yy, 0.12), rad, 4, 4, c);
+            if (r.next() < 0.6) leafBld.pushSphere(Q(tt + (r.bool() ? 1 : -1) * rad * (1.0 + r.next() * 0.5), yy + r.jitter(0.3), 0.1), rad * (0.6 + r.next() * 0.3), 4, 4, c);
+            yy += rad * 1.3; tt += r.jitter(0.6); rad *= 0.95;
+          }
+        }
       }
     }
   }

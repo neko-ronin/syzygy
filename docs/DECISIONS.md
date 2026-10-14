@@ -752,6 +752,15 @@ lantern-workshop quarter, part of it burnt out in a great fire:
 Review poses: `14-old-town-c` (22 m up an old-town alley at dusk) and
 `15-old-town-ruins-night` (rooftops onto three ruins at night).
 
+**Fire at street level (2026-10-13, review 5).** The ruins' kiln yards sat on their cut-down
+tops, 20-40 m above a near-black street. They are now brick-kerbed ember beds against two
+or three faces at street level, each with a low fire light, plus fire seen through the
+ground-floor openings; the stubs keep one dim, unlit smoulder. A ruin's plinth carries the
+ruin tag (it kept lit shop displays and neon). Old-town alleys carry braziers, firewood and
+kiln stock (D30's lived kit), footway braziers lay their own light, post braziers and forge
+mouths stand on a street-facing (local z) face, and old-town walls take two props a floor
+with more wall lamps.
+
 ## D30 — A lived-in street: furniture where people use it, not only at the edges
 
 **Owner direction, 2026-10-13:** "Change the rule for furniture. It's time to make the
@@ -791,3 +800,32 @@ other two rules (irregular gaps, open stretches and clumps) still apply.
 - `groundbake.ts` rule 1 and `CLUTTER_EDGE` change; `__selftest_footway.ts` assumes one
   ~1 m clutter line per footway and needs a clear-route check instead.
 - STREET_SPEC §F is annotated as superseded in part.
+
+### As built (2026-10-13)
+
+- **Where the islands go.** No authored footway reaches ~6 m (widest 5.72 m), so footways
+  stay edge-placed and the islands are the market spine's: `MarketIsland` in
+  `marketgrammar.ts` (placement, pure data), baked in `groundbake.ts` through
+  `pushClutterItem` and one obstacle path (`pushObstacleSince`). Kinds: tree in a ring
+  bench, cafe (tables, chairs at angles, parasols), kiosk, pump, planter group, stall
+  overflow, handcart, shrine. Default seed: 104 islands over 1.3 km of spine.
+- **The walking line.** Islands keep `|lateral| + radius <= half - 2.6 - 3.2`: a 3.2 m lane
+  in front of the deepest stall overhang on both sides, which is also where the hero
+  corridor stands. Measured on the baked chunks (`__selftest_footway.ts`): narrowest
+  clear run across the spine 11.2 m over 1301 cross-sections (10.6 m once the stalls were
+  dressed); every solid piece carries a crowd obstacle; no at-grade tram passes an island;
+  every spine chunk lights all its market lanterns (PITFALLS §29).
+- **An arterial runs inside the spine** either side of the origin (along -20..52 at the
+  default seed), and the street field reports `artery` there. Islands accept any walkable
+  carriageway (not canal, not rail), or every market review camera would look down the
+  one stretch with none.
+- **Footways.** District kits gain a `lived` list (sheet A cafe sets, sacks, handcarts; B
+  barrels, pallets; C braziers, firewood, kiln stock; D cafe sets, pots, small trees),
+  drawn alongside the authored kit at the same per-kind rate. A kind that would leave less
+  than `footwayWalk(fw)` clear (3 m, or all but 1.1 m on narrow footways) is not placed
+  (`clutterReach`). Front items stand their own depth off the building line (they were
+  placed by their centre, half inside the wall), and every clutter box now carries its
+  placer's yaw.
+- **Budget.** `CLUTTER_TRIS` went 9000 -> 12000 and back to 9000 the same day: with the
+  lived kits it doubled footway furniture near the hero and the session-end A/B lost 60 fps
+  there (PERFORMANCE, 2026-10-13). Islands carry their own tally.

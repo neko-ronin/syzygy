@@ -488,3 +488,86 @@ near-field geometry only. The benchmark keeps the old skyline camera, `(900, 120
 **Crown and envelope scatter** (`MAX_FLOORS` 160 → 256, per-lot envelope ±20%; heart towers
 to 819 m): GPU span, two pairs against `6301ae6`: hero 14.25 / 14.21 → 14.40 / 14.40 ms;
 skyline 11.24 / 12.05 → 11.92 / 11.80 ms (gbuffer +0.2–0.35 ms). 59.1–60.1 fps throughout.
+
+## 2026-10-13 — D30 furniture islands, same-window A/B
+
+Reports: `benchmarks/d30-islands-ab/` (hero pass runs, base = `69e675d`, five pairs
+interleaved). Uncontended pairs, GPU span base / new: 14.54, 14.60 / 14.75, 14.77 ms and
+13.69, 13.67 / 13.85 ms; submitted 58.4–60.1 / 57.8–60.0 per second. **Cost +0.17–0.21 ms
+(~1.3%).** Pairs 4–5 collapsed to 43–45/s with every pass up ~50% at once, TAA included,
+on both sides (new 20.16 / 19.93 ms, base 20.89 ms): contention from another app's
+renderer (a ChatGPT/Codex framework process at ~21% CPU), not content.
+
+`CLUTTER_TRIS` 9000 -> 12000 per chunk: footway furniture 102 -> 135 items and 4.5k -> 7.6k
+triangles per chunk over the citygen self-test's 8 chunks. On the six spine chunks the
+islands add 4.7–7.0k triangles each (13–20 islands, 58–99 pieces, LOD 0 only), and footway
+furniture there runs 11–18k: the throttle widens spacing past the budget rather than
+cutting off, by design.
+
+## 2026-10-13 — sheet D foliage, `garden` route
+
+No route saw the green belt (flight passes ~600 m off it at 220 m), so `benchmark.mjs`
+gained `--route=garden`: a held camera at pose 13's position. It is outside `--route=all`,
+so earlier "all" reports stay comparable. Reports: `benchmarks/sheet-d-foliage-ab/`, three
+interleaved pairs against `7e399b6`.
+
+- GPU span base / new: 11.00, 11.84, 11.66 / 12.05, 11.70, 11.98 ms; **about +0.4 ms**, most
+  of it shadow casting (cascades 2+3 alternate run to run, so their sum is the stable
+  figure: 2.74, 2.74, 3.09 / 3.23, 3.30, 3.20 ms). Every run 59.97–60.08/s.
+- Triangles, LOD 0: the densest green-belt chunk (1,4) foliage 194k -> 524k (23 of 31
+  buildings terraced); (0,4) 55k -> 116k; (1,3) 38k -> 69k. LOD 1 unchanged (leaf detail
+  is near-field only). The first pass, without a per-building budget, put 1.04M on (1,4)
+  and 139k on one 123 m tower; `TERRACE_HANG_BUDGET` scales ivy and hanging masses so a
+  building spends about 360 spheres on them, evenly over its bands.
+
+## 2026-10-13 — sheet C ground fire, same-window A/B
+
+Reports: `benchmarks/sheet-c-ground-fire-ab/` (hero, two interleaved pairs against
+`496e1e9`; the hero stands ~400 m from the old town). GPU span base / new: 14.31, 14.59 /
+14.77, 14.08 ms: no measurable cost. Light binning rose 0.82, 0.85 -> 1.10, 1.05 ms on both
+pairs (footway braziers now carry a fire light, ruins have two or three street-level
+yards with two lights each). Furniture over the self-test's 8 chunks: 148 items, 9.3k
+triangles, 17.8 lamps (old-town alleys now carry the lived kit at 0.4 of the street rate).
+
+## 2026-10-13 — sheet B accretion, same-window A/B
+
+Reports: `benchmarks/sheet-b-accretion-ab/` (against `17cd839`). Skyline, two pairs: GPU
+span 12.02, 12.00 -> 12.38, 12.27 ms (shadows +0.2-0.3). Hero, two clean pairs: 14.05,
+14.98 -> 14.74, 14.65 ms, about +0.2 ms; a third pair ran contended on both sides (TAA
+0.48 / 0.53 ms, 52 and 47/s) and is not counted. More scaffolds (rust 0.5, glass 0.45,
+canal 0.4, copper 0.2), denser room stacks, a second face on 40%, and crowns of rooms on
+the non-teal accreted towers.
+
+## 2026-10-13 — session end: the per-item checks missed a regression
+
+Reports: `benchmarks/session-end-ab/` (`first-*` at `166f659`, `final-*` after the fixes,
+both against the session start `69e675d`, interleaved, on a quiet machine).
+
+**First pass, `166f659`:** hero GPU span 13.84, 13.88, 13.69 -> 14.92, 15.05, 14.99 ms and
+**57.0-57.5 submitted/s against 60.0**: R14 broken at the hero. Skyline 11.99, 12.02 ->
+12.23, 12.11 ms (60/s); garden 11.44 -> 11.90 ms (60/s). The per-item A/Bs had each looked
+small (+0.1 to +0.3 ms, two of them run contended), and they did not add up to this.
+
+**Where it was:** CPU unchanged (simulation 3.9 -> 4.0 ms). Shadows +0.85-1.0 ms, G-buffer
++0.2. Triangles in the hero's 5x5 neighbourhood 1.59M -> 1.87M (stall dressing +97k, sheet B
++82k with 50k at LOD 1, D30 +60k, sheet C +41k); the far cascades sweep LOD 1 out to 7 chunks.
+
+**Trims, measured each time:** small spheres in produce, dressing and furniture 3 rings -> 2
+and produce heaps back to 3-5 (-72k triangles, ~-0.1 ms); sheet B crowns, second scaffold face
+and extra room stacks near-field only (LOD 1 across the residency 4.64M -> 4.68M, i.e. back to
++1%; the crowns were also the "flecks" review 6 flagged); old-town wall props doubled on the
+lower twelve storeys only; `CLUTTER_TRIS` 12000 -> 9000.
+
+**Final, three rounds:** base 13.93, 13.75, 13.73 ms at 60.07, 59.98, 59.99/s; now 14.37,
+14.34, 14.42 ms at **59.85, 59.85, 59.35/s** (p95 17.6 ms both; base drops no frame, now an
+occasional single 33 ms frame, 475-479 of 480 in 8 s). Net cost of the session **+0.58 ms**.
+A variant without the D30 lived kits measured 14.12, 14.38, 14.18 ms: they cost ~0.15 ms.
+Other routes, one run each against `69e675d`: skyline 11.60 -> 12.17 ms (59.99 / 59.97/s);
+garden 11.52 -> 12.08 ms (59.99 / 59.98/s); flight 11.71 -> 11.82 ms (59.52 / 59.26/s,
+p95 18.7 / 18.9 ms).
+The hero is inside the band earlier sessions recorded as meeting R14 (59.1-60.1/s), not at
+the clean 60.0 it started at.
+
+**Lesson:** per-item A/Bs of a few tenths each, two of them contended, hid a 1.1 ms sum. Run
+the session-start vs HEAD A/B before the review, not after.
+
