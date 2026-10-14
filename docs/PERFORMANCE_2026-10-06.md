@@ -562,6 +562,9 @@ lower twelve storeys only; `CLUTTER_TRIS` 12000 -> 9000.
 14.34, 14.42 ms at **59.85, 59.85, 59.35/s** (p95 17.6 ms both; base drops no frame, now an
 occasional single 33 ms frame, 475-479 of 480 in 8 s). Net cost of the session **+0.58 ms**.
 A variant without the D30 lived kits measured 14.12, 14.38, 14.18 ms: they cost ~0.15 ms.
+Other routes, one run each against `69e675d`: skyline 11.60 -> 12.17 ms (59.99 / 59.97/s);
+garden 11.52 -> 12.08 ms (59.99 / 59.98/s); flight 11.71 -> 11.82 ms (59.52 / 59.26/s,
+p95 18.7 / 18.9 ms).
 The hero is inside the band earlier sessions recorded as meeting R14 (59.1-60.1/s), not at
 the clean 60.0 it started at.
 

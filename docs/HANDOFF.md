@@ -1,93 +1,77 @@
 # Handoff
 
-## Next session — start here (2026-10-13)
+## Next session — start here (2026-10-14)
 
-**State.** `main` at the commit that added this section (`5883cf6` is the last code change).
-R14 performance clauses are met (60 fps fixed/adaptive, headless/headed, held and flight).
-Review 5 ([VISION_2026-10-11_R14](VISION_2026-10-11_R14.md)): skyline climax **done
-(watch)**, night identity under D28 **done**, lantern pools **done**; sheets B, C, D and
-near richness **more work needed**. Owner direction since: **[D30](DECISIONS.md)**, make
-the world natural and lived in: furniture is no longer edge-only.
+**State.** Branch `claude/vigorous-faraday-e6883d`, session start `69e675d`. The 2026-10-13
+list was worked in order (`ee532e1` D30 islands and lived-in kits, `496e1e9` sheet D,
+`17cd839` sheet C, `9c6fc5f` sheet B, `166f659` stall dressing) and closed by **review 6**
+([VISION_2026-10-11_R14](VISION_2026-10-11_R14.md), independent, read-only): **more work
+needed** overall. Sheet D, sheet B and near richness **done (watch)**; D30 islands and
+sheet C **more work needed**; city-wide identity intact, D27 climax unchanged, D28 kept.
+Two regressions it found are resolved in `a67a187`: market lanterns starved by brazier
+lights (PITFALLS §29, fixed and guarded) and a night-skyline difference that was capture
+history, not content (PITFALLS §30).
 
-**Work, in order.** Each item: change, capture before/after, check cost, then the next.
+**R14, said plainly.** The session-start vs HEAD A/B found the hero at 57/s after five
+per-item checks that each looked small (PERFORMANCE, "session end"). After trims the hero
+is 14.38 ms GPU span against 13.80 at session start, **59.35-59.85 submitted/s** with an
+occasional single 33 ms frame; the base drops none. That is inside the band earlier
+sessions recorded as meeting R14 (59.1-60.1/s), not the clean 60.0 the session began at.
+Skyline 12.17 ms, garden 12.08 ms, flight 11.82 ms, all at 59.3-60.0/s like the base. Any new near-field geometry
+must buy its cost back first; cheapest known lever: the D30 lived kits cost ~0.15 ms.
 
-1. **D30 furniture islands.** Wide walking areas (market spine, plazas, footways over
-   ~6 m) get islands people use (tree with ring bench, café tables, kiosk, pump, planter
-   groups, crates and sacks behind stalls, handcarts), signs of use, district character
-   per sheet, a clear route of at least ~3 m, every item a crowd obstacle.
-   Code: furniture placement in `src/render/groundbake.ts` (~line 1013, rule 1 is marked
-   superseded), `CLUTTER_KINDS` / `CLUTTER_EDGE` in `src/world/groundgrammar.ts`, market
-   stall data in `src/world/marketgrammar.ts` (bake in `src/render/marketbake.ts`).
-   `src/world/__selftest_footway.ts` assumes one 1 m clutter line: replace with a
-   clear-route check. Budget `CLUTTER_TRIS` 9,000/chunk, revisit by measurement.
-   Frames: hero pair, `01c-origin-avenue`, `01d-street-crowd`, `09-market-down-day`.
-2. **Sheet D, overgrown.** Foliage covers 9.4% of the terraced facade at pose 13 against
-   ~40% on the sheet; target 25–35%: denser masses spilling over the ledges, hanging leaf
-   masses instead of lime strip vines, planting on more buildings (the left one at pose 13
-   is bare). Code: `pushTerraces`, `TERRACE_LEAF`, `PropKind.VineCurtain` in
-   `src/render/citymesh.ts`.
-3. **Sheet C, fire at ground level.** Pose 15 is still 64% near-black and its fire sits on
-   the ruin roofs; pose 14 shows no brazier or forge in view and a flat tan wall. Ember
-   beds or yards at street level beside the ruins, braziers where the alley camera sees
-   them, wall clutter in the alley. Code: `pushOldTownFire`, `pushBuilding` (ruin stubs),
-   `gbuffer.wgsl` tags 3 (ruin) and 4 (old-town uplight), `oldTownSmoke` in
-   `lighting.wgsl`.
-4. **Sheet B, accretion across towers.** Pose 12 shows one room stack on one tower; the
-   sheet's towers are crusted with dark rust and red-panelled rooms. More stacks per
-   scaffold and more scaffolds per district. Code: `pushScaffold`, `ROOMS`,
-   `SCAFFOLD_CHANCE` in `src/render/citymesh.ts`.
-5. **Near richness.** Produce on the counters is visible but small; more stall dressing
-   (hanging goods, baskets, signs) once item 1 has furnished the aisle.
-6. **Review 6** by an independent read-only reviewer against the four sheets and
-   before/after pairs, then an A/B benchmark; record both in the vision and
-   performance docs.
+**Work, in order (review 6's ranking, checked against the frames):**
 
-**Progress (2026-10-13 session, updated as items land):**
-
-- Item 1 **built** (`ee532e1`): islands on the market spine, lived-in footway kits, a
-  measured clear-route self-test (DECISIONS D30 "As built"). In the eye-height frames the
-  dense crowd hides most seated-height furniture; the tree crowns and parasols carry, and
-  `09-market-aisle-night` (6 m) sees over heads. Awaiting review 6.
-- Item 2 **built** (`496e1e9`): sheet D terraces on every tier, ivy, hanging masses, rim
-  gardens; facade foliage 7.5% -> 22.3% on the session's probe (review scale ~28%), +0.4 ms
-  on the new `--route=garden`. Per-building leaf budget (`TERRACE_HANG_BUDGET`).
-- Item 3 **built**: fire at street level around the ruins, burnt plinths, brazier light
-  pools, old-town alleys and walls furnished. Pose 15's near-black share barely moved
-  (most of it is the open deck in the foreground); pose 14's alley braziers sit under the
-  crowd. Awaiting review 6.
-- Item 4 **built**: more scaffolds per district, 2-4 room stacks per segment up to four
-  high, a second scaffold face on 40%, rooms weighted to rust / red panel / soot, and a
-  crown of cantilevered rooms on accreted towers (not Copper Stacks, D27). Pose 12 shows
-  two accreted scaffolds; skyline +0.3 ms. Awaiting review 6.
-- Item 5 **built**: goods hung from each stall's eave pole (above the crowd's heads),
-  baskets of produce under the canopy, crates and sacks behind the counter, fuller produce
-  heaps. +34k triangles per market chunk (+25%); its own GPU A/B ran contended (another
-  session's headed Playwright), so the cost is in the session-end A/B.
-- Self-tests: `vite-node` is **not** in `node_modules`; `npx vite-node` asks to download
-  the latest from the registry. Run the cached copy instead:
-  `~/.npm/_npx/f2342a4b64a2bc92/node_modules/.bin/vite-node <file>` (6.0.0, the one earlier
-  sessions used), or pin it as a devDependency deliberately.
+1. **D30 islands that read.** Islands exist (104 on the default seed, measured clear route,
+   obstacles), but at the review lenses one tree reads and the crowd hides the rest. Put
+   3-5 islands in the near 10-30 m of `09-market-down-day`, `01c-origin-avenue` and
+   `01d-street-crowd`; signs of use (chairs at angles, half-stacked crates, a seated
+   figure); sheet-A colour (parasols, a painted kiosk). Code: `placeIslands` /
+   `islandPieces` in `src/world/marketgrammar.ts`, pieces in `pushClutterItem`
+   (`src/render/groundbake.ts`). Grid 14 of review 6 is the crowd-off view of what exists.
+2. **The island tree.** A dark lollipop by day, a black hexagon in the lantern line at
+   night (`'tree'` in `pushClutterItem`): a trunk, irregular masses, no black underside.
+3. **Sheet C, fire as the key light.** Ember yards and braziers now sit at street level but
+   are 5-10 px at pose 15 and light nothing above the ground: uplight the ruin and alley
+   walls 1-2 storeys (`gbuffer.wgsl` tag 4 does this for intact old-town walls, tag 3 ruins
+   do not get it); braziers and wall clutter in the near 10 m of the pose-14 alley, above
+   crowd height, including the bare left wall. `pushOldTownFire`, `placeProps` (citygen).
+4. **Sheet D, curtains not beads.** Hanging masses read as strings of equal glossy spheres:
+   wide at the ledge, narrowing below, mixed sizes and hues, contact shadow on the wall
+   (`hangLeaves`, ivy loop in `pushTerraces`). Keep `TERRACE_HANG_BUDGET`: without it one
+   chunk carried 1.04M foliage triangles.
+5. **Sheet B, weathering.** Rooms are clean boxes: cantilevers, catwalks, tarps, lit
+   windows, soot (`pushScaffold`). Extra stacks and crowns are LOD 0 only, by measurement.
 
 **How this session worked (load-bearing):**
 
-- **Check the machine first:** `memory_pressure`, top CPU (`ps -Ao %cpu,comm -r`). Other
-  apps (opencode, Brave, a VM) load it; the capture guard wants 250 MB unused.
-- **Captures:** `node tools/capture.mjs --dev --sequence --pose=<name> ...` (substring
-  match, several `--pose` allowed); `--hero-pair` for the hero. Delete your `shots/` runs
-  when done.
-- **Before/after:** `git worktree add <scratch>/base <previous commit>`, symlink
-  `node_modules`, copy the *new* `tools/capture.mjs` into it so cameras match; build pairs
-  with `magick before.png after.png -resize 1200x +append pair.png`. Hero pairs: shoot the
-  after side with `--scene=<base run>/_scene.json` (PITFALLS §27, the crowd varies run to
-  run).
-- **Benchmarks under load:** interleaved A/B against the worktree with
-  `node tools/benchmark.mjs --route=hero --gpu-passes --seconds=8 --warm-seconds=10
-  --output=<dir>`, alternating which side runs first; a rise on every pass at once is
-  contention, not content (PERFORMANCE, 2026-10-13).
-- **Sun path:** no time of day lights a −z face (PITFALLS §26); choose feature poses by
-  face normal.
-- **Owner constraints:** D27 (teal towers keep colour, reflective grids), D28 (warm amber
-  light only), D29 (the plan is a history), D30 (lived-in streets). Red paving lines and
+- **Check the machine first:** `memory_pressure`, top CPU (`ps -Ao %cpu,comm -r`). This
+  session met another project's headed Playwright, a ChatGPT/Codex renderer, System
+  Settings, and the App Store daemon at 100%. Gate benchmarks on a quiet machine:
+  `until [ "$(ps -Ao %cpu -r | sed -n 2p | awk '{print int($1)}')" -lt 30 ]; do sleep 10; done`.
+- **Self-tests:** `vite-node` is **not** in `node_modules`, and `npx vite-node` asks to
+  download whatever is latest. Run the cached copy,
+  `~/.npm/_npx/f2342a4b64a2bc92/node_modules/.bin/vite-node <file>` (6.0.0), or pin it as a
+  devDependency deliberately. `__selftest_footway.ts` is now the spine clear-route and
+  market-lantern check.
+- **Captures:** `node tools/capture.mjs --dev --sequence --pose=<name> ...`; `--hero-pair
+  --scene=<base>/_scene.json` for the hero (PITFALLS §27). Compare frames shot **with the
+  same pose sequence** and read `lodHistogram` in `_capture.json` (PITFALLS §30). A pose can
+  set `crowd: 0` for a diagnostic of what the crowd hides. Delete your `shots/` runs.
+- **Pixel numbers:** `python3 tools/pixel_share.py <png> [--rect=x,y,w,h]` (stdlib) gives
+  the foliage, near-black and warm-bright shares quoted in the docs; pose 13's facade is
+  `--rect=500,90,590,780`. Review 6 judged its foliage share as undercounting (sky in the
+  rectangle, shaded undersides). Evidence for a reviewer, never a target (PROCESS rule 1).
+- **Benchmarks:** interleaved A/B, alternating order, `--gpu-passes`; a rise on every pass at
+  once (TAA included) is contention. Cascades 2 and 3 alternate frames: compare their sum.
+  `--route=garden` holds pose 13's camera in the green belt (outside `--route=all`).
+  **Run the session-start vs HEAD A/B before the review**: this session's per-item checks
+  hid a 1.1 ms sum.
+- **Budgets have an order:** the chunk's ground-light budget is shared by lamps, braziers and
+  market lanterns; spending it in the wrong order starved the market (PITFALLS §29).
+- **Sun path:** no time of day lights a −z face (PITFALLS §26).
+- **Owner constraints:** D27 (teal towers keep colour), D28 (warm amber light only), D29 (the
+  plan is a history), D30 (lived-in streets; as built in DECISIONS). Red paving lines and
   night edge streaks are owner-accepted.
 
 ## Current work — updated 2026-10-07
