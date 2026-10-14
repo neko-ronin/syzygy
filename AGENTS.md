@@ -73,11 +73,18 @@ There are three "what went wrong" documents and they are not interchangeable:
 ```bash
 npx tsc --noEmit                            # must be clean
 npx vite build                              # must be clean
-npx vite-node src/world/__selftest.ts       # citygen   — prints "VIOLATIONS: none"
-npx vite-node src/sim/__selftest.ts         # sim       — ALL PASS
-npx vite-node src/camera/__selftest.ts      # camera    — ALL PASS
+npx vite-node@6.0.0 src/world/__selftest.ts       # citygen   — prints "VIOLATIONS: none"
+npx vite-node@6.0.0 src/sim/__selftest.ts         # sim       — ALL PASS
+npx vite-node@6.0.0 src/camera/__selftest.ts      # camera    — ALL PASS
 node tools/lsp-check.mjs                    # 5/5 language servers
 ```
+
+`vite-node` is **not** a project dependency. The `@6.0.0` pin is deliberate: a bare
+`npx vite-node` resolves whatever is newest on npm. The first pinned run asks once to
+fetch exactly that version. `src/render/__selftest_ground_contract.ts` runs under it
+(`GROUND CONTRACT ALL PASS`). `src/render/__selftest_capture.ts` only exports a function
+and prints nothing under `vite-node`; run it through Vite SSR as in
+`docs/SESSION_2026-10-06_STREET.md` (the `node -e` line). Silence is not a pass.
 
 The world self-test prints a `VIOLATIONS` line, **not** `ALL PASS`. That is not
 a broken test; that is the line to read.

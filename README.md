@@ -117,8 +117,8 @@ and the WebGPU type definitions.
 
 ```bash
 npx tsc --noEmit
-npx vite-node src/world/__selftest.ts   # citygen   (prints VIOLATIONS: none)
-npx vite-node src/sim/__selftest.ts     # weather + traffic  (ALL PASS)
-npx vite-node src/camera/__selftest.ts  # camera              (ALL PASS)
+npx vite-node@6.0.0 src/world/__selftest.ts   # citygen   (prints VIOLATIONS: none)
+npx vite-node@6.0.0 src/sim/__selftest.ts     # weather + traffic  (ALL PASS)
+npx vite-node@6.0.0 src/camera/__selftest.ts  # camera              (ALL PASS)
 node tools/lsp-check.mjs                 # all five language servers
 ```

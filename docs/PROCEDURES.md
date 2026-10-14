@@ -20,9 +20,9 @@ Then, before touching anything:
 3. Run the self-tests to confirm the ground truth matches what the docs claim:
 
 ```bash
-npx vite-node src/world/__selftest.ts   # citygen   (expect VIOLATIONS: none)
-npx vite-node src/sim/__selftest.ts     # weather + traffic  (expect ALL PASS)
-npx vite-node src/camera/__selftest.ts  # camera              (expect ALL PASS)
+npx vite-node@6.0.0 src/world/__selftest.ts   # citygen   (expect VIOLATIONS: none)
+npx vite-node@6.0.0 src/sim/__selftest.ts     # weather + traffic  (expect ALL PASS)
+npx vite-node@6.0.0 src/camera/__selftest.ts  # camera              (expect ALL PASS)
 ```
 
 The world self-test does not print `ALL PASS` — it prints a `VIOLATIONS` line,

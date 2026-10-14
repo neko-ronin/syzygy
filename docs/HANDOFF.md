@@ -2,7 +2,17 @@
 
 ## Next session — start here (2026-10-14)
 
-**State.** Branch `claude/vigorous-faraday-e6883d`, session start `69e675d`. The 2026-10-13
+**Where the code is.** Everything is on `main` (no remote). The review 6 branch
+`claude/vigorous-faraday-e6883d` was merged in `2ffed62`. The same day, `8e8f36a` fixed the
+owner-reported "too bright at night under `bun run dev`": the weather director held its
+boot-time afternoon rig after sunset, because only `setPhase` (which the harness calls and
+the live app never does) changed it. It now follows the sun (PITFALLS §31; guarded by the
+"running clock" block in `src/sim/__selftest.ts`). **Harness night frames were never wrong,
+so the review 6 evidence below stands.** After the merge, `tsc`, all 12 sim/world/camera
+self-tests and both render self-tests pass. No capture or benchmark was re-run:
+`followSun` only changes the live day cycle, and every harness pose sets its phase explicitly.
+
+**State of the review 6 work.** Branch `claude/vigorous-faraday-e6883d`, session start `69e675d`. The 2026-10-13
 list was worked in order (`ee532e1` D30 islands and lived-in kits, `496e1e9` sheet D,
 `17cd839` sheet C, `9c6fc5f` sheet B, `166f659` stall dressing) and closed by **review 6**
 ([VISION_2026-10-11_R14](VISION_2026-10-11_R14.md), independent, read-only): **more work
@@ -52,8 +62,13 @@ must buy its cost back first; cheapest known lever: the D30 lived kits cost ~0.1
 - **Self-tests:** `vite-node` is **not** in `node_modules`, and `npx vite-node` asks to
   download whatever is latest. Run the cached copy,
   `~/.npm/_npx/f2342a4b64a2bc92/node_modules/.bin/vite-node <file>` (6.0.0), or pin it as a
-  devDependency deliberately. `__selftest_footway.ts` is now the spine clear-route and
-  market-lantern check.
+  devDependency deliberately. The docs now say `npx vite-node@6.0.0` (exact pin; first run
+  asks once to fetch it), see AGENTS.md. `__selftest_footway.ts` is now the spine
+  clear-route and market-lantern check. On macOS there is no `timeout`: a loop wrapped in
+  it runs nothing and prints nothing, which reads as a pass.
+- **Live app vs harness:** the harness sets the phase on every pose; the live app gets
+  there by the running clock. Check lighting changes in `npm run dev` too, with the
+  conductor's `/time night`, and read `__syzygy.stats()` (PITFALLS §31).
 - **Captures:** `node tools/capture.mjs --dev --sequence --pose=<name> ...`; `--hero-pair
   --scene=<base>/_scene.json` for the hero (PITFALLS §27). Compare frames shot **with the
   same pose sequence** and read `lodHistogram` in `_capture.json` (PITFALLS §30). A pose can
@@ -912,9 +927,9 @@ Type and test:
 
 ```bash
 npx tsc --noEmit
-npx vite-node src/world/__selftest.ts    # city generation
-npx vite-node src/sim/__selftest.ts      # weather + traffic
-npx vite-node src/camera/__selftest.ts   # camera
+npx vite-node@6.0.0 src/world/__selftest.ts    # city generation
+npx vite-node@6.0.0 src/sim/__selftest.ts      # weather + traffic
+npx vite-node@6.0.0 src/camera/__selftest.ts   # camera
 node tools/lsp-check.mjs                  # all five language servers
 ```
 

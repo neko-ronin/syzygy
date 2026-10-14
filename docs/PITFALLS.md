@@ -888,6 +888,26 @@ frame reads 0.6% with `[9, 140, 0, 0]`. **Catch it next time:** compare frames f
 pose sequence, and read `lodHistogram` in `_capture.json` before believing a far-field
 difference.
 
+## 31. Night in the live app was the afternoon rig: the harness never let the clock run
+
+**Symptom:** under `npm run dev` (or `bun run dev`) the city at night was evenly lit "from
+nothing"; every capture-harness night frame looked right.
+
+**Cause:** `WeatherDirector` chose its phase rig once, in its constructor (boot is afternoon).
+Only `setPhase` changed it. The live app reaches night by the running clock (`integrateWorld`,
+900 s day) or the conductor's `set_time`, which writes the sun directly; neither calls
+`setPhase`. So after sunset the director kept easing toward the afternoon rig: sun 3.9 below the
+horizon, ambient 0.55 sky-blue, sky `clear`. The harness calls `setTime` → `setPhase` on every
+pose, and every sim self-check froze the clock (`dayLength = 0`), so nothing measured the path
+a user actually takes.
+
+**Fix (`8e8f36a`):** `followSun()` in `update()` re-seeds the look when `phaseOf(world)` changes,
+skipped while `setPhase` is steering. The "running clock" block in `src/sim/__selftest.ts`
+fails on the old code. **Catch it next time:** when the harness and the live app disagree,
+diff what the harness *calls* against what the live loop does; a self-check that freezes a
+clock cannot see a bug that needs the clock. Background browser tabs draw ~1 frame/s, so
+sample live state by frames, not seconds.
+
 ## Working norms that held up
 
 - **Measure before theorising.** Every bug above cost far less time to measure

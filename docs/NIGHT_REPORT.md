@@ -232,6 +232,11 @@ Order is now setTime → setWeather → setLens.
    anyone who "fixes the night" by editing one of them. I did not touch it: it
    is outside my file and the reconciliation is a decision, not a patch.
 
+   **Update 2026-10-14:** still duplicated, but now mostly harmless. Since `8e8f36a` the
+   director re-authors its rig whenever the sun changes phase (PITFALLS §31), so the
+   values `set_time` writes from tools.ts last only until the director eases over them.
+   Reconciling the two tables is still open.
+
 2. **`windowGlow` is a phantom presented as a control.** Documented in §3.
 
 3. **`MARKET_REPORT.md` §7's "341 lights" and the 48/chunk cap describe a budget
