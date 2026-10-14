@@ -4,6 +4,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
+import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { acquireLock, preflight, releaseLock } from './orchestrate.mjs';
@@ -164,6 +165,16 @@ export function sourceProvenance(repoRoot = ROOT, runGit) {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * A report is committed and may be published, so it carries no machine paths:
+ * the repo root, the output dir and the home directory become placeholders, in
+ * that order (the output dir usually sits inside the repo; the browser binary
+ * and stack frames sit under home or the repo). Every report.json write uses it.
+ */
+export function portableReport(report, output, root = ROOT, home = homedir()) {
+  return JSON.stringify(report, null, 2).split(root).join('<repo>').split(output).join('<output>').split(home).join('~');
+}
 
 /** A failed/timeout close is not evidence that owned Chrome exited: retain the GPU claim. */
 export async function cleanupOwnedResources({ closeBrowser, stopServer, release }, timeoutMs = 10000) {
@@ -394,7 +405,7 @@ export async function main(argv = process.argv.slice(2)) {
       console.log(`benchmark ${route}: ${opts.adaptive ? 'adaptive from ' : 'fixed '}${opts.quality}, ${opts.headless ? 'headless' : 'headed'}`);
       const run = await runRoute(browser, route, opts, { setContext: (context) => { activeContext = context; }, throwIfCancelled }); report.runs.push(run);
       throwIfCancelled();
-      writeFileSync(join(output, 'report.json'), JSON.stringify(report, null, 2));
+      writeFileSync(join(output, 'report.json'), portableReport(report, output));
       console.log(`${route}: submitted ${run.summary.submittedFramesPerSecond.toFixed(2)}/s; p95 submission interval ${run.summary.submissionIntervalMs.p95?.toFixed(2) ?? 'unavailable'} ms; controls ${run.controls.valid ? 'valid' : 'INVALID'}`);
       if (!run.controls.valid) throw new Error(`invalid ${route} controls: ${run.controls.reasons.join(', ')}`);
     }
@@ -403,19 +414,19 @@ export async function main(argv = process.argv.slice(2)) {
       report.sourceProvenance.revision !== report.sourceProvenanceEnd.revision ||
       JSON.stringify(report.sourceProvenance.relevantModuleSHA256) !== JSON.stringify(report.sourceProvenanceEnd.relevantModuleSHA256) ||
       JSON.stringify(report.sourceProvenance.runtimeContentSHA256) !== JSON.stringify(report.sourceProvenanceEnd.runtimeContentSHA256);
-    writeFileSync(join(output, 'report.json'), JSON.stringify(report, null, 2));
+    writeFileSync(join(output, 'report.json'), portableReport(report, output));
     if (report.sourceChanged) throw new Error('source changed during benchmark; report is invalid for a fixed revision');
     console.log(`Saved ${join(output, 'report.json')}; presentation FPS unmeasured.`);
   } catch (error) {
     report.error = String(error?.stack ?? error); mkdirSync(output, { recursive: true });
-    writeFileSync(join(output, 'report.json'), JSON.stringify(report, null, 2)); throw error;
+    writeFileSync(join(output, 'report.json'), portableReport(report, output)); throw error;
   } finally {
     try {
       await cleanupOwnedResources({ closeBrowser: async () => { if (browser) await browser.close(); await signalInterruption; },
         stopServer: () => stopOwnedServer(server), release: releaseLock });
     } catch (error) {
       report.cleanupError = String(error); mkdirSync(output, { recursive: true });
-      writeFileSync(join(output, 'report.json'), JSON.stringify(report, null, 2)); throw error;
+      writeFileSync(join(output, 'report.json'), portableReport(report, output)); throw error;
     } finally {
       process.removeListener('SIGINT', onSigint); process.removeListener('SIGTERM', onSigterm);
     }

@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import ts from 'typescript';
-import { cleanupOwnedResources, distribution, parseArgs, runControls, sourceProvenance, summarize } from './benchmark.mjs';
+import { cleanupOwnedResources, distribution, parseArgs, portableReport, runControls, sourceProvenance, summarize } from './benchmark.mjs';
 
 const source = readFileSync(new URL('../src/render/perf.ts', import.meta.url), 'utf8');
 const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } });
@@ -229,4 +229,13 @@ let timeoutReleased = false;
 await assert.rejects(cleanupOwnedResources({ closeBrowser: () => new Promise(() => {}), stopServer: async () => {},
   release: () => { timeoutReleased = true; } }, 5), /timed out/);
 assert.equal(timeoutReleased, false, 'bounded cleanup timeout fails closed');
-console.log('ALL PASS: raw frame telemetry + benchmark evidence + nonblocking timestamp ring');
+// A committed report names no machine paths: repo, output dir and home become placeholders.
+{
+  const root = '/home/ana/code/syzygy', out = '/tmp/session-7/bench', home = '/home/ana';
+  const text = portableReport({ options: { output: out }, browser: { executablePath: `${home}/.cache/ms-playwright/chrome` },
+    error: `Error: x\n    at main (file://${root}/tools/benchmark.mjs:1:1)`, saved: `${root}/benchmarks/a` }, out, root, home);
+  for (const leak of [root, out, home]) assert.ok(!text.includes(leak), `report leaks ${leak}`);
+  assert.deepEqual(JSON.parse(text), { options: { output: '<output>' }, browser: { executablePath: '~/.cache/ms-playwright/chrome' },
+    error: 'Error: x\n    at main (file://<repo>/tools/benchmark.mjs:1:1)', saved: '<repo>/benchmarks/a' });
+}
+console.log('ALL PASS: raw frame telemetry + benchmark evidence + nonblocking timestamp ring + portable report paths');
