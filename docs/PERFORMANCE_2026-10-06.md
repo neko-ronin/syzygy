@@ -571,3 +571,26 @@ the clean 60.0 it started at.
 **Lesson:** per-item A/Bs of a few tenths each, two of them contended, hid a 1.1 ms sum. Run
 the session-start vs HEAD A/B before the review, not after.
 
+
+## 2026-10-15 — D30 islands and the island tree (`86c699a`) against `11b163f`
+
+`benchmark.mjs --route=all --quality=high`, interleaved base, new, new, base. **Contended**:
+other agent sessions were running GPU work, and the two base runs disagree with each other
+(hero 59.93 vs 43.86/s, base2 simulation min 4.5 ms vs 3.5), so this is not an A/B.
+GPU timestamps were unavailable on all four runs.
+
+| run | hero /s | skyline /s | flight /s | hero triangles |
+| --- | --- | --- | --- | --- |
+| base1 | 59.93 | 53.22 | 57.16 | 6.64M |
+| new1 | 44.60 | 60.00 | 56.15 | 7.83M |
+| new2 | 44.06 | 58.06 | 49.88 | 7.83M |
+| base2 | 43.86 | 53.25 | 52.23 | 6.64M |
+
+**What it supports:** the D32 floor holds. Every route on both builds stayed at or above
+44/s, against a floor of 30, even contended. **What it does not:** the cost against the
+60/s aim. The hero carries +1.18M triangles (+18%), mostly street islands on LOD 0 chunks,
+and new hero frames over 33 ms (195, 221) are in the contended base2's range (171). Re-run
+the hero alone on a quiet machine before trimming anything. *Follow-up, same day:* a
+cooled re-run in a sibling session (its PITFALLS §33) attributes the 43-48/s hero dip to
+thermal throttling on this fanless Mac; `86c699a` costs the hero about +0.95 ms, mostly
+shadows (56-57/s), within D32.

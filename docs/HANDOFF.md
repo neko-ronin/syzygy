@@ -57,9 +57,11 @@ must buy its cost back first; cheapest known lever: the D30 lived kits cost ~0.1
      at all three poses; low pieces (planters, crates, the sitters at cafes) are still
      hidden at 01c/01d. Not yet seen by a non-implementing reviewer.
    - Cost: islands are ~35-55k triangles per LOD 0 chunk (~9 LOD 0 chunks resident).
-     **Not benchmarked:** `tools/benchmark.mjs` refused, disk free 9.4 GB < 10 GB, and
-     `shots/` (332 MB) cannot free the difference. First action next session: free disk,
-     run `node tools/benchmark.mjs --route=all --quality=high` against `11b163f`, judge by D32.
+     **Benchmarked 2026-10-15, contended** (PERFORMANCE, last section): the D32 floor holds
+     (every route >= 44/s on both builds) but the A/B against the 60/s aim is not readable,
+     because the base runs disagree with each other. Hero triangles +18%. A cooled re-run in a
+     sibling session (its PITFALLS §33) puts the hero dip at thermal throttling on this fanless
+     Mac, and `86c699a` at about +0.95 ms on the hero, mostly shadows (56-57/s): within D32.
 2. **The island tree — done, awaiting review.** Trunk forks into limbs at 2.1-2.6 m; a crown
    of 8-11 masses on a jittered golden-angle spiral, 0.6-1.05 m, yellower greens after
    sheet D; shading normals bent up (`MeshOpts.normalLift`, spheres only) so the crown is
