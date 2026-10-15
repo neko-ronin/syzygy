@@ -34,10 +34,13 @@ export interface QualitySettings {
   foliageEnabled: boolean;
 }
 
+// viewDistance floors at 7 on every tier. Dropping it with the tier cut the
+// downtown peak (~1.5 km) out of the skyline view on potato; far chunks are
+// already LOD 3, so the governor saves more elsewhere for little visible loss.
 export const TIERS: Record<QualityTier, Omit<QualitySettings, 'tier'>> = {
-  potato: { renderScale: 0.6, shadowRes: 1024, cascades: 2, lodRange: [0, 3], bloomLevels: 3, dofEnabled: false, taaEnabled: true, viewDistance: 3, foliageEnabled: false },
-  low: { renderScale: 0.75, shadowRes: 1024, cascades: 3, lodRange: [0, 3], bloomLevels: 4, dofEnabled: true, taaEnabled: true, viewDistance: 4, foliageEnabled: true },
-  medium: { renderScale: 1.0, shadowRes: 2048, cascades: 4, lodRange: [0, 2], bloomLevels: 4, dofEnabled: true, taaEnabled: true, viewDistance: 5, foliageEnabled: true },
+  potato: { renderScale: 0.6, shadowRes: 1024, cascades: 2, lodRange: [0, 3], bloomLevels: 3, dofEnabled: false, taaEnabled: true, viewDistance: 7, foliageEnabled: false },
+  low: { renderScale: 0.75, shadowRes: 1024, cascades: 3, lodRange: [0, 3], bloomLevels: 4, dofEnabled: true, taaEnabled: true, viewDistance: 7, foliageEnabled: true },
+  medium: { renderScale: 1.0, shadowRes: 2048, cascades: 4, lodRange: [0, 2], bloomLevels: 4, dofEnabled: true, taaEnabled: true, viewDistance: 7, foliageEnabled: true },
   high: { renderScale: 1.0, shadowRes: 2048, cascades: 4, lodRange: [0, 1], bloomLevels: 5, dofEnabled: true, taaEnabled: true, viewDistance: 7, foliageEnabled: true },
   ultra: { renderScale: 1.35, shadowRes: 4096, cascades: 4, lodRange: [0, 0], bloomLevels: 6, dofEnabled: true, taaEnabled: true, viewDistance: 9, foliageEnabled: true },
 };
