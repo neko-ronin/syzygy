@@ -36,7 +36,13 @@ must buy its cost back first; cheapest known lever: the D30 lived kits cost ~0.1
 60 fps the aim. Between them is acceptable; do not cut objects or visual refinement to reach
 60. Below 30, cut features or change approach. Record the number with any added geometry.
 
-1. **D30 islands that read — done (2026-10-14), awaiting review; benchmarked 2026-10-15.**
+**Review 7 (2026-10-15, [VISION_2026-10-15_R7](VISION_2026-10-15_R7.md), independent,
+read-only): done (watch) overall.** Items 1, 2 and 4 done (watch); far cascades done;
+city-wide intact on all 24 poses. Two harness findings matter for the next review: `01g`'s
+`crowd: 0` carries into every later pose of a full sequence, and `01d` derives a different
+camera depending on which poses run before it.
+
+1. **D30 islands that read — done (watch), review 7 (2026-10-15); benchmarked 2026-10-15.**
    - Spine: gaps tightened (clump 3-7 m, open 9-18 m) and half the islands get a partner
      across the band: 104 -> 202 islands, clear route still >= 8.95 m. In the 10-30 m cone:
      `09-market-down-day` tree-bench 14 m, planters 20, cafe 22 (+ cafe 35); `01c` planters
@@ -55,7 +61,14 @@ must buy its cost back first; cheapest known lever: the D30 lived kits cost ~0.1
      striped in eight panels, edge 2.2 m and crown 2.8 m so they clear a 1.7 m crowd.
    - **Honest read of the frames:** the tall parts (tree, parasols) now read over the crowd
      at all three poses; low pieces (planters, crates, the sitters at cafes) are still
-     hidden at 01c/01d. Not yet seen by a non-implementing reviewer.
+     hidden at 01c/01d.
+   - **Review 7: done (watch).** Islands sit in the 10-30 m band at 09 (tree 14 m, planters
+     ~20, parasol and cafe ~22), with signs of use (sitters at 01d, parasols) and sheet-A
+     colour (parasols, teal chairs, a teal island). The crowd-off diagnostic confirms the
+     low pieces at 01c are present and hidden by the crowd. Watch: the first 12 m at 09 is
+     bare; planter bases read grey; the sitters' heads are bare balls on a gap, unlike the
+     walkers'. Island distances quoted against `01d` do not reproduce: its camera moves with
+     the run. Next: a literal island camera on the spine.
    - Cost: islands are ~35-55k triangles per LOD 0 chunk (~9 LOD 0 chunks resident).
      **Benchmarked 2026-10-15** (PERFORMANCE, "D30 islands that read"; ABBA against `11b163f`,
      eight clean hero runs a side): hero GPU span 14.62 -> 15.57 ms (+0.95), **60 -> 56-57/s**.
@@ -70,13 +83,20 @@ must buy its cost back first; cheapest known lever: the D30 lived kits cost ~0.1
      chunk mesh). Cooled ABBA, 4 legs a side: far cascades 3.65 -> 3.35 ms, span -0.26 ms, hero
      56.8 -> 57.7/s, two-vsync frames 5-7% -> 3.4-4.6% (PERFORMANCE, last section). Hero,
      market, skyline and aerial frames show no change beyond same-build noise to the
-     implementer; **awaiting a non-implementing reviewer** (PROCESS rule 9).
-2. **The island tree — done, awaiting review.** Trunk forks into limbs at 2.1-2.6 m; a crown
+     implementer. **Review 7: done.** `fea946d` against `4344b9a`, with a second `4344b9a`
+     run as control, at `--quality high`, hero scene replayed. Base vs head is never larger
+     than base vs control (hero day MAE 0.0025 / 0.0026, skyline 0.0039 / 0.0047, aerial
+     0.0023 / 0.0019, market 0.0131 / 0.0132; the market's changed pixels are pedestrians).
+2. **The island tree — done (watch), review 7.** Trunk forks into limbs at 2.1-2.6 m; a crown
    of 8-11 masses on a jittered golden-angle spiral, 0.6-1.05 m, yellower greens after
    sheet D; shading normals bent up (`MeshOpts.normalLift`, spheres only) so the crown is
    lit as one canopy; 7-10 amber festoon bulbs (emissive, no light budget). ~950 triangles
    (was ~200). At night (`09-market-down`) it reads green under the lanterns instead of
    black. Also used by footway trees (`'tree'` is a footway kind too).
+   **Review 7: done (watch).** Review 6's lollipop and night "black hexagon" are gone: by day
+   a forked trunk under round masses in mixed greens, at night lit olive-green masses
+   against the base's dark faceted blob. Watch: the bulbs read cream by day and white at
+   night, not amber; at potato tier the crown hides the fork.
 3. **Sheet C, fire as the key light — done (watch), reviewed twice and benchmarked (2026-10-15).**
    - Ruins (tag 3) now get the old-town uplight (`fireUplight` in `gbuffer.wgsl`, shared
      with tag 4): from the unsooted albedo, gain 4, fading over 7 m, so the lowest one or
@@ -155,7 +175,9 @@ must buy its cost back first; cheapest known lever: the D30 lived kits cost ~0.1
        pinned `--quality low` (0.521) and pinned potato (0.520), and in another current-code
        run at potato (0.517). Match the next black frame against this one before diagnosing
        it. Full sequences also need `--timeout 900`: the 120 s default stops after ~10 poses.
-4. **Sheet D, curtains not beads — done, awaiting review (2026-10-15).** `hangLeaves` is
+       Not reproduced in review 7: five aerial captures (governor low and pinned high), mean
+       0.634-0.639, none black.
+4. **Sheet D, curtains not beads — done (watch), review 7 (2026-10-15).** `hangLeaves` is
    now a curtain: a fringe of 0.4-1.1 m masses across a 1.2-3.6 m ledge (back row darker),
    then 3-4 strands of shrinking masses, longest near the middle and drawing in, so the
    outline narrows below. Each mass picks its own green from `TERRACE_LEAF`; ivy domes vary
@@ -183,7 +205,13 @@ must buy its cost back first; cheapest known lever: the D30 lived kits cost ~0.1
    - **Honest read:** at the tier tops and band edges the masses now hang as tapering
      curtains, not paired bead strings. Up close a strand is still a string of spheres, and the
      ellipsoid "lemon" masses on the bands (`pushSphere(.., 5, 3, ..)`, three sectors)
-     are untouched. Not yet seen by a non-implementing reviewer.
+     are untouched.
+   - **Review 7: done (watch).** Against `86c699a`, judged on character: fringes with
+     strands narrowing downward under the tier-top and upper band ledges, where the base
+     hangs paired bead strings; facade foliage 24.1% -> 23.6%. Watch: strands, lemons and
+     the ivy column are still spheres. From the low camera one wall-shade patch shows
+     outside its curtain as a flat grey trapezoid (parallax: patch 0.1 m off the wall,
+     curtain further out).
 5. **Sheet B, weathering — done, but on the wrong form (owner, 2026-10-15).** The bolted-on
    room columns it dresses misread the reference: left in place, not to be extended or
    reviewed as the target. **The village is now designed (lore and form, 2026-10-15):**
@@ -242,7 +270,10 @@ must buy its cost back first; cheapest known lever: the D30 lived kits cost ~0.1
 - **Captures:** `node tools/capture.mjs --dev --sequence --pose=<name> ...`; `--hero-pair
   --scene=<base>/_scene.json` for the hero (PITFALLS §27). Compare frames shot **with the
   same pose sequence** and read `lodHistogram` in `_capture.json` (PITFALLS §30). A pose can
-  set `crowd: 0` for a diagnostic of what the crowd hides. Delete your `shots/` runs.
+  set `crowd: 0` for a diagnostic of what the crowd hides, but the count carries into every
+  later pose: in a full sequence everything after `01g-kerb-face` has no crowd. `01d` derives
+  from the live crowd, so its camera moves with the poses run before it (review 7 got three
+  places). Delete your `shots/` runs.
   Sequence poses let the day clock run through warm, so `dayPhase` (`_capture.json`) drifts
   0.001 between runs and moves every shadow edge: compare only phase-matched frames, and run
   a same-build control before reading a base/new pixel diff.
