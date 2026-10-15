@@ -283,3 +283,37 @@ Honest inventory, so nobody mistakes absence for oversight:
 - **No close-focus capture pose exists.** The doctrine says detail must hold at
   3 m, and the closest pose we have is `01b-crowd-closeup` at 2.4 m in a
   non-verdant district. Add a per-section close pose as part of building it.
+
+### Section B's makeshift village: not designed yet (owner, 2026-10-15)
+
+**What exists is a misreading, left in place on purpose.** `pushScaffold` (citymesh.ts) bolts
+a column of shanty rooms on a scaffold up a tower's face from street level, adds an accreted
+crown, and `weatherRoom` (`c7148ca`) dresses those rooms. Pose 12 shows it on a clean teal
+glass tower. The owner's call: keep it as it is for now, but **do not extend, tune or review
+it as the sheet B target.** It is the wrong form, and it needs design before any more
+placement and rendering.
+
+**What the reference shows** (`references/sections/B-cold-industrial/`, the sheet's top
+row): the living spaces pile up on top of a bare concrete column (frame 2), with scaffold
+platforms, catwalks and skybridges high on dark, steel-blue megastructures (frame 1). The
+rooms do not climb a facade from the street, and the towers under them are not clean glass.
+
+**The owner's starting read:**
+
+- The rooms are **makeshift containers and boxes stacked on top of each other**, crudely
+  turned into living spaces.
+- The place is **a makeshift town**: people who met some hardship, doing their best to
+  build a semblance of a village.
+- **There is no lore or precedent for the concrete columns yet.** The city's history
+  (DECISIONS D29) has no structure like them. Do not invent one in placement code. What
+  the columns are, why they stand, what the village is built on, and how its people
+  reach it is design work to settle first.
+
+**Where it belongs:** the poorest, the most ruined and the most industrial areas. In D29's
+story that points at the industrial belt (`rust-hangars`) and the old town's burnt quarter.
+"Poorest" is not yet an attribute the plan carries. Today `SCAFFOLD_CHANCE` also places
+scaffolds in `glass-foxholes`, `canal-district` and `copper-stacks` (the downtown boom),
+which contradicts this. Pose 12 is a copper-stacks tower.
+
+**Order of work:** lore and form first (what it is, where, why), then placement, then
+rendering. Judge it against the sheet only once the form is designed.
