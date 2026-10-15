@@ -908,6 +908,28 @@ diff what the harness *calls* against what the live loop does; a self-check that
 clock cannot see a bug that needs the clock. Background browser tabs draw ~1 frame/s, so
 sample live state by frames, not seconds.
 
+## 32. Orange fire rendered as a cream lamp, and a teal sign hid inside it
+
+**Symptom:** review 6's follow-up: the old town's new wall braziers read as pale cream lamps,
+not fire, and one had a teal sliver beside it (pose 14, left wall).
+
+**Cause:** two separate faults. (1) The tonemap (`common.wgsl tonemap`) is per channel. Once red
+clips, green keeps climbing, so emissive `(1.0, 0.42, 0.1) x 2.2` lands near sRGB (242, 200, 90),
+which reads as cream. Bloom keys on luma, which is 72% green, so a red-only emitter does not
+bloom at all. (2) The brazier spacing came out almost identical to `placeProps`' street-band
+slot grid (7 m slots at 0.86 of the wall), so 44% of braziers ran through a blade sign, balcony,
+AC unit or planter. The sliver was a sign seen edge-on, and it was teal because every prop was
+baked with `profileFor(0)`, district 0's accent (props now carry their own `districtId`). Tinting suspects as pure emissive colours, one
+kind per colour, in a single capture found it. Reading the code had pointed at the planters.
+
+**Fix:** the flame is dark albedo times a high emissive mask, with green about 0.014 of red.
+Red is pushed past the bloom threshold, and the yellow-white is kept to a small core. Braziers
+hang in the whole-number gaps of the shared `streetSlotU` grid (citygen), and the bake drops
+any gap a prop box still reaches. Sign panels take their own colour. **Catch it next time:**
+judge a warm emitter by its green after exposure, not by its red. When two generators place
+along the same wall, compare their spacing formulas. The world self-test's `wall braziers`
+line fails when braziers land back on the slots (286/432 in a control run).
+
 ## 33. "Contention" with nothing running: a fanless Mac throttling
 
 **Symptom:** a benchmark A/B found the base hero at 43-48/s, every pass up ~25-35%

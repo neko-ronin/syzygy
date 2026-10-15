@@ -7,12 +7,12 @@
 import { makeRng, type Vec3, type Vec4 } from '../core/math';
 import { DISTRICT_STYLES, waterDepthAt } from './districts';
 import {
-  City, GROUND_Y, PropKind, auditChunkLots, towerTiers, cityPlan, defaultCityConfig, footprintAabb,
+  City, GROUND_Y, PropKind, auditChunkLots, oldTownOf, towerTiers, cityPlan, defaultCityConfig, footprintAabb,
   roadClearanceAt, sampleStreetPlan, type BuildingInstance, type CityChunk, type StreetSample,
 } from './citygen';
 import { interleaveMesh, MeshBuilder, meshTriangleCount, VERTEX_FLOATS, type Mesh } from './geometry';
 import { bakeGroundDetail } from '../render/groundbake';
-import { bakeChunk, profileFor, pushBuilding } from '../render/citymesh';
+import { bakeChunk, profileFor, pushBuilding, wallBrazierSpots } from '../render/citymesh';
 import { NavGraph, buildRailLines, buildZiplines, resampleSpline } from './networks';
 import {
   BAND_ORDER, CLUTTER_KINDS, bandAlbedo, decodeGroundSurfaceTag, familyFromBand, groundGrammarFor, hsv,
@@ -290,6 +290,12 @@ export function runCitySelfTest(): string {
         fail('inverted prop aabb');
       }
       if (p.scale <= 0 || !finite(p.scale)) fail('bad prop scale');
+      // The bake tints a prop by `profileFor(p.districtId)`; its colour was picked
+      // from the placing building's style, so it must be that district's own.
+      const ps = DISTRICT_STYLES[p.districtId];
+      if (!ps || (p.color !== ps.accentColor && !Object.values(ps.palette).includes(p.color))) {
+        fail(`prop district ${p.districtId} does not match its colour`);
+      }
       // A downpipe is a pipe at any length: its girth must not scale with it.
       if (p.kind === PropKind.Pipe && Math.max(p.aabbMax[0] - p.aabbMin[0], p.aabbMax[2] - p.aabbMin[2]) > 1) {
         fail(`downpipe ${(p.aabbMax[0] - p.aabbMin[0]).toFixed(1)} m wide`);
@@ -721,6 +727,22 @@ export function runCitySelfTest(): string {
     }
     if (n < 500 || onWall / n < 0.99) fail(`facade props on their wall: ${onWall}/${n}`);
     L.push(`facade props  ${onWall}/${n} on the wall of their tier`);
+  }
+  // Old-town wall braziers go in the gaps between the street-band prop slots: on
+  // the slots 44% ran through a sign, balcony or planter (2026-10-15). The gaps
+  // must keep the fire clear on their own; the bake's prop test drops the residue.
+  {
+    let gaps = 0, clear = 0;
+    for (let cx = -3; cx <= 2; cx++) for (let cz = -3; cz <= 2; cz++) {
+      const c = city.getChunk(cx, cz);
+      for (const b of c?.buildings ?? []) {
+        if (!c || !oldTownOf(b.districtId, b.position[0], b.position[2], b.windowSeed)) continue;
+        gaps += wallBrazierSpots(b, []).length;
+        clear += wallBrazierSpots(b, c.props).length;
+      }
+    }
+    if (gaps < 100 || clear / gaps < 0.9) fail(`old-town wall braziers clear of street props: ${clear}/${gaps}`);
+    L.push(`wall braziers ${clear}/${gaps} old-town gaps clear of every street prop`);
   }
   // Vertex layout: every vertex keeps its own UV (a stride-3 read gave the last third NaN).
   {

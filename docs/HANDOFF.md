@@ -71,11 +71,84 @@ must buy its cost back first; cheapest known lever: the D30 lived kits cost ~0.1
    lit as one canopy; 7-10 amber festoon bulbs (emissive, no light budget). ~950 triangles
    (was ~200). At night (`09-market-down`) it reads green under the lanterns instead of
    black. Also used by footway trees (`'tree'` is a footway kind too).
-3. **Sheet C, fire as the key light.** Ember yards and braziers now sit at street level but
-   are 5-10 px at pose 15 and light nothing above the ground: uplight the ruin and alley
-   walls 1-2 storeys (`gbuffer.wgsl` tag 4 does this for intact old-town walls, tag 3 ruins
-   do not get it); braziers and wall clutter in the near 10 m of the pose-14 alley, above
-   crowd height, including the bare left wall. `pushOldTownFire`, `placeProps` (citygen).
+3. **Sheet C, fire as the key light — done (watch), reviewed twice and benchmarked (2026-10-15).**
+   - Ruins (tag 3) now get the old-town uplight (`fireUplight` in `gbuffer.wgsl`, shared
+     with tag 4): from the unsooted albedo, gain 4, fading over 7 m, so the lowest one or
+     two storeys read amber; on the soot it was too dim to see. Pose 15: the two shells were
+     black above their ember beds and now glow from the foot.
+   - Wall braziers on every old-town face, ruins included (`pushOldTownFire`): an iron
+     bracket and basket 3.8-4.6 m up, above the crowd, and a fire light at LOD 0. Pose 14's
+     left wall is the ruin at (166, 231): black at its foot before, lit with two flames in
+     frame now. Lights 1504 -> 1670 -> 1656 at poses 14/15 (this round), starved 0; market
+     lanterns lit 311/311 (`__selftest_footway`).
+   - **Round 2 (2026-10-15), the review's watch items.** The fire is a deep-red ember bed, a
+     small yellow-white core and an orange-red tongue. It is dark albedo times a high
+     emissive mask, with green about 0.014 of red: the per-channel tonemap clips a warm
+     emitter to cream once red saturates (PITFALLS §32). The teal tint was a blade sign the
+     brazier ran through, measured by tinting suspects one colour each. Braziers now hang in
+     the gaps between the street-band prop slots (`wallBrazierSpots`, on citygen's
+     `streetSlotU`). Before, 44% intersected a sign, balcony, AC unit or planter; a gap a
+     prop box still reaches is skipped (430 -> 380 braziers at seed 5e7a17). The world
+     self-test line `wall braziers 418/432` fails if they land back on the slots (286/432 in
+     a control). Each soot quad is one tapered streak, 0.9 m at the basket to 0.1 m at the
+     plinth top.
+   - **Blade signs city-wide** now take their own colour, their district's emissive (the
+     colour their light already cast), not district 0's teal accent. In the old town they
+     are amber lightboxes. Neon-arcology signs are magenta (06), botanical-dome ones pale
+     green. LOD 0 only. The other props followed (next item).
+   - **Every prop now takes its own district's profile.** `bakeChunk` baked all props with
+     `profileFor(0)`, a placeholder since `ea92752`. A prop's colour is `p.color` (already
+     the placing building's palette) times that profile's accent or palette, so every
+     awning, pot, balcony, rail, antenna, dish and tank in the city wore verdant-canyon's
+     teal-green (110 of 1635 buildings are verdant). `PropInstance.districtId` is the
+     placing building's (`put` in `placeProps`, not a `districtAtField` lookup, which
+     misassigns at district edges). The world self-test fails a prop whose colour is not
+     in its district's palette (14 violations in a control with the id forced to 0).
+     Old-town awnings at poses 14/15 went teal-green to maroon and amber-brown; at 04 teal
+     to orange-red; at 06 (neon-arcology) to violet beside the magenta signs. Props are
+     albedo only, so lights are unchanged (D28); the teal towers keep their colour (D27).
+     tsc, world/sim/camera/ground-contract/section B/section D/footway self-tests, hygiene,
+     lsp-check and `vite build` pass. Captures `shots/2026-10-15T14-45-59` (before) and
+     `shots/2026-10-15T14-59-25` (after), grids `shots/compare/2026-10-15T15-01-2{0,2}`.
+     **Review (independent, read-only): done**, gap none, city-wide check on all 23 poses.
+     Watch: pose 14's lime-green street tree is now the alley's only cool, high-chroma note;
+     run-to-run noise (crowd positions, reflective faces at 06/12) is large enough to hide
+     a small change there; the capture's `_contact-sheet.png` holds only 8 of 23 poses.
+   - **Pose 15's dark round blotches are the ruins' blown-out bays** (tag-3 `gap` in
+     `gbuffer.wgsl`), not soot. Debug render, bays cyan and soot quads magenta: 17,102 of the
+     dark wall pixels in the uplit foot band are bays, 222 are soot. The bays were left as
+     they are.
+   - **Benchmark (D32), `--route=all --quality=high`, same session, A/B:** with this change
+     hero 57.36 / skyline 60.00 / flight 58.98 submitted/s; control at `86c699a` without it
+     56.70 / 59.99 / 58.45. No measurable cost. The hero sits below the 59.35-59.85 band
+     recorded before items 1-2 in both runs, so that drop predates this item (it is
+     item 1's to attribute, against `11b163f`); both are inside D32 (>= 30).
+   - Round 2 cost: about +10 triangles a brazier (core and tongue cones replace one
+     cylinder), 12% fewer braziers. Not re-benchmarked.
+   - **Review 1 (independent, read-only): done (watch).** Pose 15's ruins read lit from below
+     by fire for the first time; pose 14's left wall is no longer bare. Its watch items
+     (cream flames, a teal tint, the blotches, the soot shape) are round 2 above.
+   - **Review 2 (independent, read-only, three passes): done (watch).** The first pass
+     returned more work needed: the teal sign still sat flush beside the flame on screen,
+     since the alley view collapses its 3.1 m gap to 0 px. That led to the sign colour fix.
+     The second pass met (a) orange-red fire with a small hot core, (b) no teal beside a
+     basket, (c) one tapered streak per basket, and (d) blotches answered by measurement, but
+     held on one black frame (below). The third pass closed it, with the city-wide check
+     clear on all 23 poses. Watch:
+     - Old-town amber lightbox signs sit flush against two flames at pose 14 and read as
+       "red tongue + cream lamp" at 1x.
+     - The soot streaks are not legible from inside the alley (pose 14: the walls run along
+       the view, so each streak is 1-5 px wide). They read at pose 15.
+     - Botanical-dome signs now glow pale green (#8affa0, that district's emissive): an
+       owner call under D28.
+     - The flame cones are hard-edged with little bloom halo.
+     - ~~Every other prop is still tinted by district 0's profile~~: fixed, see "Every prop
+       now takes its own district's profile" above.
+     - **Open capture flake:** `05-aerial-top` came out fully black once (RGB mean 0.005,
+       run of 2026-10-15 08:54, governor-chosen potato tier, no GPU error). It renders at
+       pinned `--quality low` (0.521) and pinned potato (0.520), and in another current-code
+       run at potato (0.517). Match the next black frame against this one before diagnosing
+       it. Full sequences also need `--timeout 900`: the 120 s default stops after ~10 poses.
 4. **Sheet D, curtains not beads.** Hanging masses read as strings of equal glossy spheres:
    wide at the ledge, narrowing below, mixed sizes and hues, contact shadow on the wall
    (`hangLeaves`, ivy loop in `pushTerraces`). Keep `TERRACE_HANG_BUDGET`: without it one

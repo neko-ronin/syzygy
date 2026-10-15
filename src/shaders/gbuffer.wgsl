@@ -127,6 +127,21 @@ fn floorLitThreshold(floorIdx: f32, seed: f32) -> f32 {
 }
 
 /**
+ * Old town (sheet C): the street's forges and braziers light the walls from
+ * below, strongest at the foot and patchy along it, fading over `fall` metres.
+ * Stylised, like the ground pools: the key light comes from inside the canyon.
+ * Amber, from a grey-weighted albedo: multiplying the red brick alone clipped
+ * it to flat poster red (R14 review 4).
+ */
+fn fireUplight(world: vec3f, n: vec3f, albedo: vec3f, fall: f32, gain: f32) -> vec3f {
+  let rise = max(world.y - 0.35, 0.0);
+  let ax = select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 0.0, 1.0), abs(n.x) > 0.5);
+  let spot = 0.35 + 0.65 * vnoise2(vec2f(dot(world, ax) * 0.09, 3.7));
+  let lit = mix(albedo, vec3f(dot(albedo, vec3f(0.3, 0.5, 0.2))), 0.6);
+  return lit * vec3f(1.0, 0.62, 0.28) * gain * exp(-rise / fall) * spot * lightsOn();
+}
+
+/**
  * A whole facade in one function: floor bands, window cells, recessed sills,
  * grime running down from each sill, shopfronts at street level, and a slow
  * per-floor colour drift so no two walls read the same.
@@ -658,16 +673,7 @@ fn fs(i: VSOut) -> GOut {
     let mirror = select(0.0, 1.0, tag == 2.0);
     var r = facade(i.world, n, i.color, i.color * 0.4 + vec3f(0.25, 0.12, 0.05), i.seed, 3.6, detail, mirror);
     if (tag >= 4.0) {
-      // Old town (sheet C): the street's forges and braziers light the walls from
-      // below, strongest at the foot and patchy along it. Stylised, like the
-      // ground pools: the key light comes from inside the canyon.
-      let rise = max(i.world.y - 0.35, 0.0);
-      let ax = select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 0.0, 1.0), abs(n.x) > 0.5);
-      let spot = 0.35 + 0.65 * vnoise2(vec2f(dot(i.world, ax) * 0.09, 3.7));
-      // Amber, from a grey-weighted albedo: multiplying the red brick alone
-      // clipped it to flat poster red (R14 review 4).
-      let lit = mix(r.albedo, vec3f(dot(r.albedo, vec3f(0.3, 0.5, 0.2))), 0.6);
-      r.emissive += lit * vec3f(1.0, 0.62, 0.28) * 2.2 * exp(-rise / 15.0) * spot * lightsOn();
+      r.emissive += fireUplight(i.world, n, r.albedo, 15.0, 2.2);
     } else if (tag >= 3.0) {
       // Burnt out (sheet C): soot in vertical streaks; no lamp behind any window.
       // About half the bays are blown out into ragged gaps, one in five of those
@@ -675,6 +681,9 @@ fn fs(i: VSOut) -> GOut {
       // windows, even ember-tinted, read as an intact building (R14 review 5); at
       // 1.8 the glow bloomed to yellow and read as lit windows again.
       let soot = 0.55 + 0.45 * fbm2(vec2f(dot(i.world.xz, vec2f(0.7, 0.7)) * 0.9, i.world.y * 0.06), 3);
+      // The kiln yards at its foot light the shell's lowest storeys or two. From
+      // the unsooted albedo: on the soot it was too dim to read as fire light.
+      let up = fireUplight(i.world, n, r.albedo, 7.0, 4.0);
       r.albedo = r.albedo * clamp(soot, 0.25, 1.0);
       let ax = select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 0.0, 1.0), abs(n.x) > 0.5);
       let cv = vec2f(dot(i.world, ax) / 3.1, i.world.y / 3.6);
@@ -684,7 +693,8 @@ fn fs(i: VSOut) -> GOut {
       let gap = step(0.5, h) * step(edge, f.x) * step(f.x, 1.0 - edge) * step(edge, f.y) * step(f.y, 1.0 - edge * 0.5);
       r.albedo = mix(r.albedo, vec3f(0.02, 0.016, 0.013), gap);
       let heat = 0.35 + 0.65 * vnoise2(cv * 1.3 + vec2f(9.0, 2.0));
-      r.emissive = vec3f(1.0, 0.2, 0.035) * gap * step(0.9, h) * heat * (1.1 - 0.8 * f.y) * mix(0.15, 1.0, lightsOn());
+      r.emissive = vec3f(1.0, 0.2, 0.035) * gap * step(0.9, h) * heat * (1.1 - 0.8 * f.y) * mix(0.15, 1.0, lightsOn())
+        + up * (1.0 - gap);
       r.roughness = 0.9;
     }
     base = r.albedo; rough = r.roughness; metal = r.metallic; emis = r.emissive; ao = r.occlusion;

@@ -57,6 +57,8 @@ export interface PropInstance {
   rotation: Vec4;
   scale: number;
   color: Vec3;
+  /** District of the building that placed it: the bake takes its accent and palette from here. */
+  districtId: number;
   aabbMin: Vec3;
   aabbMax: Vec3;
 }
@@ -796,6 +798,14 @@ export function oldTownOf(districtId: number, x: number, z: number, windowSeed: 
 const PLINTH_PROUD = 0.28;
 /** Street-band props per building, beside the facade allowance (see placeProps). */
 const STREET_PROPS = 40;
+/** Street-band prop slots on a wall of half-width `half`, one per ~7 m. */
+export const streetSlots = (half: number): number => Math.max(1, Math.floor((half * 2) / 7));
+/**
+ * Along-wall position of slot coordinate `k`: slot centres are at k + 0.5, so
+ * whole k are the gaps between them, where the old town's wall braziers go
+ * (citymesh `pushOldTownFire`).
+ */
+export const streetSlotU = (half: number, k: number): number => (k / streetSlots(half) - 0.5) * 2 * half * 0.86;
 
 function placeProps(
   cfg: CityConfig, b: BuildingInstance, style: DistrictStyle, budget: number, r: Rng, out: PropInstance[],
@@ -838,7 +848,7 @@ function placeProps(
       tilt ? b.lean[2] : 0,
     );
     const [aabbMin, aabbMax] = propAabb(p, q, scale, kind);
-    out.push({ kind, position: p, rotation: q, scale, color, aabbMin, aabbMax });
+    out.push({ kind, position: p, rotation: q, scale, color, districtId: b.districtId, aabbMin, aabbMax });
     n++;
   };
 
@@ -859,9 +869,9 @@ function placeProps(
       const sill = baseY + f * fh;
       if (sill + 3 > roofY) break;
       const half = span(face, sill + 1);
-      const slots = Math.max(1, Math.floor((half * 2) / 7));
+      const slots = streetSlots(half);
       for (let k = 0; k < slots && n - streetStart < STREET_PROPS / 4; k++) {
-        const u = ((k + 0.5) / slots - 0.5) * 2 * half * 0.86 + r.jitter(0.8);
+        const u = streetSlotU(half, k + 0.5) + r.jitter(0.8);
         const roll = r.next();
         if (f === 0) {
           if (roll < 0.55) put(PropKind.Awning, faceAt(face, u, baseY + 3.4), face, r.range(0.9, 1.5), style.palette.trim, true);

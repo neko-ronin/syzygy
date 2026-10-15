@@ -17,7 +17,7 @@ import {
 } from '../world/geometry';
 import {
   type BuildingInstance, type Cable, type CityChunk, type PropInstance, PropKind,
-  buildingPoint, cityPlan, GROUND_Y, oldTownOf, towerTiers, type TowerTier,
+  buildingPoint, cityPlan, GROUND_Y, oldTownOf, streetSlots, streetSlotU, towerTiers, type TowerTier,
 } from '../world/citygen';
 import {
   districtAtField, districtPaletteLinear, districtStyle,
@@ -159,13 +159,71 @@ export function profileFor(id: number): DistrictProfile {
 /** Exported for `__selftest.ts` only. */
 const oldTown = (b: BuildingInstance): ReturnType<typeof oldTownOf> => oldTownOf(b.districtId, b.position[0], b.position[2], b.windowSeed);
 const EMBER: Vec3 = [1.0, 0.42, 0.13];
+/**
+ * Wall-brazier fire, as albedo times emissive mask. The tonemap is per channel:
+ * a flame with green at 0.42 of red clipped to cream once red saturated, and
+ * read as a paper lamp (review 6). Orange needs green under ~0.1 whatever red
+ * is; red goes past the bloom threshold (luma 1.05) so the tongue still glows,
+ * and the yellow-white is kept to a small core. Dark albedo, because the
+ * brazier's own light falls on these too.
+ */
+const FIRE_BED: Vec3 = [0.25, 0.015, 0.003], FIRE_TONGUE: Vec3 = [0.25, 0.0036, 0.0007], FIRE_CORE: Vec3 = [0.3, 0.16, 0.05];
+
+/**
+ * Where the old town's wall braziers hang: face, along-wall t and basket height
+ * (building-local y), 3.8-4.6 m up, above the crowd's heads. In the gaps between
+ * the street-band prop slots: on a ~9 m spacing that matched the slots' ~7 m,
+ * 44% ran through a shop sign, balcony, AC unit or planter, and a blade sign's
+ * edge read as a teal tint beside one flame at pose 14 (2026-10-15). A gap that
+ * a wide balcony or a laundry line still reaches (4%) is left empty.
+ */
+export function wallBrazierSpots(b: BuildingInstance, props: readonly PropInstance[]): { face: number; t: number; y: number }[] {
+  const T = towerTiers(b)[0], yb = -b.halfExtents[1], w = makeRng((b.windowSeed ^ 0x3b4a51e) >>> 0);
+  const out: { face: number; t: number; y: number }[] = [];
+  for (let face = 0; face < 4; face++) {
+    const half = face < 2 ? T.hz : T.hx, wall = face < 2 ? T.hx : T.hz, slots = streetSlots(half);
+    // Up to four gaps a face; a one-slot wall takes one side of its slot.
+    const ks = slots > 1 ? [] : [w.bool(0.5) ? 0.25 : 0.75];
+    for (let k = 1, step = Math.ceil((slots - 1) / 4); k < slots; k += step) ks.push(k);
+    for (const k of ks) {
+      const t = streetSlotU(half, k), y = yb + 3.8 + w.next() * 0.8;
+      // Basket to flame tip, 0.95 m out, against every prop box in the chunk.
+      const a = facePoint(b, face, wall, t, y, 0.95), c = facePoint(b, face, wall, t, y + 1.55, 0.95), R = 0.36;
+      const lo = [Math.min(a[0], c[0]) - R, Math.min(a[1], c[1]) - R, Math.min(a[2], c[2]) - R];
+      const hi = [Math.max(a[0], c[0]) + R, Math.max(a[1], c[1]) + R, Math.max(a[2], c[2]) + R];
+      if (props.some((p) => p.aabbMax[0] > lo[0] && p.aabbMin[0] < hi[0] && p.aabbMax[1] > lo[1] && p.aabbMin[1] < hi[1] && p.aabbMax[2] > lo[2] && p.aabbMin[2] < hi[2])) continue;
+      out.push({ face, t, y });
+    }
+  }
+  return out;
+}
 
 /** Street-level fire: forge mouths glowing at the base, lighting the canyon from below. */
-export function pushOldTownFire(bld: MeshBuilder, b: BuildingInstance, lights: BakedChunk['lights'], lod: number): void {
+export function pushOldTownFire(bld: MeshBuilder, b: BuildingInstance, props: readonly PropInstance[], lights: BakedChunk['lights'], lod: number): void {
   const ot = oldTown(b);
   if (!ot || lod >= 2) return;
   const r = makeRng((b.windowSeed ^ 0x6f0e6e5) >>> 0);
   const hy = b.halfExtents[1], yb = -hy, tiers = towerTiers(b), T = tiers[0];
+  // Wall braziers on iron brackets. The footway fires sat under the crowd and lit
+  // nothing a camera above the street could see; pose 14's left wall (a ruin) had
+  // none (R14 review 6).
+  const plinthTop = yb + Math.min(7.5, hy * 2 * 0.25) - 0.05;
+  for (const { face, t, y } of wallBrazierSpots(b, props)) {
+    const wall = face < 2 ? T.hx : T.hz;
+    const Q = (yy: number, d: number, dt = 0): Vec3 => facePoint(b, face, wall, t + dt, yy, d);
+    bld.pushCylinder(Q(y - 0.6, 0.3), Q(y, 0.95), 0.05, 4, [0.12, 0.1, 0.09]);
+    bld.pushCylinder(Q(y, 0.95), Q(y + 0.45, 0.95), 0.22, 6, [0.18, 0.13, 0.1], { radiusTop: 0.36, capEnds: true });
+    bld.pushCylinder(Q(y + 0.45, 0.95), Q(y + 0.55, 0.95), 0.34, 6, FIRE_BED, { capEnds: true, emissive: 5 });
+    // A small white-hot core, and a taller orange-red tongue over its top, so the
+    // fire reads from above the street (the bed alone was a few px).
+    bld.pushCone(Q(y + 0.5, 0.95), Q(y + 1.0, 0.95), 0.15, 5, FIRE_CORE, { emissive: 16 });
+    bld.pushCone(Q(y + 0.7, 0.95), Q(y + 1.55, 0.95), 0.25, 5, FIRE_TONGUE, { emissive: 28 });
+    // One soot streak, tapering as it climbs: on the plinth shell (0.28 proud)
+    // and no higher, or it floats off the wall above.
+    const top = Math.min(y + 3.4, plinthTop);
+    if (top > y + 1.2) bld.pushQuad(Q(y + 0.5, 0.31, -0.45), Q(y + 0.5, 0.31, 0.45), Q(top, 0.31, 0.05), Q(top, 0.31, -0.05), [0.05, 0.04, 0.035], 1, { doubleSided: true });
+    if (lod < 1) lights.push({ pos: Q(y + 1.0, 1.3), radius: 11, color: [1.0, 0.46, 0.16], intensity: 2.2 });
+  }
   if (ot.ruin) {
     const k = makeRng((b.windowSeed ^ 0x2b1a5e) >>> 0), TL = tiers[tiers.length - 1], top = yb + TL.y1;
     // One dim smoulder left on the stubs for the silhouette, unlit. The kiln
@@ -1121,8 +1179,11 @@ function pushProp(
     }
     case PropKind.Sign: {
       // A blade sign: it projects from the wall on a bracket, so it reads in a
-      // street seen end-on, where a panel flat on the facade is a sliver.
-      bld.pushBox(P(0, 0, 0.62 * s), [0.05 * s, 0.6 * s, 0.48 * s], tint(accent, 1.0), {
+      // street seen end-on, where a panel flat on the facade is a sliver. The panel
+      // is the colour its light casts (its district's emissive). Tinted by `accent`,
+      // which was district 0's for every prop, every sign was teal-green, and one read
+      // as a teal tint beside an old-town fire (pose 14).
+      bld.pushBox(P(0, 0, 0.62 * s), [0.05 * s, 0.6 * s, 0.48 * s], c, {
         faces: ALL_FACES, emissive: 2.6, rotationY: boxYaw,
       });
       bld.pushTubeAlongPath([P(0, 0.66 * s, 0), P(0, 0.66 * s, 1.15 * s)], 0.025 * s, 3, tint(pal.metal, 0.6));
@@ -1296,7 +1357,7 @@ export function bakeChunk(chunk: CityChunk, lod: number, seed: number): BakedChu
     pushBuilding(solid, b, dp, rng, lod);
     pushScaffold(solid, b, dp, lod, lights);
     pushTerraces(solid, leaf, b, dp, lod);
-    pushOldTownFire(solid, b, lights, lod);
+    pushOldTownFire(solid, b, chunk.props, lights, lod);
     // Ground footprint comes from the generator's actual occupied bounds.
     obstacles.push({ x: (b.aabbMin[0] + b.aabbMax[0]) * 0.5, z: (b.aabbMin[2] + b.aabbMax[2]) * 0.5,
       tx: 1, tz: 0, halfAlong: (b.aabbMax[0] - b.aabbMin[0]) * 0.5, halfAcross: (b.aabbMax[2] - b.aabbMin[2]) * 0.5,
@@ -1320,7 +1381,10 @@ export function bakeChunk(chunk: CityChunk, lod: number, seed: number): BakedChu
 
   // --- props
   for (const p of chunk.props) {
-    const dp = profileFor(0);
+    // The placing building's district. This was `profileFor(0)` from the first
+    // render commit, so every awning, pot and rail in the city wore district 0's
+    // teal-green accent and palette (old-town awnings beside the fire, pose 15).
+    const dp = profileFor(p.districtId);
     // Cheap LOD gate: drop the noisy kinds first.
     if (lod >= 1) {
       const k = p.kind;
