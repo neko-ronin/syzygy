@@ -590,7 +590,57 @@ GPU timestamps were unavailable on all four runs.
 44/s, against a floor of 30, even contended. **What it does not:** the cost against the
 60/s aim. The hero carries +1.18M triangles (+18%), mostly street islands on LOD 0 chunks,
 and new hero frames over 33 ms (195, 221) are in the contended base2's range (171). Re-run
-the hero alone on a quiet machine before trimming anything. *Follow-up, same day:* a
-cooled re-run in a sibling session (its PITFALLS §33) attributes the 43-48/s hero dip to
-thermal throttling on this fanless Mac; `86c699a` costs the hero about +0.95 ms, mostly
-shadows (56-57/s), within D32.
+the hero alone on a quiet machine before trimming anything. *Superseded by the next
+section:* the cooled ABBA puts the dip at heat (PITFALLS §33) and the cost at +0.95 ms.
+
+## 2026-10-15 — D30 islands that read (`86c699a`), ABBA on a cooled machine
+
+Reports: `benchmarks/islands-ab/`, not committed (24 raw reports, 59 MB; the figures below are
+copied from them). Base = `11b163f`, the commit before. `r01`-`r08`: one
+`--route=all` and one `--route=garden` leg each, ABBA ABBA, `--gpu-passes`. `h01`-`h04`: hero
+only, ABBA, `--gpu-passes`, each leg started cool. `u01`-`u04`: the same without pass timing.
+Every leg was gated on top CPU < 30% and a free GPU lock; `h` and `u` legs also on Metal
+device utilisation < 20% and a cool chassis (below).
+
+**Hero, eight clean runs per side** (`r01`-`r04`, `h01`-`h04`), base / new:
+
+| | `11b163f` | `86c699a` |
+|---|---|---|
+| submitted/s | 59.52, 60.02, 59.72, 59.96 | 56.03, 56.09, 56.06, 55.98 |
+| without pass timing (`u`) | 60.02, 59.96 | 56.85, 57.25 |
+| GPU span ms | 14.69, 14.52, 14.68, 14.57 | 15.58, 15.55, 15.55, 15.61 |
+| shadows (4 cascades) | 5.40, 5.23, 5.22, 5.17 | 6.15, 6.04, 6.08, 6.04 |
+| G-buffer | 1.93, 1.92, 1.87, 1.96 | 2.07, 2.09, 2.04, 2.08 |
+| lighting | 5.12, 5.13, 5.25, 5.08 | 5.16, 5.13, 5.15, 5.17 |
+| light binning | 0.88, 0.90, 0.98, 0.99 | 0.84, 0.92, 0.97, 0.92 |
+| TAA (control) | 0.344-0.347 | 0.345-0.346 |
+| triangles/frame, all passes | 6.1-6.3M | 7.3-7.5M |
+
+**Cost +0.95 ms GPU span, hero 60 -> 56-57/s.** It is shadow casting (+0.85 ms: cascade 0
++0.23, the alternating far cascades 2+3 summed +0.45) and the G-buffer (+0.15). **Lighting
+did not grow**: the commit adds no lights (festoon bulbs are emissive only), and the
+lighting pass is flat to 0.1 ms. The 6.4-7.0 ms lighting seen on 2026-10-15 is heat, below.
+Islands are baked into the chunk mesh, which is one draw shared by the G-buffer and every
+cascade whose box covers the chunk, so ~1.2M more triangles a frame reach the shadow maps.
+CPU unchanged (simulation 4.0-4.2 ms, encode 0.4). The base runs with ~2 ms of GPU headroom.
+The new hero has ~1 ms, so 5-7% of frames take two vsyncs: completion latency p95 18-27 -> 33
+ms, submission intervals over 25 ms 0-8 -> 83-121 per 30 s.
+
+**Other routes**, clean half (`r01`-`r04`): skyline 12.50, 12.33 -> 12.94, 13.06 ms (shadows
++0.5), 60.0/s both; flight 12.97, 12.80 -> 13.43, 13.38 ms (shadows +0.6), 59.3 -> 58.7/s;
+garden 12.47, 12.03 -> 12.29, 12.60 ms, within the spread, 60.0/s both.
+
+**Heat, not contention.** Legs `r05`-`r08` (after ~15 min of back-to-back load) slowed on
+both sides, every pass at once: hero base 17.58, 18.20 ms at 50.7, 49.2/s, new 18.97, 18.82
+ms at 47.4, 47.7/s, TAA 0.43-0.45, lighting 6.6-6.8. The new side was still +1.0 ms. Top CPU
+stayed at 12-15% and the GPU read 0% between legs: nothing else was running. This Mac is a
+fanless MacBook Air (Mac14,15). Control: after 7 minutes idle (battery 40.3 -> 34.0 °C),
+`h01` on the same base commit ran 59.72/s, 14.68 ms, TAA 0.343. The 2026-10-15 shared-machine
+figures (43-48/s, 18.5-20.4 ms, lighting 6.4-7.0, TAA 0.43) match the hot legs: a long
+run of back-to-back legs, not the islands, put the base there. PITFALLS §33.
+
+**Judgement under D32:** 56-57/s at the hero is between the floor and the aim. It is
+acceptable, and nothing should be cut for it. The hottest hero leg measured 47.4/s, still
+well above 30. A cheap win, untried and unmeasured: keep small LOD 0 furniture out of the far
+cascades (2-3), which carry about half the added shadow cost. Whether their shadows show at
+that range has not been checked by eye.

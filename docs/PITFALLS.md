@@ -908,6 +908,21 @@ diff what the harness *calls* against what the live loop does; a self-check that
 clock cannot see a bug that needs the clock. Background browser tabs draw ~1 frame/s, so
 sample live state by frames, not seconds.
 
+## 33. "Contention" with nothing running: a fanless Mac throttling
+
+**Symptom:** a benchmark A/B found the base hero at 43-48/s, every pass up ~25-35%
+at once (TAA 0.43 against 0.345, lighting 6.4-7.0 against 5.1 ms). Earlier sessions blamed
+the same signature on other apps' renderers.
+
+**Cause:** heat. This Mac is a fanless MacBook Air (Mac14,15). In the 2026-10-15 islands ABBA
+the first four legs (~15 min) were clean, and the next four slowed on both sides at once.
+Top CPU stayed at 12-15%, the GPU read 0% between legs, and nothing held the lock. Control:
+7 minutes idle (battery 40.3 -> 34.0 °C), then the same base commit ran 59.72/s, 14.68 ms,
+TAA 0.343, against 49.2/s hot. **Catch it next time:** when every pass rises at once, read
+the battery `Temperature` (`ioreg -rn AppleSmartBattery -l`, centi-°C) and the Metal
+`Device Utilization %` (`ioreg -r -c IOAccelerator -d 1`) before blaming another process.
+Gate legs on a cool chassis, and keep each A/B pair inside one thermal state (ABBA).
+
 ## Working norms that held up
 
 - **Measure before theorising.** Every bug above cost far less time to measure

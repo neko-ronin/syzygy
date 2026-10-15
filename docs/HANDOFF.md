@@ -36,7 +36,7 @@ must buy its cost back first; cheapest known lever: the D30 lived kits cost ~0.1
 60 fps the aim. Between them is acceptable; do not cut objects or visual refinement to reach
 60. Below 30, cut features or change approach. Record the number with any added geometry.
 
-1. **D30 islands that read — done, awaiting review and a benchmark (2026-10-14).**
+1. **D30 islands that read — done (2026-10-14), awaiting review; benchmarked 2026-10-15.**
    - Spine: gaps tightened (clump 3-7 m, open 9-18 m) and half the islands get a partner
      across the band: 104 -> 202 islands, clear route still >= 8.95 m. In the 10-30 m cone:
      `09-market-down-day` tree-bench 14 m, planters 20, cafe 22 (+ cafe 35); `01c` planters
@@ -57,11 +57,14 @@ must buy its cost back first; cheapest known lever: the D30 lived kits cost ~0.1
      at all three poses; low pieces (planters, crates, the sitters at cafes) are still
      hidden at 01c/01d. Not yet seen by a non-implementing reviewer.
    - Cost: islands are ~35-55k triangles per LOD 0 chunk (~9 LOD 0 chunks resident).
-     **Benchmarked 2026-10-15, contended** (PERFORMANCE, last section): the D32 floor holds
-     (every route >= 44/s on both builds) but the A/B against the 60/s aim is not readable,
-     because the base runs disagree with each other. Hero triangles +18%. A cooled re-run in a
-     sibling session (its PITFALLS §33) puts the hero dip at thermal throttling on this fanless
-     Mac, and `86c699a` at about +0.95 ms on the hero, mostly shadows (56-57/s): within D32.
+     **Benchmarked 2026-10-15** (PERFORMANCE, "D30 islands that read"; ABBA against `11b163f`,
+     eight clean hero runs a side): hero GPU span 14.62 -> 15.57 ms (+0.95), **60 -> 56-57/s**.
+     The growth is shadow casting (+0.85: cascade 0 +0.23, far cascades 2+3 +0.45) and the
+     G-buffer (+0.15). Lighting is flat; the commit adds no lights. Skyline +0.6 ms and flight
+     +0.5 ms; garden is within noise. Skyline and garden hold 60/s, flight goes 59.3 -> 58.7/s.
+     **D32: acceptable, cut nothing.** The low figures from the shared machine (43-48/s, lighting
+     6.4-7.0 ms) were heat: this Mac throttles after ~15 min of back-to-back legs, on both sides
+     (PITFALLS §33). An untried cheap win: keep small LOD 0 furniture out of far cascades 2-3.
 2. **The island tree — done, awaiting review.** Trunk forks into limbs at 2.1-2.6 m; a crown
    of 8-11 masses on a jittered golden-angle spiral, 0.6-1.05 m, yellower greens after
    sheet D; shading normals bent up (`MeshOpts.normalLift`, spheres only) so the crown is
@@ -105,7 +108,11 @@ must buy its cost back first; cheapest known lever: the D30 lived kits cost ~0.1
   `--rect=500,90,590,780`. Review 6 judged its foliage share as undercounting (sky in the
   rectangle, shaded undersides). Evidence for a reviewer, never a target (PROCESS rule 1).
 - **Benchmarks:** interleaved A/B, alternating order, `--gpu-passes`; a rise on every pass at
-  once (TAA included) is contention. Cascades 2 and 3 alternate frames: compare their sum.
+  once (TAA included) is contention **or heat**. This Mac is a fanless Air: after ~15 min of
+  back-to-back legs, every pass rises ~20% on both sides with a quiet CPU and an idle GPU
+  (PITFALLS §33). Let it cool between legs (battery `Temperature` in
+  `ioreg -rn AppleSmartBattery -l`, ~34 °C cool, ~40 °C throttled). Cascades 2 and 3
+  alternate frames: compare their sum.
   `--route=garden` holds pose 13's camera in the green belt (outside `--route=all`).
   **Run the session-start vs HEAD A/B before the review**: this session's per-item checks
   hid a 1.1 ms sum.
