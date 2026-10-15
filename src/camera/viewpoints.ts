@@ -1,5 +1,5 @@
 /**
- * Named viewpoints: the places a visitor can jump to from the strip or keys 1-8.
+ * Named viewpoints: the places a visitor can jump to from the strip or the number keys.
  *
  * Copied from the curated establishing poses in `tools/capture.mjs`, which were
  * chosen against the reference sheets (docs/DESIGN.md), not invented here. Only
@@ -23,18 +23,10 @@ export interface Viewpoint {
 export const VIEWPOINTS: readonly Viewpoint[] = [
   // 01-wide-skyline: over the old town onto the downtown peak (D29).
   { name: 'skyline', position: [323, 150, 506], lookAt: [-491, 280, -754], fov: 1.12, roll: 0 },
-  // 02-canyon-up: deep in the canyon looking up.
-  { name: 'canyon', position: [190, 9, 330], lookAt: [230, 150, 150], fov: 1.43, roll: 0.08 },
-  // 04-canal-level: canal water level, reflections.
-  { name: 'canal', position: [900, 3, 260], lookAt: [1400, 6, 340], fov: 0.8, roll: 0.04 },
-  // 13-terraces-d: planted terrace bands and vine curtains (sheet D).
-  { name: 'terraces', position: [288.8, 14, 1013.0], lookAt: [243.9, 30, 1015.1], fov: 1.0, roll: 0 },
   // 14-old-town-c: an old-town alley, kilns, ruins and bunting (sheet C).
   { name: 'old town', position: [200, 22, 275], lookAt: [194, 10, 170], fov: 1.05, roll: 0 },
-  // 09-market-aisle-night: the market aisle from a first-floor balcony.
-  { name: 'market', position: [1.16, 6.0, 0.36], lookAt: [1.16 + 0.2557 * 40, 0.8, 0.36 - 0.9668 * 40], fov: 1.05, roll: 0 },
-  // 05-aerial-top: near top-down over the grid.
-  { name: 'aerial', position: [300, 1400, 700], lookAt: [0, 0, 0], fov: 1.05, roll: 0 },
-  // 06-low-vertigo: low over the void, wide and banking.
-  { name: 'vertigo', position: [-420, 14, -560], lookAt: [180, 260, 120], fov: 1.62, roll: -0.35 },
+  // Street level by the old town, up at the teal tower cluster. Framed at night.
+  { name: 'teal towers', position: [-73.5, 7.1, -47.3], lookAt: [179.7, 136.7, -328.5], fov: 0.92, roll: 0 },
+  // Same spot as teal towers, turned to the lit tower and the dark peaks behind it.
+  { name: 'lit tower', position: [-73.5, 7.1, -47.3], lookAt: [-339.2, 144.3, -313], fov: 0.98, roll: 0 },
 ];

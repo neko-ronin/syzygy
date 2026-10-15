@@ -11,7 +11,7 @@ import { clamp, saturate, type Vec2, type Vec3 } from '../core/math';
 export interface InputState {
   /** x=strafe, y=vertical, z=forward. Raw axis values, -1..1. */
   translate: Vec3;
-  /** yaw delta, pitch delta in radians *this frame*. */
+  /** yaw delta (+ = turn right), pitch delta (+ = look down) in radians *this frame*. */
   look: Vec2;
   /** -1..1, commanded roll offset (Q/E, or shoulder buttons). */
   roll: number;
@@ -364,8 +364,10 @@ export class Input {
       p.x = e.clientX;
       p.y = e.clientY;
       if (this.pointers.size === 1) {
-        this.touchLookX += dx * TOUCH_LOOK_SENSITIVITY;
-        this.touchLookY += dy * TOUCH_LOOK_SENSITIVITY;
+        // Drag grabs the world: dragging right swings the view left.
+        this.touchLookX -= dx * TOUCH_LOOK_SENSITIVITY;
+        // Trackpad/mouse drag (reported as 'mouse') tilts the other way to touch.
+        this.touchLookY += (p.type === 'mouse' ? -dy : dy) * TOUCH_LOOK_SENSITIVITY;
       } else if (this.pointers.size === 2) {
         this.touchTransX += (dx + dy) * 0.5 * TOUCH_TRANSLATE_RATE;
         this.touchTransY -= dy * TOUCH_TRANSLATE_RATE;

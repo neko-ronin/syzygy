@@ -376,7 +376,7 @@ class App {
     addEventListener('keydown', (e) => {
       if (e.target instanceof HTMLInputElement) return;
       // Cmd/Ctrl+digit is the browser's tab switcher; leave it alone.
-      const digit = /^Digit([1-8])$/.exec(e.code);
+      const digit = /^Digit([1-9])$/.exec(e.code);
       if (digit && !e.metaKey && !e.ctrlKey && !e.altKey) { this.goToViewpoint(Number(digit[1]) - 1); return; }
       switch (e.code) {
         case 'KeyH': this.toggleHud(); return;

@@ -1,5 +1,5 @@
 /**
- * Flight camera: 6-DoF inertial drone flight with auto-bank, speed-coupled FOV,
+ * Flight camera: 6-DoF momentum-free drone flight with auto-bank, speed-coupled FOV,
  * low-altitude handheld behaviour, an optional collision probe, timed `flyTo`
  * moves, and seven looping cinematic tours that weave the canyon.
  *
@@ -66,6 +66,8 @@ const PRECISION_ACC_SCALE = 0.14;
 const PRECISION_DRAG_BONUS = 2.4;
 const BOOST_ACC_BONUS = 2.6;
 const BOOST_DRAG_SCALE = 0.82;
+/** Ascend/descend keys move at this fraction of the forward speed. */
+const VERTICAL_SCALE = 0.3;
 /** Radians of bank per rad/s of yaw at full speed — the vertigo knob. */
 const BANK_GAIN = 0.62;
 const BANK_OMEGA = 5.2;
@@ -571,7 +573,10 @@ export class FlightCamera {
     );
   }
 
-  /** Inertial free flight: thrust accumulates, drag bleeds, and you overshoot. */
+  /**
+   * Direct free flight: no momentum. Velocity is the input times the speed the
+   * old thrust/drag model settled at, so release a key and you stop dead.
+   */
   private stepFree(dt: number, input: InputState): void {
     if (dt <= 0) return;
     const boost = input.boost;
@@ -580,19 +585,16 @@ export class FlightCamera {
       lerp(1, PRECISION_ACC_SCALE, precision);
     const drag = DRAG_RATE * lerp(1, BOOST_DRAG_SCALE, boost) *
       (1 + precision * PRECISION_DRAG_BONUS);
+    const vmax = accel / drag;
 
     const tb = thrustBasis(this.yaw, this.pitch);
     this.thrustF[0] = tb.f[0]; this.thrustF[1] = tb.f[1]; this.thrustF[2] = tb.f[2];
     this.thrustR[0] = tb.r[0]; this.thrustR[1] = tb.r[1]; this.thrustR[2] = tb.r[2];
 
     const t = input.translate;
-    this.velocity[0] += (this.thrustF[0] * t[2] + this.thrustR[0] * t[0]) * accel * dt;
-    this.velocity[1] += (this.thrustF[1] * t[2] + t[1]) * accel * dt;
-    this.velocity[2] += (this.thrustF[2] * t[2] + this.thrustR[2] * t[0]) * accel * dt;
-    const k = Math.exp(-drag * dt);
-    this.velocity[0] *= k;
-    this.velocity[1] *= k;
-    this.velocity[2] *= k;
+    this.velocity[0] = (this.thrustF[0] * t[2] + this.thrustR[0] * t[0]) * vmax;
+    this.velocity[1] = (this.thrustF[1] * t[2] + t[1] * VERTICAL_SCALE) * vmax;
+    this.velocity[2] = (this.thrustF[2] * t[2] + this.thrustR[2] * t[0]) * vmax;
 
     this.position[0] += this.velocity[0] * dt;
     this.position[1] += this.velocity[1] * dt;
@@ -743,10 +745,11 @@ export class FlightCamera {
       const commanded = input.levelRoll ? 0 : input.roll * USER_ROLL_GAIN;
       const rawRate = clamp(input.look[0] / dt, -MAX_BANK_YAW_RATE, MAX_BANK_YAW_RATE);
       this.yawRate = damp(this.yawRate, rawRate, 14, dt);
-      this.yaw += input.look[0];
+      // look[0] > 0 turns right; positive yaw is a left turn in this basis.
+      this.yaw -= input.look[0];
       this.pitch = clamp(this.pitch - input.look[1], -MAX_PITCH, MAX_PITCH);
       // Auto-bank: proportional to yaw rate, scaled by how fast we are going.
-      const bank = clamp(-this.yawRate * BANK_GAIN * this.speedNorm, -MAX_ROLL, MAX_ROLL);
+      const bank = clamp(this.yawRate * BANK_GAIN * this.speedNorm, -MAX_ROLL, MAX_ROLL);
       const [r, rv] = spring(this.roll, this.rollVel, bank + commanded, BANK_OMEGA, dt);
       this.roll = clamp(r, -MAX_ROLL, MAX_ROLL);
       this.rollVel = rv;
