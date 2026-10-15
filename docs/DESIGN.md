@@ -284,36 +284,136 @@ Honest inventory, so nobody mistakes absence for oversight:
   3 m, and the closest pose we have is `01b-crowd-closeup` at 2.4 m in a
   non-verdant district. Add a per-section close pose as part of building it.
 
-### Section B's makeshift village: not designed yet (owner, 2026-10-15)
+### Section B's makeshift village: the fall zone (designed with the owner, 2026-10-15)
 
-**What exists is a misreading, left in place on purpose.** `pushScaffold` (citymesh.ts) bolts
-a column of shanty rooms on a scaffold up a tower's face from street level, adds an accreted
-crown, and `weatherRoom` (`c7148ca`) dresses those rooms. Pose 12 shows it on a clean teal
-glass tower. The owner's call: keep it as it is for now, but **do not extend, tune or review
-it as the sheet B target.** It is the wrong form, and it needs design before any more
-placement and rendering.
+**Status: lore and form designed. Placement and rendering not started.** The order of work
+stands: placement next, then rendering. Judge it against the sheet only once it renders.
 
-**What the reference shows** (`references/sections/B-cold-industrial/`, the sheet's top
-row): the living spaces pile up on top of a bare concrete column (frame 2), with scaffold
-platforms, catwalks and skybridges high on dark, steel-blue megastructures (frame 1). The
-rooms do not climb a facade from the street, and the towers under them are not clean glass.
+**What it replaces.** `pushScaffold` (citymesh.ts) bolts a column of shanty rooms on a
+scaffold up a tower's face from street level and adds an accreted crown; `weatherRoom`
+(`c7148ca`) dresses those rooms. Pose 12 shows it on a clean teal glass tower. That misreads
+the sheet. In frame 2 (`references/sections/B-cold-industrial/02-fog-tram.jpg`) the living
+spaces pile up on top of bare, windowless concrete columns; frame 1 puts platforms,
+catwalks and a skybridge high on dark megastructures; frames 3 and 4 show steep stairs and
+red ropeway gondolas, which is how people get up and down. Until the placement pass retires
+it, the bolted-on form stays as it is and is not extended, tuned or reviewed as the target.
 
-**The owner's starting read:**
+**The owner's starting read** (kept): makeshift containers and boxes stacked and crudely
+turned into homes; a makeshift town of people who met some hardship, building a semblance
+of a village; in the poorest, most ruined and most industrial areas.
 
-- The rooms are **makeshift containers and boxes stacked on top of each other**, crudely
-  turned into living spaces.
-- The place is **a makeshift town**: people who met some hardship, doing their best to
-  build a semblance of a village.
-- **There is no lore or precedent for the concrete columns yet.** The city's history
-  (DECISIONS D29) has no structure like them. Do not invent one in placement code. What
-  the columns are, why they stand, what the village is built on, and how its people
-  reach it is design work to settle first.
+#### The story
 
-**Where it belongs:** the poorest, the most ruined and the most industrial areas. In D29's
-story that points at the industrial belt (`rust-hangars`) and the old town's burnt quarter.
-"Poorest" is not yet an attribute the plan carries. Today `SCAFFOLD_CHANCE` also places
-scaffolds in `glass-foxholes`, `canal-district` and `copper-stacks` (the downtown boom),
-which contradicts this. Pose 12 is a copper-stacks tower.
+The city is many generations of building (D29). Its newest generation was the
+**megastructure**: when the city ran out of ground it built a raised city on a deck over the
+industrial belt, a few arcology spires, and a steel space-frame lattice. **It fell.**
+Downtown stood beside it, not under it, and survives as built (D27 and D29 unchanged). The
+people it left with nothing built on what still stood: the deck's piers, the belt's tower
+estates stripped to their concrete cores for salvage, and the cold silos and stacks. A
+**solarpunk revival** makes do with what was left: panels, rain catchment, gardens, repair.
 
-**Order of work:** lore and form first (what it is, where, why), then placement, then
-rendering. Judge it against the sheet only once the form is designed.
+The megastructure is a separate structure on purpose. The owner expects a **whole-city
+reframe** (the whole city post-collapse, the revival everywhere) in the near future: D33.
+Not decided, and not to be invented in code: **what caused the fall, and how long ago.**
+The second sets how overgrown the zone is and how far the repair has got.
+
+#### The columns: five kinds, each shaped by its history
+
+Every column is unique. Its kind sets the form; its own seed sets break height, break
+shape, damage and stains. The village on top follows the shape of the column's top, which
+is what ties form to story.
+
+| Kind | Share | Form | Village |
+|---|---|---|---|
+| Deck piers | ~60% | Square concrete, 8-14 m a side, on the deck's engineered grid: the regular spacing is the tell that they were one structure. The deck stood at ~150 m. A few piers keep full height and their cap; most are broken off at varied heights (diagonal shears, spalled craters, rebar bristling), a few at clean salvage cuts. Water stains run down from the breaks. | A wide, top-heavy pile overhanging the pier on steel outriggers. Where two full-height piers still hold a deck fragment between them, the fragment is a street in the sky. |
+| Stripped cores | ~15% | Narrower concrete shafts, 6-10 m. Lift-door openings stacked up one face, stair slots up another, a fringe of slab stubs at every floor line where the floors were cut away. Estate rows at similar heights. | A narrower, taller pile with the stair head-house through it. The core's stair is the way up; at night its lit slots climb the shaft. |
+| Silos and stacks | ~10% | Silo batteries: 3-6 touching concrete cylinders with ring cracks and a conveyor gallery across the tops. Chimney stacks: tall, banded, tapering. | On a battery, a linear village along the gallery. On a stack, a ring of boxes on a collar platform with a turbine on top. |
+| Lattice legs | ~10% | Steel space-frame towers with truss fragments hanging off; some trusses still span to the next leg. | Boxes slung inside the cage, not piled on top. The trusses are catwalks. |
+| Spire stumps | 3-5 in all | Colossal hollow tubes 40-80 m across: jagged crowns, floor plates showing inside like broken bone, facade remnants hanging. Their fallen bodies lie across the ground as wreck ridges. | A crater village inside the broken crown, terraced down the exposed floors. The zone's landmarks. |
+
+Scale: rust-hangars run 26-92 m and downtown 190-570 m, so the village silhouettes sit at
+roughly 75-185 m, a layer of their own between the two on the skyline. Shares, sizes and
+heights are first-pass values for the placement pass to tune.
+
+#### The village on top
+
+- **Piles.** Shipping containers (2.4 x 2.6 m, 6 or 12 m long, corrugated, door ends)
+  mixed with salvaged-panel box-rooms, 3-10 boxes high. Each container layer turns 90° from
+  the one below, so the pile reads as stacked, not extruded.
+- **Silhouette** (frame 2). Top-heavy: the pile is 1.3-2x the column top, hung on steel
+  outriggers with the bracing visible below, a few boxes cantilevered further out. An
+  uneven, stepped top with antennas, a water tank and a white tarp.
+- **Palette.** Sheet B from outside: steel blue, slate, soot, rust and red panels. The
+  existing `ROOMS` palette (citymesh.ts) is already weighted that way; no palette change.
+- **Faces.** `weatherRoom` as it is (seams, grime, soot runs, framed windows, lit side
+  windows, balconies, tarps), plus zig-zag ladders and stairs between levels, and laundry.
+  About a quarter of the windows lit warm at night (D28).
+- **Revival kit** (near field). Tilted solar panels on box roofs, small turbines on masts,
+  rain funnels into tanks, planter boxes with grey-green climbers on the railings (inside
+  B's foliage band), one glass greenhouse box per pile, string lights between masts.
+  **One knob per pile: how far the repair has got.** The whole-city reframe can spread the
+  same kit by turning it up.
+- **Links.** Deck fragments between full-height pier pairs, lined with boxes (frame 1's
+  skybridge, lived on). Narrow, sagging, railed rope and catwalk bridges between close
+  neighbours, about one per pile (frame 2). Lattice trusses as catwalks.
+- **Up and down.** The cores' own stairs. Scaffold stair towers bolted to pier faces
+  (`pushScaffold`'s members). Winches lowering cargo baskets on cables from the outriggers
+  to the ground. Stations on the existing cable car (`networks.ts`) at a few piles:
+  frame 4's red gondolas.
+
+#### The ground: a wreck field with a working floor
+
+- **Wreckage where it fell.** Fallen deck slabs (20-50 m tilted plates, broken edges,
+  rebar fringes) leaning on piers and on each other; rubble ridges along the lines where the
+  deck came down; the spires' bodies as long wreck ridges with their facade grid showing.
+  In shadow under the piles, which the shadow maps already give.
+- **Lifelines.** Stair-tower feet, winch houses where the hoist cables land, salvage
+  workshops with sorted heaps, warm work lamps and D30's B kit (barrels, pallets, cable
+  drums). Thin foot traffic on paths through the wreckage. Trams route round the zone or end
+  at its edge.
+- **Off-limits patches**, about a quarter of the footprint. Nobody walks there; the crowd
+  is kept out. Columns standing in them are reached only by ropeway and bridge.
+  - Fenced collapse zones with warning boards.
+  - Flooded lows where the fall broke the drains. No water surface renders today
+    (`bakeGround` builds a water mesh the renderer drops), so push the ground shader's
+    standing-water term (`gbuffer.wgsl`) to full cover there.
+  - Overgrown rubble: grey-green scrub and saplings.
+
+#### Where (in story terms; the placement pass sets the numbers)
+
+- **The fall zone** is the band the deck spanned: the industrial belt (`rust-hangars`),
+  over the railway yards and the hangars along the line (D29 item 5).
+- Stripped cores where the belt widens into estates; silos and stacks along the railway;
+  lattice legs at the deck's outer edge; spire stumps anchoring its ends, placed so a
+  skyline pose sees them.
+- **"Poorest" is the fall zone.** The story defines it; the plan needs no new attribute.
+- **The old town's burnt quarter stays sheet C.** Its fire is older history. No village
+  there unless the owner says otherwise.
+
+#### What happens to what is built
+
+- **Retired in the placement pass:** the bolted-on rooms and accreted crowns
+  (`pushScaffold`, `pushAccretedCrown`, every `SCAFFOLD_CHANCE` entry: glass-foxholes,
+  canal-district, copper-stacks, rust-hangars). Their parts become the village kit:
+  `weatherRoom`, `faceQuad` (winding-checked, PITFALLS §34), `catwalk`, the `ROOMS`
+  palette and the scaffold members.
+- **Review poses.** Retire `12-scaffold-b` and `12-scaffold-b-night`. Add one from the wreck
+  field looking up (frame 2's angle), one level with the piles (frame 1), a skyline pose
+  that shows the mid band, and a close pose within 3 m of a pile (the missing close-focus
+  pose above).
+- **Cost (D32).** Most piles are mid- and far-field silhouettes, so rendering needs a LOD
+  split: far, a few merged boxes with lit windows; near, `weatherRoom` and the revival kit.
+  Record the frame rate with every geometry addition; 30 fps is the floor.
+
+#### What survives a whole-city reframe
+
+Likely to survive: the column kinds, the pile grammar, the revival kit and its knob, the
+wreck kit. They are generic building blocks. Likely to be redone: the footprint and its tie
+to sheet B's palette. Per D33 this work is exploration: what it teaches and the tools it
+leaves count as much as the zone itself.
+
+#### Open owner calls
+
+1. What caused the fall.
+2. How long ago it fell (sets the default overgrowth and repair progress).
+3. Whether the burnt quarter gets any village.

@@ -884,3 +884,35 @@ pay its frame time back before it could land.
    with every change that adds geometry, so a slide toward the floor is seen early.
 4. Per-chunk budgets that prevent pathological cases (e.g. `TERRACE_HANG_BUDGET`, which
    stopped one chunk carrying 1.04M foliage triangles) stay: they guard the floor.
+
+## D33 — The newest layer fell: a separate megastructure now, a whole-city reframe later
+
+**Owner direction, 2026-10-15:** "This city is a composite of many generations of
+development where the newest, the mega structure, has fallen. A solar punk revitalization
+makes do with what was left in the post-apocalyptic aftermath." And: "in the near future a
+'whole-city reframe' will be developed. Some development we do will be scrapped and the
+value of doing those iterations to begin with is that we inform and acquire a better grasp
+of what the city can be. We also develop tools and workflows along the way which provide
+more value than the project itself."
+
+### The rule now
+
+1. **Now: a separate fallen megastructure.** A raised city deck over the industrial belt,
+   a few arcology spires and a space-frame lattice stood as the city's newest layer and
+   fell. Their remains, with the belt's stripped tower cores and cold silos and stacks,
+   carry sheet B's makeshift village under a solarpunk revival (DESIGN §8, "Section B's
+   makeshift village"). Downtown, D27 and D29 stand as built.
+2. **Next: a whole-city reframe** (the whole city post-collapse, the revival everywhere) is
+   expected. Do not build against it before it is designed, and do not over-polish work it
+   is likely to replace.
+3. **Iterations are exploration.** Some work will be scrapped. Its value is a better grasp
+   of what the city can be, and the tools and workflows built along the way. Prefer work
+   that leaves reusable kit (generators, self-tests, capture, review and benchmark tooling),
+   and record what each iteration taught.
+
+### Consequences
+
+- The bolted-on room columns (`pushScaffold`, `pushAccretedCrown`) retire in the village's
+  placement pass; their parts become the village kit.
+- Open owner calls, not to be invented in code: what caused the fall, how long ago, and
+  whether the old town's burnt quarter gets any village.

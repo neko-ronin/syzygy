@@ -186,8 +186,9 @@ must buy its cost back first; cheapest known lever: the D30 lived kits cost ~0.1
      are untouched. Not yet seen by a non-implementing reviewer.
 5. **Sheet B, weathering — done, but on the wrong form (owner, 2026-10-15).** The bolted-on
    room columns it dresses misread the reference: left in place, not to be extended or
-   reviewed as the target. The makeshift village needs design first, see DESIGN §8
-   "Section B's makeshift village". What was built: `weatherRoom` (citymesh.ts)
+   reviewed as the target. **The village is now designed (lore and form, 2026-10-15):**
+   DESIGN §8 "Section B's makeshift village" and D33. Next is its placement pass, which
+   also retires these rooms. What was built: `weatherRoom` (citymesh.ts)
    dresses every bolted-on room, on scaffolds and accreted crowns. On the seen face: panel
    seams, a grime skirt, soot runs from the roof edge and under each window, framed windows
    with a cross bar, a lit side window (40%), a railed balcony cantilevered off the floor
