@@ -878,6 +878,9 @@ chosen.
 
 ## R14 — A richer city at 60 FPS during continuous travel
 
+> **Owner direction, 2026-10-14 ([D32](DECISIONS.md)):** 30 fps is the floor and 60 fps the
+> aim. Between the two is acceptable; do not cut objects or visual refinement to reach 60.
+
 **Status: performance clauses met; visual clauses open** (2026-10-11; review 5,
 2026-10-13: skyline climax done (watch), night identity and pools done; sheets B, C, D and
 near richness open; owner direction D30, lived-in streets, is next — see HANDOFF). Fixed and

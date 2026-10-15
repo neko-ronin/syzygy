@@ -157,8 +157,9 @@ export const CLUTTER_KINDS: readonly string[] = [
  * are scattered evenly across the width of the footway, where they read as
  * debris in the middle of the route. Superseded in part by DECISIONS D30
  * (2026-10-13): no authored footway reaches the ~6 m D30 names (widest 5.72 m),
- * so footways stay edge-placed and the islands go in the market spine's open
- * carriageway (`MarketIsland` in `marketgrammar.ts`).
+ * so footways stay edge-placed and the islands go in open carriageway: the
+ * market spine's and any carriageway at least `STREET_ISLAND_MIN_WIDTH` wide
+ * (`MarketIsland`, `streetIslands` in `marketgrammar.ts`).
  */
 export const CLUTTER_EDGE: Record<string, 'front' | 'kerb'> = {
   railing: 'kerb', 'step-edge': 'kerb', 'drain-cover': 'kerb', 'manhole': 'kerb',

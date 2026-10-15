@@ -33,7 +33,7 @@ import {
 import { FACE_ALL, FACE_NY, FACE_PY, MeshBuilder } from '../world/geometry';
 import { bakeMarketDetail, marketBakeState, type MarketBakeState } from './marketbake';
 import {
-  marketGrammarFor, MAX_MARKET_LIGHTS_PER_CHUNK, MAX_STALL_LAMPS_PER_CHUNK,
+  marketGrammarFor, streetIslands, MAX_MARKET_LIGHTS_PER_CHUNK, MAX_STALL_LAMPS_PER_CHUNK,
 } from '../world/marketgrammar';
 import {
   CLUTTER_DEPTH, CLUTTER_EDGE, CLUTTER_KINDS, FOOTWAY_FRONT_INSET, FOOTWAY_KERB_BAND, clutterReach,
@@ -252,6 +252,8 @@ export interface GroundBakeResult {
    * would throttle every footway traced after the market in the same chunk.
    */
   islands: { placed: number; pieces: number; tris: number };
+  /** Islands placed on wide non-market carriageways, for the footway self-test. */
+  streetIslands: MarketIsland[];
   /** Metres of carriageway edge emitted. */
   edgeMetres: number;
   /** Triangles emitted. Read back from the builder, never predicted. */
@@ -318,6 +320,7 @@ export function bakeGroundDetail(
       marketLights: 0, marketLightsDropped: 0, marketTraces: 0, stallLights: 0,
     },
     islands: { placed: 0, pieces: 0, tris: 0 },
+    streetIslands: [],
   };
   if (lod > 1) return res;
 
@@ -590,11 +593,40 @@ const BRICK: Vec3 = [0.40, 0.15, 0.08];
 const EMBER: Vec3 = [1.0, 0.45, 0.14];
 const PALE_TIMBER: Vec3 = [0.40, 0.30, 0.18];
 const BARREL_PAINT: readonly Vec3[] = [[0.36, 0.14, 0.07], [0.17, 0.25, 0.33], [0.30, 0.20, 0.11]];
-const CLOTH: readonly Vec3[] = [[0.75, 0.32, 0.12], [0.82, 0.66, 0.38], [0.55, 0.14, 0.10]];
 /** Island stone: the market's kerb paint read every island as a yellow disc. */
 const STONE: Vec3 = [0.34, 0.30, 0.25];
-/** Island paintwork, one per island: green, ox-red, cream, blue-grey. Not the district's yellow trim. */
-const ISLAND_PAINT: readonly Vec3[] = [[0.13, 0.26, 0.17], [0.40, 0.11, 0.07], [0.58, 0.50, 0.38], [0.20, 0.26, 0.32]];
+/**
+ * Island paintwork, one per island, from sheet A: saffron, coral, teal, leaf green,
+ * cream. Review 6 read the muted set (green, ox-red, cream, blue-grey) as neutral.
+ */
+const ISLAND_PAINT: readonly Vec3[] = [[0.80, 0.48, 0.08], [0.72, 0.20, 0.13], [0.07, 0.40, 0.42], [0.22, 0.46, 0.20], [0.78, 0.70, 0.52]];
+/** Parasol stripes alternate a sheet-A colour with cream. */
+const PARASOL_CLOTH: readonly Vec3[] = [[0.84, 0.50, 0.08], [0.76, 0.20, 0.13], [0.06, 0.42, 0.45], [0.55, 0.14, 0.10], [0.24, 0.48, 0.22]];
+const CREAM: Vec3 = [0.82, 0.76, 0.60];
+/** Crown greens for the island tree: yellower than LEAVES, after sheet D (review 6). */
+const CROWN: readonly Vec3[] = [[0.12, 0.27, 0.06], [0.18, 0.34, 0.08], [0.25, 0.40, 0.10], [0.15, 0.31, 0.05]];
+/** Festoon bulbs in a tree: amber (D28), emissive only, no light budget. */
+const FESTOON: Vec3 = [1.0, 0.70, 0.36];
+/** A seated figure's clothes and skin, drawn per figure. */
+const SHIRTS: readonly Vec3[] = [[0.78, 0.46, 0.10], [0.70, 0.20, 0.14], [0.08, 0.38, 0.42], [0.80, 0.74, 0.58], [0.20, 0.24, 0.42], [0.26, 0.44, 0.20]];
+const TROUSERS: readonly Vec3[] = [[0.10, 0.10, 0.13], [0.22, 0.17, 0.12], [0.14, 0.18, 0.26]];
+const SKIN: readonly Vec3[] = [[0.62, 0.42, 0.30], [0.45, 0.29, 0.19], [0.30, 0.19, 0.12], [0.70, 0.52, 0.40]];
+
+/**
+ * Someone sitting, facing local +Z, seat at 0.45 m (a chair's or a ring bench's).
+ * Static: the crowd's walkers animate, a sitter does not need to. 108 triangles.
+ */
+function pushSitter(bld: MeshBuilder, P: Placer, rng: Rng): void {
+  const o = { faces: FACE_ALL, rotationY: P.yaw };
+  const shirt = SHIRTS[rng.int(0, SHIRTS.length - 1)], legs = TROUSERS[rng.int(0, TROUSERS.length - 1)];
+  const skin = SKIN[rng.int(0, SKIN.length - 1)];
+  const lean = rng.range(-0.04, 0.06);
+  bld.pushBox(P(0, 0.52, 0.12), [0.16, 0.07, 0.2], legs, o);                       // thighs
+  for (const sx of [-0.08, 0.08]) bld.pushBox(P(sx, 0.24, 0.31), [0.06, 0.24, 0.06], legs, o);   // shins
+  bld.pushBox(P(0, 0.86, -0.06 + lean), [0.17, 0.27, 0.1], shirt, o);                 // torso
+  for (const sx of [-0.21, 0.21]) bld.pushBox(P(sx, 0.82, 0.04 + lean), [0.045, 0.2, 0.06], shirt, o); // arms
+  bld.pushSphere(P(0, 1.25, -0.03 + lean * 1.4), 0.11, 3, 6, skin);
+}
 
 /** A chair whose sitter faces local +Z: seat, back, two side frames. 48 triangles. */
 function pushChair(bld: MeshBuilder, P: Placer, color: Vec3): void {
@@ -891,19 +923,56 @@ function pushClutterItem(
     case 'chair':
       pushChair(bld, P, rng.bool(0.5) ? TIMBER : pal.trim);
       break;
-    case 'parasol':
-      bld.pushCylinder(P(0, 0.76, 0), P(0, 2.45, 0), 0.03, 4, METAL, { capEnds: false });
-      bld.pushCylinder(P(0, 2.0, 0), P(0, 2.5, 0), 1.35, 8, CLOTH[rng.int(0, CLOTH.length - 1)], { radiusTop: 0.05, capEnds: true });
+    case 'parasol': {
+      // Eight panels in alternating stripes: a striped canopy is the market's
+      // read above a crowd, where the table under it is hidden (review 6).
+      // Edge at 2.2 m, crown 2.8 m: above a 1.7 m crowd from eye height.
+      bld.pushCylinder(P(0, 0.76, 0), P(0, 2.75, 0), 0.03, 4, METAL, { capEnds: false });
+      const a = PARASOL_CLOTH[rng.int(0, PARASOL_CLOTH.length - 1)], b = rng.bool(0.7) ? CREAM : a;
+      const top = P(0, 2.82, 0);
+      for (let k = 0; k < 8; k++) {
+        const t0 = (k / 8) * Math.PI * 2, t1 = ((k + 1) / 8) * Math.PI * 2;
+        const e0 = P(Math.cos(t0) * 1.55, 2.2, Math.sin(t0) * 1.55), e1 = P(Math.cos(t1) * 1.55, 2.2, Math.sin(t1) * 1.55);
+        bld.pushQuad(e0, e1, top, top, k % 2 ? a : b, 1, { doubleSided: true });
+      }
+      break;
+    }
+    case 'sitter':
+      pushSitter(bld, P, rng);
       break;
     case 'tree': {
-      // Trunk and a crown of four to six masses (R14 review 5: no lollipops).
+      // Review 6: four to six big 6-sided balls in a tight knot read as a dark
+      // lollipop by day and a black hexagon against the lanterns at night. Now:
+      // a trunk that forks into limbs, a crown of 8-11 smaller masses spread wide
+      // and uneven (the outline is lumps, not a polygon), shading normals bent up
+      // so the crown is lit as one canopy rather than balls with black bellies,
+      // and festoon bulbs on its outer masses so it reads at night. ~950 triangles.
       // Street-tree scale: the crown has to clear a standing crowd to be seen at all.
-      bld.pushCylinder(P(0, 0, 0), P(0, 3.3, 0), 0.19, 6, BARK, { radiusTop: 0.11, capEnds: false });
-      const n = rng.int(4, 6);
+      const fork = rng.range(2.1, 2.6);
+      bld.pushCylinder(P(0, 0, 0), P(0, fork + 0.2, 0), 0.2, 7, BARK, { radiusTop: 0.13, capEnds: false });
+      const n = rng.int(8, 11), spin = rng.next() * 6.28;
+      const masses: [Vec3, number][] = [];
       for (let i = 0; i < n; i++) {
-        const a = (i / n) * Math.PI * 2 + rng.jitter(0.4), d = i === 0 ? 0 : rng.range(0.7, 1.15);
-        bld.pushSphere(P(Math.cos(a) * d, rng.range(3.5, 4.5) + (i === 0 ? 0.6 : 0), Math.sin(a) * d),
-          rng.range(0.9, 1.35), 3, 6, LEAVES[rng.int(0, LEAVES.length - 1)]);
+        // Golden-angle spiral, jittered: even cover with no ring or grid in it.
+        const a = spin + i * 2.4 + rng.jitter(0.5), d = i === 0 ? rng.range(0, 0.3) : rng.range(0.7, 1.9);
+        const y = fork + 1.0 + (1 - d / 1.9) * rng.range(1.0, 2.0) + rng.jitter(0.35);
+        const rad = rng.range(0.6, 1.05) * (i === 0 ? 1.15 : 1);
+        const c = P(Math.cos(a) * d, y, Math.sin(a) * d);
+        masses.push([c, rad]);
+        // Sun-side and upper masses a touch lighter: value variation inside the crown.
+        const g = CROWN[rng.int(0, CROWN.length - 1)], lit = 0.85 + (y - fork) * 0.07;
+        bld.pushSphere(c, rad, 5, 8, [g[0] * lit, g[1] * lit, g[2] * lit], { normalLift: 0.75 });
+        // Limbs to the outer masses only: the inner ones hide the join.
+        if (d > 1.1 && i % 2 === 0) {
+          bld.pushTubeAlongPath([P(0, fork, 0), P(Math.cos(a) * d * 0.55, y - rad * 0.9, Math.sin(a) * d * 0.55)], 0.07, 4, BARK, { capEnds: false });
+        }
+      }
+      const bulbs = rng.int(7, 10);
+      for (let k = 0; k < bulbs; k++) {
+        const [c, rad] = masses[1 + (k % (masses.length - 1))];
+        const o = P(0, 0, 0), dx = c[0] - o[0], dz = c[2] - o[2], dl = Math.hypot(dx, dz) || 1;
+        bld.pushSphere([c[0] + (dx / dl) * rad * 0.97, c[1] - rad * rng.range(0.1, 0.5), c[2] + (dz / dl) * rad * 0.97],
+          0.075, 2, 4, FESTOON, { emissive: 6 });
       }
       break;
     }
@@ -1309,7 +1378,8 @@ function emitTrace(
         //      than `footwayWalk` clear is not placed (`clutterReach`). DECISIONS
         //      D30 extends this rule: wide walking areas carry islands in their
         //      middle. No authored footway is that wide (widest 5.72 m), so the
-        //      islands are the market spine's (`MarketIsland`, baked below).
+        //      islands stand in the market spine and in carriageways of at least
+        //      `STREET_ISLAND_MIN_WIDTH` (`MarketIsland`, baked below).
         //   2. IRREGULAR GAPS. Each gap is re-rolled in 0.45..2.4x of nominal, so
         //      there is rhythm instead of a metronome.
         //   3. OPEN STRETCHES. A low-frequency mask leaves roughly a third of
@@ -1396,6 +1466,16 @@ function emitTrace(
     }
 
     if (grammar.marking !== 'none') emitPaint(bld, ax, az, bx, bz, anx, anz, bnx, bnz, half, grammar, i);
+  }
+
+  // Wide walking carriageways off the spine carry islands down their middle
+  // (D30 rule 1). Placement is pure (`streetIslands`); the bake is the spine's.
+  if (lod < 1 && t.kind !== 'market') {
+    const isl = streetIslands(plan, chunk, t.p, t.from, t.to, t.kind, plan.seed);
+    if (isl.length) {
+      bakeIslands(bld, isl, t.districtId, marketState.emitted.islands, res);
+      res.streetIslands.push(...isl);
+    }
   }
 
   // Market detail belongs to another agent's module (`src/render/marketbake.ts`).

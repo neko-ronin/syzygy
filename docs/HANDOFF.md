@@ -32,15 +32,40 @@ must buy its cost back first; cheapest known lever: the D30 lived kits cost ~0.1
 
 **Work, in order (review 6's ranking, checked against the frames):**
 
-1. **D30 islands that read.** Islands exist (104 on the default seed, measured clear route,
-   obstacles), but at the review lenses one tree reads and the crowd hides the rest. Put
-   3-5 islands in the near 10-30 m of `09-market-down-day`, `01c-origin-avenue` and
-   `01d-street-crowd`; signs of use (chairs at angles, half-stacked crates, a seated
-   figure); sheet-A colour (parasols, a painted kiosk). Code: `placeIslands` /
-   `islandPieces` in `src/world/marketgrammar.ts`, pieces in `pushClutterItem`
-   (`src/render/groundbake.ts`). Grid 14 of review 6 is the crowd-off view of what exists.
-2. **The island tree.** A dark lollipop by day, a black hexagon in the lantern line at
-   night (`'tree'` in `pushClutterItem`): a trunk, irregular masses, no black underside.
+**Frame-rate rule changed (owner, 2026-10-14, [D32](DECISIONS.md)):** 30 fps is the floor,
+60 fps the aim. Between them is acceptable; do not cut objects or visual refinement to reach
+60. Below 30, cut features or change approach. Record the number with any added geometry.
+
+1. **D30 islands that read — done, awaiting review and a benchmark (2026-10-14).**
+   - Spine: gaps tightened (clump 3-7 m, open 9-18 m) and half the islands get a partner
+     across the band: 104 -> 202 islands, clear route still >= 8.95 m. In the 10-30 m cone:
+     `09-market-down-day` tree-bench 14 m, planters 20, cafe 22 (+ cafe 35); `01c` planters
+     23, overflow 31, planters 31/32.
+   - Off the spine (`streetIslands`, marketgrammar.ts): carriageways >= 10 m wide carry
+     islands down the middle, 3.2 m of walk each side, no junctions, off buildings and
+     props, and 7 m clear of at-grade tram track (trolleys run 5.2 m off it; `tramTrack`
+     in networks.ts now shares the tram generator with `buildRailLines`). A low-frequency
+     mask leaves stretches bare; the lived share is by district (A/D ~78%, C ~90%, B ~26%,
+     rest ~38%), first-pass values. `01d-street-crowd` (an old-town alley; the derived
+     pose moved ~11 m because islands are crowd obstacles) has tree-bench 9 m, cafe 20,
+     overflow 30. Footway self-test checks all of this (STREET ISLANDS block).
+   - Signs of use: seated figures (`'sitter'`) at a third of cafe chairs and on ring
+     benches; every cafe's first table has a parasol where no lantern cord is near.
+   - Sheet-A colour: island paint saffron / coral / teal / leaf green / cream; parasols
+     striped in eight panels, edge 2.2 m and crown 2.8 m so they clear a 1.7 m crowd.
+   - **Honest read of the frames:** the tall parts (tree, parasols) now read over the crowd
+     at all three poses; low pieces (planters, crates, the sitters at cafes) are still
+     hidden at 01c/01d. Not yet seen by a non-implementing reviewer.
+   - Cost: islands are ~35-55k triangles per LOD 0 chunk (~9 LOD 0 chunks resident).
+     **Not benchmarked:** `tools/benchmark.mjs` refused, disk free 9.4 GB < 10 GB, and
+     `shots/` (332 MB) cannot free the difference. First action next session: free disk,
+     run `node tools/benchmark.mjs --route=all --quality=high` against `11b163f`, judge by D32.
+2. **The island tree — done, awaiting review.** Trunk forks into limbs at 2.1-2.6 m; a crown
+   of 8-11 masses on a jittered golden-angle spiral, 0.6-1.05 m, yellower greens after
+   sheet D; shading normals bent up (`MeshOpts.normalLift`, spheres only) so the crown is
+   lit as one canopy; 7-10 amber festoon bulbs (emissive, no light budget). ~950 triangles
+   (was ~200). At night (`09-market-down`) it reads green under the lanterns instead of
+   black. Also used by footway trees (`'tree'` is a footway kind too).
 3. **Sheet C, fire as the key light.** Ember yards and braziers now sit at street level but
    are 5-10 px at pose 15 and light nothing above the ground: uplight the ruin and alley
    walls 1-2 storeys (`gbuffer.wgsl` tag 4 does this for intact old-town walls, tag 3 ruins

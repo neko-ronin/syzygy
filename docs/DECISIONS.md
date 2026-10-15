@@ -862,3 +862,25 @@ the city blue under dusk's orange horizon. Values are a first pass for frame rev
 azimuth's height at `0.35 * (REAL_DAY / dayLength)` per second, so a fast day keeps the
 same curve. At a fixed 0.35/s a 20x sun trailed its azimuth by ~0.4 rad and golden hour
 lasted 1.4 s.
+
+## D32 — Frame rate: 30 fps is the floor, 60 fps is the aim
+
+**Owner direction, 2026-10-14:** "Lock development target at 30 fps. Aim for 60 fps as the
+goal but not at the cost of cutting out objects or reducing visual refinement too
+dramatically. Dramatic feature cutting and pivot when dropping below 30 fps."
+
+**What it supersedes.** R14 and D30 rule 5 held 60 fps on this Mac as a hard bar, and
+review 6 treated 57/s as a regression to trim back. That made every new near-field piece
+pay its frame time back before it could land.
+
+### The rule now
+
+1. **Floor: 30 fps** (33.3 ms) on the R14 platform (this Mac, Chrome, 1600 × 900), on
+   every held view and in flight. Below it is a defect: cut features or change approach.
+2. **Aim: 60 fps** (16.7 ms). Take the cheap wins (LOD, culling, batching, budgets that
+   cost nothing visible) and keep measuring, but do not remove objects or visibly coarsen
+   the picture to reach it.
+3. **Between 30 and 60 is acceptable** while the world is being built. Record the number
+   with every change that adds geometry, so a slide toward the floor is seen early.
+4. Per-chunk budgets that prevent pathological cases (e.g. `TERRACE_HANG_BUDGET`, which
+   stopped one chunk carrying 1.04M foliage triangles) stay: they guard the floor.

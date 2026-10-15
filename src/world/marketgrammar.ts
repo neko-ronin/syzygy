@@ -42,9 +42,10 @@
 
 import { clamp, lerp, makeRng, fbm2, type Rng, type Vec3 } from '../core/math';
 import { GROUND_Y, sampleStreetPlan } from './citygen';
+import { tramTrack } from './networks';
 import type { CityChunk, CityPlan, RoadKind, StreetSample } from './citygen';
 import {
-  MARKET_DISTRICT, districtPaletteLinear, districtStyle, spineHit, spinePoint,
+  MARKET_DISTRICT, districtAtField, districtPaletteLinear, districtStyle, spineHit, spinePoint,
   type ResolvedPalette, type SpineHit,
 } from './districts';
 
@@ -621,9 +622,15 @@ const ISLAND_KINDS: readonly [IslandKind, number, number][] = [
   ['kiosk', 10, 2.0], ['handcart', 10, 1.7], ['pump', 7, 1.4], ['shrine', 4, 1.1],
 ];
 const ISLAND_WEIGHT = ISLAND_KINDS.reduce((s, k) => s + k[1], 0);
-/** Gaps along the spine between island centres: a clump, or an open stretch. */
-const ISLAND_CLUMP: readonly [number, number] = [5, 10];
-const ISLAND_OPEN: readonly [number, number] = [12, 26];
+/**
+ * Gaps along the spine between island centres: a clump, or an open stretch.
+ * Tightened from [5, 10] / [12, 26] after review 6, which found one island in the
+ * near 10-30 m of the market poses and asked for three to five.
+ */
+const ISLAND_CLUMP: readonly [number, number] = [3, 7];
+const ISLAND_OPEN: readonly [number, number] = [9, 18];
+/** Chance an island gets a partner across the band, so cross-sections vary. */
+const ISLAND_PAIR_P = 0.5;
 
 /**
  * A light the market wants the chunk to carry. Structurally identical to
@@ -1277,26 +1284,161 @@ function placeIslands(
     const r = base.fork(0x7a000 + i);
     // Lanterns hang to ~2.2 m at mid-span, so a tree crown or a parasol under a
     // cord would swallow them: nothing tall within reach of one.
-    const nearCord = strings.some((s) => Math.abs(s.along - a) < 3.2);
-    let pick = r.next() * ISLAND_WEIGHT;
-    let entry = ISLAND_KINDS[0];
-    for (const k of ISLAND_KINDS) { entry = k; if ((pick -= k[1]) < 0) break; }
-    if (nearCord && (entry[0] === 'tree-bench' || entry[0] === 'kiosk')) entry = ISLAND_KINDS[3];
-    const [kind, , radius] = entry;
+    const cordAt = (along: number): boolean => strings.some((s) => Math.abs(s.along - along) < 3.2);
+    const nearCord = cordAt(a);
+    const [kind, , radius] = pickIsland(ISLAND_KINDS, ISLAND_WEIGHT, r, nearCord);
+    const p = spinePoint(spine, a);
+    const h = spineHit(spine, p[0], p[1], scratchHit);
+    const fits = (k: IslandKind, rad: number, lat: number, along: number, rr: Rng, tall: boolean): MarketIsland | null => {
+      const pt = along === a ? p : spinePoint(spine, along);
+      const x = pt[0] - h.tz * lat, z = pt[1] + h.tx * lat;
+      const clear = onSpine(q.plan, x, z, 0.5)
+        && [[1, 0], [-1, 0], [0, 1], [0, -1]].every(([u, v]) =>
+          onSpine(q.plan, x + (h.tx * u - h.tz * v) * rad, z + (h.tz * u + h.tx * v) * rad, 0.3))
+        && !footprintObstructed(q.chunk, x, z, h.tx, h.tz, rad, -rad, rad, 0.4, rad + 40);
+      return clear ? { along, kind: k, x, z, radius: rad, pieces: islandPieces(k, x, z, rad, rr, tall) } : null;
+    };
     const reach = band - radius;
     if (reach > 0.4) {
       const lat = r.range(-reach, reach);
-      const p = spinePoint(spine, a);
-      const h = spineHit(spine, p[0], p[1], scratchHit);
-      const x = p[0] - h.tz * lat, z = p[1] + h.tx * lat;
-      const clear = onSpine(q.plan, x, z, 0.5)
-        && [[1, 0], [-1, 0], [0, 1], [0, -1]].every(([u, v]) =>
-          onSpine(q.plan, x + (h.tx * u - h.tz * v) * radius, z + (h.tz * u + h.tx * v) * radius, 0.3))
-        && !footprintObstructed(q.chunk, x, z, h.tx, h.tz, radius, -radius, radius, 0.4, radius + 40);
-      if (clear) out.push({ along: a, kind, x, z, radius, pieces: islandPieces(kind, x, z, radius, r, !nearCord) });
+      const isl = fits(kind, radius, lat, a, r, !nearCord);
+      if (isl) out.push(isl);
+      // A partner across the band, staggered along: two islands abreast with a
+      // walk between them, not a median of singles. Its own fork, so the spine's
+      // other draws are unchanged.
+      const r2 = base.fork(0x7b000 + i);
+      if (isl && r2.bool(ISLAND_PAIR_P)) {
+        const a2 = a + r2.jitter(2.5), cord2 = cordAt(a2);
+        const [k2, , rad2] = pickIsland(ISLAND_KINDS, ISLAND_WEIGHT, r2, cord2);
+        // Other side of the centreline, at least 1.2 m clear of the first island.
+        const side = lat > 0 ? -1 : 1;
+        const lo = Math.max(0, radius + rad2 + 1.2 + side * lat), hi = band - rad2;
+        if (hi > lo) {
+          const twin = fits(k2, rad2, side * r2.range(lo, hi), a2, r2, !cord2);
+          if (twin) out.push(twin);
+        }
+      }
     }
     a += radius + (r.bool(0.55) ? r.range(ISLAND_CLUMP[0], ISLAND_CLUMP[1]) : r.range(ISLAND_OPEN[0], ISLAND_OPEN[1]));
   }
+}
+
+// ------------------------------------------------- street islands (D30 rule 1)
+
+/**
+ * Carriageways at least this wide carry islands down their middle. No cars run
+ * in this city, so a carriageway is walking surface; review 6 found the wide
+ * alley at pose 01d (12.6 m) bare paving with a crowd standing on it.
+ */
+export const STREET_ISLAND_MIN_WIDTH = 10;
+/** Clear walk kept between an island and each edge of the carriageway. */
+export const STREET_ISLAND_EDGE = 3.2;
+/** No kiosk off the spine: it is a market thing. Kind, weight, radius. */
+const STREET_ISLAND_KINDS: readonly [IslandKind, number, number][] = [
+  ['cafe', 24, 2.6], ['tree-bench', 26, 2.0], ['planters', 16, 2.0], ['overflow', 12, 1.9],
+  ['handcart', 10, 1.7], ['pump', 6, 1.4], ['shrine', 6, 1.1],
+];
+const STREET_ISLAND_WEIGHT = STREET_ISLAND_KINDS.reduce((s, k) => s + k[1], 0);
+/**
+ * Gaps between island centres: [clump chance, clump range, open range]. A wide
+ * alley (under 16 m) is a lane people sit in, so islands come close together; the
+ * 24-32 m streets are routes first and get them far apart. First pass on the
+ * default seed: ~92 per chunk at one rate everywhere, mostly on the wide streets.
+ */
+const STREET_ISLAND_GAPS = {
+  lane: [0.55, [4, 9], [10, 18]],
+  route: [0.3, [8, 14], [35, 70]],
+} as const;
+/**
+ * Lived-in stretches: low-frequency noise over the city, islands only where it
+ * clears this. Furniture every ~10 m in every alley read as one kit repeated
+ * (STREET_SPEC section F's risk, which D30 keeps); this leaves whole stretches
+ * bare and others full. Wavelength in metres.
+ */
+const LIVED_WAVELENGTH = 140;
+/**
+ * Noise level a stretch must clear to be lived in, by district id (D30 rule 4,
+ * DESIGN section 4 mapping). Markets (A) and the verdant districts (D) are where
+ * people sit out: ~78% of their length; the old town (C), streets lived around
+ * their fires, ~90%. The industrial
+ * districts (B) are worked, not sat in: ~26%. The rest ~38%. Measured share of
+ * the noise over the city: -0.2 -> 0.90, -0.12 -> 0.78, 0.05 -> 0.38, 0.1 -> 0.26.
+ */
+const LIVED_THRESHOLD: readonly number[] = [
+  -0.12, 0.05, -0.2, 0.1, -0.12, 0.1, 0.05, -0.12, -0.12, 0.1, -0.12,
+  // verdant, copper, terracotta, glass-fox, lantern, rust, monastery, neon, botanical, canal, spine
+];
+/** Trolleybuses run 5.2 m either side of a tram line (`traffic.ts`), plus a body. */
+const TRAM_KEEP_OUT = 5.2 + 1.8;
+
+const scratchStreet: StreetSample = { dist: 0, px: 0, pz: 0, tx: 1, tz: 0, width: 0, kind: 'street', clearance: 0 };
+
+/**
+ * Islands down the middle of one traced carriageway (5 floats per point: x, z,
+ * tx, tz, width; points `from`..`to`). Every footprint point must sit on the same
+ * carriageway (kind, width, tangent within ~14 degrees, so no junction) with
+ * `STREET_ISLAND_EDGE` of walk to either edge, and clear of buildings. Each
+ * island draws from a seed of its own world position, not the chunk stream.
+ */
+export function streetIslands(
+  plan: CityPlan, chunk: CityChunk, p: readonly number[], from: number, to: number,
+  kind: RoadKind, seed: number,
+): MarketIsland[] {
+  const out: MarketIsland[] = [];
+  if (kind === 'market' || kind === 'canal' || kind === 'rail') return out;
+  const at = (x: number, z: number, tx: number, tz: number, w: number, pad: number): boolean => {
+    const s = sampleStreetPlan(plan, x, z, scratchStreet);
+    return s.kind === kind && Math.abs(s.width - w) < 1.5 && Math.abs(s.tx * tx + s.tz * tz) > 0.97 && s.clearance < -pad;
+  };
+  const trams = tramTrack(plan, seed);
+  const onTrack = (x: number, z: number, rad: number): boolean => trams.some((pts) => pts.some((a, k) => {
+    const b = pts[k + 1];
+    if (!b || (a[1] > GROUND_Y + 3 && b[1] > GROUND_Y + 3)) return false;
+    const dx = b[0] - a[0], dz = b[2] - a[2], l2 = dx * dx + dz * dz || 1;
+    const t = clamp(((x - a[0]) * dx + (z - a[2]) * dz) / l2, 0, 1);
+    return Math.hypot(x - a[0] - dx * t, z - a[2] - dz * t) < rad + TRAM_KEEP_OUT;
+  }));
+  let walked = 0, next = makeRng((seed ^ Math.imul(Math.round(p[from * 5] * 3), 73856093) ^ Math.imul(Math.round(p[from * 5 + 1] * 3), 19349663)) >>> 0)
+    .range(0, 12);
+  for (let i = from; i < to; i++) {
+    const x = p[i * 5], z = p[i * 5 + 1], tx = p[i * 5 + 2], tz = p[i * 5 + 3], w = p[i * 5 + 4];
+    if (i > from) walked += Math.hypot(x - p[(i - 1) * 5], z - p[(i - 1) * 5 + 1]);
+    if (walked < next) continue;
+    const lived = LIVED_THRESHOLD[districtAtField(plan.districts, x, z)] ?? 0.05;
+    if (fbm2(x / LIVED_WAVELENGTH + 17.3, z / LIVED_WAVELENGTH - 4.1, 3) < lived) { walked = 0; next = 6; continue; }
+    const r = makeRng((seed ^ 0x51ab ^ Math.imul(Math.round(x * 4), 73856093) ^ Math.imul(Math.round(z * 4), 19349663)) >>> 0);
+    walked = 0;
+    const [pc, clump, open] = w < 16 ? STREET_ISLAND_GAPS.lane : STREET_ISLAND_GAPS.route;
+    next = r.bool(pc) ? r.range(clump[0], clump[1]) : r.range(open[0], open[1]);
+    if (w < STREET_ISLAND_MIN_WIDTH) continue;
+    const [k, , rad] = pickIsland(STREET_ISLAND_KINDS, STREET_ISLAND_WEIGHT, r, false);
+    const reach = w * 0.5 - STREET_ISLAND_EDGE - rad;
+    if (reach < 0) continue;
+    // Toward the middle: an island hard against one edge reads as kerb clutter.
+    const lat = r.range(-reach, reach) * 0.6;
+    const ix = x - tz * lat, iz = z + tx * lat;
+    const ok = at(ix, iz, tx, tz, w, STREET_ISLAND_EDGE + rad)
+      && [[1, 0], [-1, 0], [0, 1], [0, -1]].every(([u, v]) =>
+        at(ix + (tx * u - tz * v) * rad, iz + (tz * u + tx * v) * rad, tx, tz, w, STREET_ISLAND_EDGE))
+      && !footprintObstructed(chunk, ix, iz, tx, tz, rad, -rad, rad, 0.6, rad + 40)
+      && !onTrack(ix, iz, rad)
+      && !chunk.props.some((pr) => pr.aabbMin[1] < GROUND_Y + 2.5
+        && pr.aabbMax[0] > ix - rad - 0.5 && pr.aabbMin[0] < ix + rad + 0.5
+        && pr.aabbMax[2] > iz - rad - 0.5 && pr.aabbMin[2] < iz + rad + 0.5);
+    if (ok) out.push({ along: 0, kind: k, x: ix, z: iz, radius: rad, pieces: islandPieces(k, ix, iz, rad, r, true) });
+  }
+  return out;
+}
+
+/** Weighted kind draw; nothing tall within reach of a lantern cord. */
+function pickIsland(
+  kinds: readonly [IslandKind, number, number][], total: number, r: Rng, nearCord: boolean,
+): [IslandKind, number, number] {
+  let pick = r.next() * total;
+  let entry = kinds[0];
+  for (const k of kinds) { entry = k; if ((pick -= k[1]) < 0) break; }
+  if (nearCord && (entry[0] === 'tree-bench' || entry[0] === 'kiosk')) entry = ISLAND_KINDS[3];
+  return entry;
 }
 
 /** Up to `n` points in a disc of radius `rad`, at least `sep` apart (rejection, bounded tries). */
@@ -1327,6 +1469,11 @@ function islandPieces(kind: IslandKind, cx: number, cz: number, radius: number, 
     case 'tree-bench':
       put('ring-bench', 0, 0, 0);
       put('tree', 0, 0, r.next() * 6.28, false);
+      // Someone on the bench, facing out: pi/2 - phi turns local +Z outward.
+      for (let k = 0, m = r.bool(0.7) ? r.int(1, 2) : 0; k < m; k++) {
+        const phi = r.next() * Math.PI * 2;
+        put('sitter', Math.cos(phi) * 0.88, Math.sin(phi) * 0.88, 0.5 * Math.PI - phi, false);
+      }
       if (r.bool(0.6)) {
         const ang = r.next() * Math.PI * 2;
         put(r.pick(['bicycle', 'doorstep-pots', 'sacks']), Math.cos(ang) * 1.5, Math.sin(ang) * 1.5, -ang);
@@ -1337,9 +1484,10 @@ function islandPieces(kind: IslandKind, cx: number, cz: number, radius: number, 
       const tables: [number, number][] = n === 1 ? [[0, 0]]
         : n === 2 ? [[-1.05, r.jitter(0.3)], [1.05, r.jitter(0.3)]]
           : [0, 1, 2].map((k) => { const a = k * 2.094 + r.jitter(0.3); return [Math.cos(a) * 1.25, Math.sin(a) * 1.25]; });
-      tables.forEach(([u, v]) => {
+      tables.forEach(([u, v], ti) => {
         put('cafe-table', u, v, r.next() * 6.28);
-        if (tall && r.bool(0.75)) put('parasol', u, v, 0, false);
+        // The first table always has one: the parasol is what reads over a crowd.
+        if (tall && (ti === 0 || r.bool(0.75))) put('parasol', u, v, 0, false);
         const m = r.int(2, 4);
         for (let k = 0; k < m; k++) {
           const a = (k / m) * Math.PI * 2 + r.jitter(0.5);
@@ -1347,7 +1495,10 @@ function islandPieces(kind: IslandKind, cx: number, cz: number, radius: number, 
           const away = r.bool(0.25);
           const d = away ? 0.85 : 0.6 + r.jitter(0.06);
           // A chair faces local +Z; 3pi/2 - a turns it toward its table (rotY convention).
-          put('chair', u + Math.cos(a) * d, v + Math.sin(a) * d, 1.5 * Math.PI - a + (away ? r.jitter(1.6) : r.jitter(0.45)));
+          const yaw = 1.5 * Math.PI - a + (away ? r.jitter(1.6) : r.jitter(0.45));
+          put('chair', u + Math.cos(a) * d, v + Math.sin(a) * d, yaw);
+          // Somebody is still sitting at a third of the tables' chairs.
+          if (!away && r.bool(0.32)) put('sitter', u + Math.cos(a) * d, v + Math.sin(a) * d, yaw, false);
         }
       });
       if (r.bool(0.4)) { const a = r.next() * 6.28; put(r.pick(['planter', 'doorstep-pots']), Math.cos(a) * 2.15, Math.sin(a) * 2.15, a); }

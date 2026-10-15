@@ -163,14 +163,12 @@ const styleColor = (style: DistrictStyle, k: number): Vec3 => {
   ];
 };
 
-/** Grows the transport network: street trams, an aerial cable car, funiculars. */
-export function buildRailLines(city: City, seed: number): RailLine[] {
-  const plan = city.plan;
-  const r = makeRng((seed ^ 0x2b1c9f43) >>> 0);
-  const lines: RailLine[] = [];
-  let id = 0;
-
-  // Two trams threading the canyon: street level at the ends, viaduct mid-run.
+/**
+ * The two street trams: street level at the ends, viaduct mid-run. They take the
+ * first draws from the network's stream and read only the plan, so the ground
+ * bake can re-derive them (`tramTrack`) without a City.
+ */
+function growTrams(plan: CityPlan, r: Rng, seed: number, lines: RailLine[]): void {
   for (let i = 0; i < 2; i++) {
     const a = r.range(0, Math.PI * 2);
     const rad = r.range(140, 900);
@@ -186,11 +184,33 @@ export function buildRailLines(city: City, seed: number): RailLine[] {
     let crest = 0;
     for (const p of pts) if (p[1] > crest) crest = p[1];
     lines.push({
-      id: id++, kind: 'tram', points: pts, closed: false,
+      id: lines.length, kind: 'tram', points: pts, closed: false,
       speed: 10.5 + r.next() * 2.5, color: styleColor(DISTRICT_STYLES[d], 0.55),
       districtId: d, suspension: crest - GROUND_Y > 4 ? 'catenary' : 'ground',
     });
   }
+}
+
+const tramCache = new Map<number, Vec3[][]>();
+/** Tram polylines for `seed`, identical to `buildRailLines`' trams; memoised per seed. */
+export function tramTrack(plan: CityPlan, seed: number): Vec3[][] {
+  let t = tramCache.get(seed);
+  if (!t) {
+    const lines: RailLine[] = [];
+    growTrams(plan, makeRng((seed ^ 0x2b1c9f43) >>> 0), seed, lines);
+    t = lines.map((l) => l.points);
+    tramCache.set(seed, t);
+  }
+  return t;
+}
+
+/** Grows the transport network: street trams, an aerial cable car, funiculars. */
+export function buildRailLines(city: City, seed: number): RailLine[] {
+  const plan = city.plan;
+  const r = makeRng((seed ^ 0x2b1c9f43) >>> 0);
+  const lines: RailLine[] = [];
+  growTrams(plan, r, seed, lines);
+  let id = lines.length;
 
   // The heavy aerial cable car, crossing high above everything.
   const towers = gatherTowers(city, [0, 0, 0], 1200, 140, 240);

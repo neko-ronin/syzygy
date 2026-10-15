@@ -76,6 +76,12 @@ export interface MeshOpts {
   uvOffset?: number;
   /** Reference up vector for frame construction on ribbons and planes. */
   up?: Vec3;
+  /**
+   * Spheres only: bend shading normals toward +Y by this much (0 = true sphere).
+   * Foliage masses lit as solid balls go black underneath; a crown shades as one
+   * canopy when its normals lean up. Positions are unchanged.
+   */
+  normalLift?: number;
 }
 
 const DEF_OPTS: MeshOpts = {};
@@ -362,6 +368,7 @@ export class MeshBuilder {
     const R = Math.max(2, rings | 0), S = Math.max(3, sectors | 0);
     const us = opts.uvScale ?? 1;
     const e = opts.emissive ?? 0;
+    const lift = opts.normalLift ?? 0;
     const base = this.vcount;
     for (let r = 0; r <= R; r++) {
       const phi = (r / R) * Math.PI;
@@ -369,9 +376,10 @@ export class MeshBuilder {
       for (let s = 0; s <= S; s++) {
         const th = (s / S) * Math.PI * 2;
         const n: Vec3 = [sp * Math.cos(th), cp, sp * Math.sin(th)];
+        const ly = n[1] + lift, ll = lift ? Math.hypot(n[0], ly, n[2]) : 1;
         this.vert(
           [center[0] + n[0] * radius, center[1] + n[1] * radius, center[2] + n[2] * radius],
-          n, (s / S) * 6.283 * us, (r / R) * Math.PI * us, color, e,
+          lift ? [n[0] / ll, ly / ll, n[2] / ll] : n, (s / S) * 6.283 * us, (r / R) * Math.PI * us, color, e,
         );
       }
     }

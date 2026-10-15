@@ -25,7 +25,11 @@
 import { DISTRICT_STYLES, districtAtField, spineHit, spinePoint } from './districts';
 import { City, GROUND_Y, defaultCityConfig, footprintAabb, type RoadKind } from './citygen';
 import { CLUTTER_KINDS, clutterReach, footwayWalk, groundGrammarFor } from './groundgrammar';
-import { ISLAND_FRONT_MAX, ISLAND_LANE, marketGrammarFor, type MarketIsland } from './marketgrammar';
+import { ISLAND_FRONT_MAX, ISLAND_LANE, STREET_ISLAND_EDGE, marketGrammarFor, type MarketIsland } from './marketgrammar';
+import { sampleStreetPlan, type StreetSample } from './citygen';
+import { bakeGroundDetail } from '../render/groundbake';
+import { MeshBuilder } from './geometry';
+import { makeRng } from '../core/math';
 import { buildRailLines } from './networks';
 import { bakeChunk } from '../render/citymesh';
 import type { CrowdObstacle } from './crowdobstacles';
@@ -177,6 +181,49 @@ for (const line of buildRailLines(city, SEED)) {
 }
 if (tramHits > 0) problems.push(`${tramHits} at-grade tram points pass through an island`);
 if (lanternsDropped > 0) problems.push(`${lanternsDropped}/${lanternsProduced} market lanterns lost their light to the chunk budget`);
+
+// ---------------------------------------------------------------- 3. street islands
+//
+// D30 rule 1 off the spine: carriageways of STREET_ISLAND_MIN_WIDTH or more carry
+// islands down the middle. Baked on a block of chunks around the origin and pose
+// 01d's alley (~(990, 235)), read back from the bake, not the placement's intent.
+const streetIsl: MarketIsland[] = [];
+const streetObs: CrowdObstacle[] = [];
+for (let cx = -2; cx <= 4; cx++) {
+  for (let cz = -2; cz <= 1; cz++) {
+    const ch = city.getChunk(cx, cz);
+    if (!ch) continue;
+    const g = bakeGroundDetail(new MeshBuilder(), ch, plan, 0, makeRng(1), []);
+    streetIsl.push(...g.streetIslands);
+    streetObs.push(...g.obstacles);
+  }
+}
+const ss: StreetSample = { dist: 0, px: 0, pz: 0, tx: 1, tz: 0, width: 0, kind: 'street', clearance: 0 };
+let edgeBreach = 0, sPieces = 0, sCovered = 0, sTram = 0;
+for (const isl of streetIsl) {
+  const s0 = sampleStreetPlan(plan, isl.x, isl.z, ss);
+  if (s0.dist + isl.radius > s0.width * 0.5 - STREET_ISLAND_EDGE + 1e-6) edgeBreach++;
+  for (const q of isl.pieces) {
+    if (Math.hypot(q.x - isl.x, q.z - isl.z) > isl.radius) problems.push(`street ${isl.kind} piece ${q.kind} outside its island radius`);
+    if (!q.solid) continue;
+    sPieces++;
+    if (streetObs.some((o) => o.kind === q.kind && Math.abs(q.x - o.x) <= o.halfAlong + 0.05 && Math.abs(q.z - o.z) <= o.halfAcross + 0.05)) sCovered++;
+  }
+}
+for (const line of buildRailLines(city, SEED)) {
+  if (line.kind !== 'tram') continue;
+  for (const q of line.points) {
+    if (q[1] > GROUND_Y + 3) continue;
+    for (const isl of streetIsl) if (Math.hypot(q[0] - isl.x, q[2] - isl.z) < isl.radius + 1.5) sTram++;
+  }
+}
+const near01d = streetIsl.filter((i) => i.x > 970 && i.x < 1015 && i.z > 240 && i.z < 275).length;
+console.log(`\nSTREET ISLANDS (${streetIsl.length} on 28 chunks; ${near01d} in the near 5-40 m of pose 01d's alley)`);
+console.log(`  solid pieces with an obstacle ${sCovered}/${sPieces}; within ${STREET_ISLAND_EDGE} m of an edge ${edgeBreach}; tram points through one ${sTram}`);
+if (streetIsl.length === 0) problems.push('no street islands placed: the wide-carriageway pass is dead');
+if (edgeBreach > 0) problems.push(`${edgeBreach} street islands leave less than ${STREET_ISLAND_EDGE} m to a carriageway edge`);
+if (sCovered !== sPieces) problems.push(`${sPieces - sCovered}/${sPieces} solid street-island pieces have no crowd obstacle`);
+if (sTram > 0) problems.push(`${sTram} at-grade tram points pass through a street island`);
 
 const byKind: Record<string, number> = {};
 for (const i of islands) byKind[i.kind] = (byKind[i.kind] ?? 0) + 1;
