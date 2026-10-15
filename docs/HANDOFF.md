@@ -159,8 +159,40 @@ must buy its cost back first; cheapest known lever: the D30 lived kits cost ~0.1
    wide at the ledge, narrowing below, mixed sizes and hues, contact shadow on the wall
    (`hangLeaves`, ivy loop in `pushTerraces`). Keep `TERRACE_HANG_BUDGET`: without it one
    chunk carried 1.04M foliage triangles.
-5. **Sheet B, weathering.** Rooms are clean boxes: cantilevers, catwalks, tarps, lit
-   windows, soot (`pushScaffold`). Extra stacks and crowns are LOD 0 only, by measurement.
+5. **Sheet B, weathering — done, awaiting review (2026-10-15).** `weatherRoom` (citymesh.ts)
+   dresses every bolted-on room, on scaffolds and accreted crowns. On the seen face: panel
+   seams, a grime skirt, soot runs from the roof edge and under each window, framed windows
+   with a cross bar, a lit side window (40%), a railed balcony cantilevered off the floor
+   line (30%), and a canvas or tarp sheet over the roof hung down the front (22%). Catwalks:
+   a railed walkway off a deck level, out past the frame along the wall (55% per segment,
+   breaking the "unbroken pillar"), and one round the crown's foot (50% per face).
+   Weathering has its own RNG (`windowSeed ^ 0x50071e55`), so the room layout is unchanged
+   and the before/after pair is a clean control. All of it is LOD 0 only, like the extra
+   stacks and crowns.
+   - **Bug found on the way (PITFALLS §34):** the rooms' lit windows were wound into the
+     wall on faces +x and −z and were back-face culled. A probe over 400 seeds at HEAD:
+     every lit-window triangle on those faces faced in, 0 out. `faceQuad` now winds them
+     out. Night pose 12: the right stack went from **0 to ~15 lit windows**. This was most
+     of review 6's "few windows". The terrace wall-shadow strip in `pushTerraces` had the
+     same fault; item 4 makes it `doubleSided`.
+   - **Frames** (`12-scaffold-b`, the new `12-scaffold-b-night` (same camera), `02-canyon-up`
+     as a control): rooms now read as weathered, inhabited panels rather than primitives.
+     02 has no scaffolds and is unchanged. **Not seen in any pose:** the crown weathering
+     and catwalks. Pose 12 is a Copper Stacks tower, which takes no crown (D27), and no
+     catwalk was visible in it. A rust-hangars crown pose would show them.
+   - **Cost (D32):** +~1,600 LOD 0 triangles per scaffolded building (B districts ~3,200 →
+     ~4,800; Copper Stacks 2,700 → 3,800), from a probe over 400 seeds. The scaffolded count
+     is unchanged, so the layout did not move. `benchmark.mjs --route=all --quality=high
+     --gpu-passes` as an interleaved A/B against `86c699a`, two passes in alternating order,
+     **under contention** (a browser tab held one core at ~100% throughout, and sibling
+     sessions were capturing). The first run in each pass was the slower one, whichever side
+     it was, so the noise is larger than the effect. Mean of the two passes, base → head,
+     submitted/s and GPU span: hero 51.0 → 47.0 (17.4 → 19.2 ms), skyline 51.4 → 56.9
+     (16.6 → 15.3 ms), flight 53.5 → 55.3 (15.2 → 14.9 ms). Every run on both sides was
+     above the 30 fps floor (lowest 42.7/s, a base run). The hero's gbuffer and shadow
+     passes read ~0.3-0.6 ms heavier, which may be real. Re-run on a quiet machine before
+     quoting a 60 fps figure.
+   - Not seen by a non-implementing reviewer.
 
 **How this session worked (load-bearing):**
 

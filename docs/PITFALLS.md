@@ -945,6 +945,26 @@ the battery `Temperature` (`ioreg -rn AppleSmartBattery -l`, centi-°C) and the 
 `Device Utilization %` (`ioreg -r -c IOAccelerator -d 1`) before blaming another process.
 Gate legs on a cool chassis, and keep each A/B pair inside one thermal state (ABBA).
 
+## 34. Half the scaffold rooms had no windows: a face quad wound into the wall
+
+**Symptom:** review 6 read sheet B's bolted-on rooms as "clean boxes, few windows". In pose 12
+the right-hand stack showed no lit window by day and **none at night**, though every room
+rolled a 75% chance of one or two.
+
+**Cause:** `facePoint(b, face, wall, t, y, d)` runs `t` along +z on *both* x faces and along
++x on *both* z faces. `pushQuad` takes its normal from `cross(b - a, d - a)`, so one vertex
+order (`t0 → t1`, low → high) faces out on faces 1 and 2 and into the wall on faces 0 (+x) and
+3 (−z), where the back-face cull removes it. The scaffold decks and tarps were `doubleSided`
+and hid the pattern; only the single-sided lit windows vanished.
+
+**Fix:** `faceQuad` (citymesh.ts) builds a flat face quad and flips the winding when its normal
+points away from `Q(..., d + 1)`. Every room window now goes through it. Night pose 12: 0 → ~15
+lit windows on that stack. The terrace wall-shadow strip in `pushTerraces` had the same fault;
+the item 4 (sheet D) work makes it `doubleSided`. `faceQuad` is the single-sided alternative.
+**Catch it next time:** any single-sided quad built from a per-face helper must be checked on
+all four faces. A feature that shows on some towers and not others, with the same chance on
+each, is a winding problem before it is a probability problem.
+
 ## Working norms that held up
 
 - **Measure before theorising.** Every bug above cost far less time to measure

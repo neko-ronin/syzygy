@@ -534,7 +534,7 @@ const TERRACE_LEAF: Vec3[] = [[0.20, 0.33, 0.06], [0.26, 0.37, 0.07], [0.15, 0.2
  */
 function pushAccretedCrown(
   bld: MeshBuilder, b: BuildingInstance, TL: TowerTier, yBase: number, metal: Vec3, room: () => Vec3, r: Rng, lod: number,
-  lights?: BakedChunk['lights'],
+  w: Rng, lights?: BakedChunk['lights'],
 ): void {
   const yTop = yBase + TL.y1;
   for (let face = 0; face < 4; face++) {
@@ -542,6 +542,10 @@ function pushAccretedCrown(
     const half = face < 2 ? TL.hz : TL.hx, wall = face < 2 ? TL.hx : TL.hz;
     const Q = (t: number, y: number, d: number): Vec3 => facePoint(b, face, wall, t, y, d);
     const yaw = b.rotationY + (face < 2 ? Math.PI / 2 : 0);
+    // A railed walkway round the crown's foot (sheet B's towers are ringed with them).
+    // Not below the tier: on a setback tower it would sit inside the wider tier under it.
+    const yc = yTop - 12.5 - w.next() * 2;
+    if (w.bool(0.5) && yc > yBase + TL.y0 + 1) catwalk(bld, Q, -half + 0.5, half - 0.5, yc, 0, metal);
     for (let t = -half + 1.5; t < half - 1.5; t += 3.2 + r.next() * 3.5) {
       if (r.next() < 0.2) continue;
       let ry = yTop - 2.5 - r.next() * 9;
@@ -550,7 +554,9 @@ function pushAccretedCrown(
         const tt = t + r.jitter(0.8);
         bld.pushBox(Q(tt, ry + sh / 2, sd / 2), [sw / 2, sh / 2, sd / 2], c, { faces: FACE_ALL, rotationY: yaw });
         bld.pushBox(Q(tt, ry + sh + 0.06, sd / 2 + 0.15), [sw / 2 + 0.25, 0.06, sd / 2 + 0.3], tint3(c, 0.6), { faces: FACE_ALL, rotationY: yaw });
-        if (r.bool(0.6)) bld.pushQuad(Q(tt - 0.35, ry + sh * 0.42, sd + 0.02), Q(tt + 0.35, ry + sh * 0.42, sd + 0.02), Q(tt + 0.35, ry + sh * 0.74, sd + 0.02), Q(tt - 0.35, ry + sh * 0.74, sd + 0.02), [1.0, 0.72, 0.4], 1, { emissive: 3.0 });
+        const lit = r.bool(0.6);
+        if (lit) faceQuad(bld, Q, tt - 0.35, tt + 0.35, ry + sh * 0.42, ry + sh * 0.74, sd + 0.02, LIT, { emissive: 3.0 });
+        weatherRoom(bld, Q, tt, ry, sd + 0.02, sw, sh, sd, c, lit ? [tt] : [], metal, w);
         if (n === 0 && lod < 1) for (const e of [-sw / 2 + 0.2, sw / 2 - 0.2]) bld.pushTubeAlongPath([Q(tt + e, ry - 2.0, 0.05), Q(tt + e, ry, sd - 0.2)], 0.06, 3, metal, { capEnds: false });
         ry += sh + 0.12;
       }
@@ -582,6 +588,88 @@ function facePoint(b: BuildingInstance, face: number, wall: number, t: number, l
   return buildingPoint(b, nx * (wall + d) + (face < 2 ? 0 : t), ly, nz * (wall + d) + (face < 2 ? t : 0));
 }
 
+/**
+ * A quad flat on a face, `t0..t1` by `ya..yb`, `d` out, wound to face out. `t` runs
+ * +z on both x faces and +x on both z faces, so one vertex order faces into the
+ * wall on two of the four: the bolted-on rooms' lit windows were culled there.
+ */
+function faceQuad(bld: MeshBuilder, Q: (t: number, y: number, d: number) => Vec3, t0: number, t1: number, ya: number, yb: number, d: number, col: Vec3, opts?: MeshOpts): void {
+  const a = Q(t0, ya, d), b = Q(t1, ya, d), c = Q(t1, yb, d), e = Q(t0, yb, d), o = Q(t0, ya, d + 1);
+  const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], v = [e[0] - a[0], e[1] - a[1], e[2] - a[2]];
+  const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+  if (n[0] * (o[0] - a[0]) + n[1] * (o[1] - a[1]) + n[2] * (o[2] - a[2]) < 0) bld.pushQuad(a, e, c, b, col, 1, opts);
+  else bld.pushQuad(a, b, c, e, col, 1, opts);
+}
+
+/** Sheet B's pale canvas: the sheet thrown over a room roof and hung down its front. */
+const CANVAS: Vec3 = [0.58, 0.57, 0.52];
+const LIT: Vec3 = [1.0, 0.72, 0.4];
+
+/**
+ * Weathering for one bolted-on room (sheet B, review 6: "clean boxes, few windows
+ * or soot"). Seen face only: panel seams, soot run down from the roof and under the
+ * windows, a grime skirt, frames on the lit windows, a lit side window, and now and
+ * then a cantilevered balcony or a tarp over the roof. `t`/`y0` are the room's
+ * centre along the face and its floor, `front` its outer face depth. Near field
+ * only; `w` is its own RNG so the room layout does not re-roll.
+ */
+function weatherRoom(
+  bld: MeshBuilder, Q: (t: number, y: number, d: number) => Vec3, t: number, y0: number, front: number,
+  sw: number, sh: number, sd: number, c: Vec3, wins: number[], metal: Vec3, w: Rng,
+): void {
+  const f = front + 0.01, quad = (t0: number, t1: number, ya: number, yb: number, col: Vec3, d = f): void =>
+    faceQuad(bld, Q, t0, t1, ya, yb, d, col);
+  const l = t - sw / 2, rr = t + sw / 2;
+  // Panel seams and a grime skirt.
+  for (let s = l + 0.7 + w.next() * 0.5; s < rr - 0.3; s += 0.9 + w.next() * 0.9) quad(s - 0.03, s + 0.03, y0 + 0.1, y0 + sh, tint3(c, 0.55));
+  quad(l, rr, y0, y0 + 0.25 + w.next() * 0.25, tint3(c, 0.5));
+  // Soot run down from the roof edge, and below each window.
+  for (let k = 0, n = 1 + w.int(0, 2); k < n; k++) {
+    const st = l + 0.3 + w.next() * (sw - 0.6), sw2 = 0.15 + w.next() * 0.3;
+    quad(st - sw2, st + sw2, y0 + sh * (0.35 + w.next() * 0.45), y0 + sh, tint3(c, 0.42), f + 0.005);
+  }
+  for (const wt of wins) {
+    quad(wt - 0.3, wt + 0.3, y0 + 0.2 + w.next() * 0.4, y0 + sh * 0.42, tint3(c, 0.45), f + 0.005);
+    // A frame and a cross bar: a window, not a sticker.
+    const wf = f + 0.012, fr = tint3(c, 0.35), ya = y0 + sh * 0.42, yb = y0 + sh * 0.74;
+    quad(wt - 0.42, wt + 0.42, ya - 0.08, ya, fr, wf);
+    quad(wt - 0.42, wt + 0.42, yb, yb + 0.06, fr, wf);
+    quad(wt - 0.03, wt + 0.03, ya, yb, fr, wf);
+    quad(wt - 0.35, wt + 0.35, (ya + yb) / 2 - 0.025, (ya + yb) / 2 + 0.025, fr, wf);
+  }
+  // A lit window on a side wall (the stacks are seen edge-on from the street).
+  if (w.bool(0.4)) {
+    const st = w.bool() ? rr + 0.02 : l - 0.02, dm = front - sd / 2 + w.jitter(sd * 0.2);
+    bld.pushQuad(Q(st, y0 + sh * 0.42, dm - 0.3), Q(st, y0 + sh * 0.42, dm + 0.3), Q(st, y0 + sh * 0.72, dm + 0.3), Q(st, y0 + sh * 0.72, dm - 0.3), LIT, 1, { emissive: 3.0, doubleSided: true });
+  }
+  // A balcony cantilevered off the floor line, railed.
+  if (w.bool(0.3)) {
+    const bw = sw * (0.45 + w.next() * 0.35), bt = t + w.jitter((sw - bw) / 2), out = front + 0.9 + w.next() * 0.5;
+    bld.pushQuad(Q(bt - bw / 2, y0, front), Q(bt + bw / 2, y0, front), Q(bt + bw / 2, y0, out), Q(bt - bw / 2, y0, out), SCAFFOLD_DECK, 1, { doubleSided: true });
+    bld.pushTubeAlongPath([Q(bt - bw / 2, y0 + 1.0, out), Q(bt + bw / 2, y0 + 1.0, out)], 0.04, 3, metal, { capEnds: false });
+    for (const e of [bt - bw / 2, bt, bt + bw / 2]) bld.pushTubeAlongPath([Q(e, y0, out), Q(e, y0 + 1.0, out)], 0.035, 3, metal, { capEnds: false });
+    bld.pushTubeAlongPath([Q(bt, y0 - 1.1, front), Q(bt, y0, out)], 0.05, 3, metal, { capEnds: false });
+  }
+  // A tarp over the roof, hung down the front.
+  if (w.bool(0.22)) {
+    const tc = w.bool(0.6) ? CANVAS : TARPS[w.int(0, TARPS.length - 1)], tw = sw * (0.5 + w.next() * 0.4), tt = t + w.jitter((sw - tw) / 2);
+    const yr = y0 + sh + 0.16, back = front - sd, hang = y0 + sh * (0.45 + w.next() * 0.3), d = front + 0.35;
+    bld.pushQuad(Q(tt - tw / 2, yr, back), Q(tt + tw / 2, yr, back), Q(tt + tw / 2, yr + 0.05, d), Q(tt - tw / 2, yr + 0.05, d), tc, 1, { doubleSided: true });
+    bld.pushQuad(Q(tt - tw / 2, hang, d + 0.12), Q(tt + tw / 2 + w.jitter(0.3), hang + w.jitter(0.3), d + 0.12), Q(tt + tw / 2, yr + 0.05, d), Q(tt - tw / 2, yr + 0.05, d), tint3(tc, 0.85), 1, { doubleSided: true });
+  }
+}
+
+/** A railed catwalk along a face at height `y`, `d` out from the wall, from `t0` to `t1`. */
+function catwalk(bld: MeshBuilder, Q: (t: number, y: number, d: number) => Vec3, t0: number, t1: number, y: number, d: number, metal: Vec3): void {
+  const o = d + 0.9;
+  bld.pushQuad(Q(t0, y, d), Q(t1, y, d), Q(t1, y, o), Q(t0, y, o), SCAFFOLD_DECK, 1, { doubleSided: true });
+  bld.pushTubeAlongPath([Q(t0, y + 1.0, o), Q(t1, y + 1.0, o)], 0.04, 3, metal, { capEnds: false });
+  for (let k = 0, n = Math.max(1, Math.round((t1 - t0) / 2)); k <= n; k++) {
+    const s = t0 + ((t1 - t0) * k) / n;
+    bld.pushTubeAlongPath([Q(s, y, o), Q(s, y + 1.0, o)], 0.035, 3, metal, { capEnds: false });
+  }
+}
+
 export function pushScaffold(bld: MeshBuilder, b: BuildingInstance, dp: DistrictProfile, lod: number, lights?: BakedChunk['lights']): void {
   const chance = SCAFFOLD_CHANCE[dp.style.key] ?? 0;
   if (!chance || lod >= 2) return;
@@ -590,6 +678,8 @@ export function pushScaffold(bld: MeshBuilder, b: BuildingInstance, dp: District
   const tiers = towerTiers(b), T = tiers[0], hy = b.halfExtents[1], yBase = -hy;
   const metal = tint3(dp.palette.metal, 0.45), lift = 2.0;
   const room = (): Vec3 => tint3(ROOMS[r.int(0, ROOMS.length - 1)], 0.62 + r.next() * 0.38);
+  // Weathering rolls its own dice: the layout above stays as it was.
+  const w = makeRng((b.windowSeed ^ 0x50071e55) >>> 0);
   const first = r.int(0, 3);
   scaffoldFace(first);
   // Sheet B's towers are crusted on more than one side (review 5: one stack, one tower).
@@ -599,7 +689,7 @@ export function pushScaffold(bld: MeshBuilder, b: BuildingInstance, dp: District
   // Not on the teal towers: their tops are the skyline climax D27 keeps clean.
   // Near field only: at LOD 1 the crowns were 1-3 px flecks on the skyline that
   // read as dirt (review 6), and the far shadow cascades paid for them.
-  if (dp.style.key !== 'copper-stacks' && lod < 1) pushAccretedCrown(bld, b, tiers[tiers.length - 1], yBase, metal, room, r, lod, lights);
+  if (dp.style.key !== 'copper-stacks' && lod < 1) pushAccretedCrown(bld, b, tiers[tiers.length - 1], yBase, metal, room, r, lod, w, lights);
 
   function scaffoldFace(face: number): void {
   const half = face < 2 ? T.hz : T.hx, wall = face < 2 ? T.hx : T.hz;
@@ -637,7 +727,7 @@ export function pushScaffold(bld: MeshBuilder, b: BuildingInstance, dp: District
           bld.pushBox(Q(t0, yy + sh / 2, dIn + sd / 2), [sw / 2, sh / 2, sd / 2], tint3(c, 0.8), { faces: FACE_ALL, rotationY: b.rotationY + (face < 2 ? Math.PI / 2 : 0) });
           if (r.bool(0.7)) {
             const wd = dIn + sd + 0.02;
-            bld.pushQuad(Q(t0 - 0.3, yy + sh * 0.45, wd), Q(t0 + 0.3, yy + sh * 0.45, wd), Q(t0 + 0.3, yy + sh * 0.75, wd), Q(t0 - 0.3, yy + sh * 0.75, wd), [1.0, 0.72, 0.4], 1, { emissive: 3.2 });
+            faceQuad(bld, Q, t0 - 0.3, t0 + 0.3, yy + sh * 0.45, yy + sh * 0.75, wd, LIT, { emissive: 3.2 });
           }
         }
         if (lights && lod < 1 && r.next() < 0.25) {
@@ -672,15 +762,24 @@ export function pushScaffold(bld: MeshBuilder, b: BuildingInstance, dp: District
         bld.pushBox(Q(rt, ry + sh / 2, rd), [sw / 2, sh / 2, sd / 2], c, { faces: FACE_ALL, rotationY: yaw });
         // A thin roof sheet with an overhang.
         bld.pushBox(Q(rt, ry + sh + 0.06, rd + 0.15), [sw / 2 + 0.25, 0.06, sd / 2 + 0.3], tint3(c, 0.6), { faces: FACE_ALL, rotationY: yaw });
-        const front = rd + sd / 2 + 0.02;
+        const front = rd + sd / 2 + 0.02, lit: number[] = [];
         for (let wn = 0, wins = sw > 3.4 ? 2 : 1; wn < wins; wn++) {
           if (!r.bool(0.75)) continue;
           const wt = rt + (wins === 2 ? (wn - 0.5) * sw * 0.45 : 0);
-          bld.pushQuad(Q(wt - 0.35, ry + sh * 0.42, front), Q(wt + 0.35, ry + sh * 0.42, front), Q(wt + 0.35, ry + sh * 0.74, front), Q(wt - 0.35, ry + sh * 0.74, front), [1.0, 0.72, 0.4], 1, { emissive: 3.0 });
+          faceQuad(bld, Q, wt - 0.35, wt + 0.35, ry + sh * 0.42, ry + sh * 0.74, front, LIT, { emissive: 3.0 });
+          lit.push(wt);
         }
+        if (lod < 1) weatherRoom(bld, Q, rt, ry, front, sw, sh, sd, c, lit, metal, w);
         if (n === 0) for (const e of [-sw / 2 + 0.2, sw / 2 - 0.2]) bld.pushTubeAlongPath([Q(rt + e, ry - 2.2, 0.05), Q(rt + e, ry, rd + sd / 2 - 0.2)], 0.06, 3, metal, { capEnds: false });
         ry += sh + 0.12; rt += r.jitter(1.4);
       }
+    }
+    // A catwalk off a deck level, out past the frame along the wall: breaks the
+    // column into a crossing (review 6: "an unbroken pillar").
+    if (lod < 1 && w.bool(0.55)) {
+      const yc = y + lift * w.int(1, Math.max(1, levels - 1)), right = w.bool(), run = 4 + w.next() * 6;
+      const t0 = right ? ts[bays] : Math.max(-half + 0.3, ts[0] - run), t1 = right ? Math.min(half - 0.3, ts[bays] + run) : ts[0];
+      if (t1 - t0 > 1.5) catwalk(bld, Q, t0, t1, yc, dIn, metal);
     }
     y += h;
   }

@@ -348,6 +348,17 @@ const POSES = [
     settle: 30,
   },
   {
+    // Same camera at night: sheet B's warmth is its lit windows, which a noon
+    // frame cannot judge.
+    name: '12-scaffold-b-night',
+    label: 'sheet B: SAME camera as 12-scaffold-b, night — lit room windows',
+    position: [-300.8, 14, -484.1], lookAt: [-287.3, 30, -519.7], fov: 1.0, roll: 0,
+    time: 'night',
+    weather: { sky: 'night', cloudCover: 0.3, haze: 0.3 },
+    lens: { fov: 1.0, bloom: 0.8, exposure: 1.28 },
+    settle: 30,
+  },
+  {
     // Sheet D feature review: planted terrace bands and vines on a garden-suburb
     // (verdant-canyon) block, from 45 m, looking slightly up (D29 plan).
     name: '13-terraces-d',
