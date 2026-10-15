@@ -786,14 +786,43 @@ export function pushScaffold(bld: MeshBuilder, b: BuildingInstance, dp: District
   }
 }
 
-/** A draped leaf mass hanging from (t, y): two abreast, tapering slowly as it falls. */
-function hangLeaves(leafBld: MeshBuilder, Q: (t: number, y: number, d: number) => Vec3, t: number, y: number, d: number, fall: number, leaf: Vec3, r: Rng): void {
-  let yy = y, rad = 0.6 + r.next() * 0.35;
-  for (let step = 0; yy > y - fall && rad > 0.24 && step < 12; step++) {
-    const c = tint3(leaf, 0.62 + r.next() * 0.2);
-    leafBld.pushSphere(Q(t - rad * 0.45, yy - rad * 0.5, d), rad, 5, 3, c);
-    leafBld.pushSphere(Q(t + rad * 0.5, yy - rad * 0.8, d - 0.1), rad * 0.85, 5, 3, c);
-    yy -= rad * 1.25; rad *= 0.9; t += r.jitter(0.3);
+/**
+ * Terrace foliage leans its shading normals up (as the island tree does): lit as
+ * solid balls, the undersides of hanging masses went black and each read alone.
+ */
+const LEAF_LIFT: MeshOpts = { normalLift: 0.5 };
+/** Painted shadow patches stand this far off the wall: at 0.03 m they z-fought it into stripes at 45 m. */
+const WALL_SHADE_D = 0.1;
+
+/**
+ * A curtain of leaves hanging from (t, y), `d` out from the wall: a fringe of
+ * mixed masses across the ledge, then strands that thin and draw in as they
+ * fall, longest near the middle, so the outline narrows below (sheet D). Each
+ * mass picks its own green, the back row darker. Two equal spheres abreast per
+ * step read as strings of glossy beads (review 6). Foliage casts no shadow-map
+ * shadow (the renderer skips it in shadow passes), so a curtain against a wall
+ * gets `shadow`: a tapered patch of darkened wall behind it.
+ */
+function hangLeaves(leafBld: MeshBuilder, Q: (t: number, y: number, d: number) => Vec3, t: number, y: number, d: number, fall: number, leaf: Vec3, r: Rng, shadow?: { bld: MeshBuilder; col: Vec3 }): void {
+  const W = 1.2 + r.next() * 1.2 + Math.min(fall, 4) * 0.2;
+  const green = (lit: number): Vec3 => tint3(r.next() < 0.6 ? leaf : TERRACE_LEAF[r.int(0, TERRACE_LEAF.length - 1)], lit);
+  for (let u = -W / 2; u < W / 2; u += 0.5 + r.next() * 0.4) {
+    const rad = 0.4 + r.next() * r.next() * 0.7, back = r.next() < 0.4;
+    leafBld.pushSphere(Q(t + u, y - rad * 0.3 + r.jitter(0.15), d + (back ? -0.2 : 0.1)), rad, back ? 3 : 4, 4, green(back ? 0.45 + r.next() * 0.15 : 0.7 + r.next() * 0.35), LEAF_LIFT);
+  }
+  for (let s = 0, ns = 3 + r.int(0, 1); s < ns; s++) {
+    const u = r.jitter(W * 0.42), edge = Math.abs(u) / (W / 2);
+    const len = fall * (1 - 0.65 * edge * edge) * (0.6 + r.next() * 0.4);
+    let tt = t + u, yy = y - 0.4, rad = 0.38 + r.next() * 0.2;
+    for (let step = 0; yy > y - len && step < 10; step++) {
+      const rr = rad * (0.75 + r.next() * 0.5);
+      leafBld.pushSphere(Q(tt, yy - rr, d + r.jitter(0.12)), rr, 3, 4, green(0.5 + r.next() * 0.45), LEAF_LIFT);
+      yy -= rr * 1.15; rad *= 0.9; tt += r.jitter(0.1) - u * 0.08;
+    }
+  }
+  if (shadow) {
+    const sw = W * 0.4, sy = y - fall * 0.6;
+    shadow.bld.pushQuad(Q(t - sw * 0.25, sy, WALL_SHADE_D), Q(t + sw * 0.25, sy, WALL_SHADE_D), Q(t + sw, y, WALL_SHADE_D), Q(t - sw, y, WALL_SHADE_D), shadow.col, 1, { doubleSided: true });
   }
 }
 
@@ -807,6 +836,7 @@ export function pushTerraces(bld: MeshBuilder, leafBld: MeshBuilder, b: Building
   if (r.bool(0.6)) faces.push(faces[0] ^ 1);
   const every = 2 + (r.bool(0.3) ? 1 : 0);
   const slabCol = tint3(dp.palette.secondary, 0.95), timber: Vec3 = [0.42, 0.24, 0.11];
+  const wallShade = { bld, col: tint3(dp.palette.base, 0.45) };
   // Every tier, not only the base: a setback tower left its upper tier bare above
   // three planted bands (R14 review 5, pose 13). Eight bands at most per face.
   const tiers = towerTiers(b), gap = fh * every;
@@ -832,8 +862,8 @@ export function pushTerraces(bld: MeshBuilder, leafBld: MeshBuilder, b: Building
         const yt = yBase + T.y1, leaf = TERRACE_LEAF[r.int(0, TERRACE_LEAF.length - 1)];
         for (let t = -w; t < w; t += 0.8 + r.next() * 1.2) {
           const rad = 0.5 + r.next() * r.next() * 1.1;
-          leafBld.pushSphere(Q(t + r.jitter(0.4), yt + rad * 0.3, -0.4 + r.next() * 0.9), rad, 5, 3, tint3(leaf, 0.75 + r.next() * 0.35));
-          if (r.next() < 0.35 * thin) hangLeaves(leafBld, Q, t, yt - 0.2, 0.35, 1.0 + r.next() * r.next() * gap * 0.7, leaf, r);
+          leafBld.pushSphere(Q(t + r.jitter(0.4), yt + rad * 0.3, -0.4 + r.next() * 0.9), rad, 5, 3, tint3(leaf, 0.75 + r.next() * 0.35), LEAF_LIFT);
+          if (r.next() < 0.25 * thin) hangLeaves(leafBld, Q, t, yt - 0.2, 0.35, 1.2 + r.next() * gap * 0.6, leaf, r, wallShade);
         }
       }
       for (let f = Math.ceil(T.y0 / fh) + 2; bands[face] < 8 && (f + 1) * fh < T.y1; f += every, bands[face]++) {
@@ -844,7 +874,7 @@ export function pushTerraces(bld: MeshBuilder, leafBld: MeshBuilder, b: Building
         bld.pushQuad(Q(-w, y - 0.55, depth), Q(w, y - 0.55, depth), Q(w, y, depth), Q(-w, y, depth), timber, 1, { doubleSided: true });
         if (lod < 1) {
           bld.pushQuad(Q(-w, y - 0.5, 0), Q(-w, y - 0.5, depth), Q(w, y - 0.5, depth), Q(w, y - 0.5, 0), timber, 1, { doubleSided: true });
-          bld.pushQuad(Q(-w, y - 1.6, 0.03), Q(w, y - 1.6, 0.03), Q(w, y - 0.5, 0.03), Q(-w, y - 0.5, 0.03), tint3(dp.palette.base, 0.45), 1);
+          bld.pushQuad(Q(-w, y - 1.6, WALL_SHADE_D), Q(w, y - 1.6, WALL_SHADE_D), Q(w, y - 0.5, WALL_SHADE_D), Q(-w, y - 0.5, WALL_SHADE_D), wallShade.col, 1, { doubleSided: true });
         }
         // A warm lamp strip under the fascia: a continuous line at night, at any distance.
         bld.pushQuad(Q(-w, y - 0.62, depth - 0.15), Q(w, y - 0.62, depth - 0.15), Q(w, y - 0.55, depth - 0.15), Q(-w, y - 0.55, depth - 0.15), [1.0, 0.74, 0.42], 1, { emissive: 2.2, doubleSided: true });
@@ -870,7 +900,7 @@ export function pushTerraces(bld: MeshBuilder, leafBld: MeshBuilder, b: Building
           // Spilling over the edge, hanging in front of the fascia.
           if (r.next() < 0.45) {
             const rad = 0.45 + r.next() * 0.5;
-            leafBld.pushSphere(Q(t + r.jitter(0.4), y - 0.25 - r.next() * 0.6, depth + 0.15 + r.next() * 0.35), rad, 5, 3, tint3(leaf, 0.7 + r.next() * 0.2));
+            leafBld.pushSphere(Q(t + r.jitter(0.4), y - 0.25 - r.next() * 0.6, depth + 0.15 + r.next() * 0.35), rad, 5, 3, tint3(leaf, 0.7 + r.next() * 0.2), LEAF_LIFT);
           }
         }
         for (let k = 0, nt = (r.next() < 0.7 ? 1 : 0) + (w > 10 && r.next() < 0.5 ? 1 : 0); k < nt; k++) {
@@ -882,26 +912,32 @@ export function pushTerraces(bld: MeshBuilder, leafBld: MeshBuilder, b: Building
             leafBld.pushSphere(Q(t + (m ? r.jitter(1.1) : 0), y + th + (m ? r.jitter(0.6) : 0.4), depth * 0.5 + (m ? r.jitter(0.8) : 0)), mr, 5, 3, tint3(leaf, 0.8 + r.next() * 0.35));
           }
         }
-        // Hanging leaf masses draped over the fascia, two abreast and tapering
-        // slowly: the lime strip vines read as paint (review 5), single spheres
-        // in a line as beads. Some fall most of the way to the band below.
-        for (let k = 0, nc = Math.round(w * (0.25 + r.next() * 0.2) * thin); k < nc; k++) {
-          hangLeaves(leafBld, Q, r.jitter(w * 0.92), y - 0.5, depth + 0.1 + r.next() * 0.3, 1.2 + r.next() * r.next() * gap * 0.8, leaf, r);
+        // Curtains draped over the fascia: the lime strip vines read as paint
+        // (review 5), spheres in a line as beads. Some fall most of the way to
+        // the band below. Fewer than the old pairs: each is wider and has more masses.
+        for (let k = 0, nc = Math.round(w * (0.18 + r.next() * 0.14) * thin); k < nc; k++) {
+          hangLeaves(leafBld, Q, r.jitter(w * 0.92), y - 0.5, depth + 0.1 + r.next() * 0.3, 1.5 + r.next() * gap * 0.75, leaf, r);
         }
         // Ivy climbing the wall up from the slab toward the band above: domes half
-        // sunk into the wall, the cheapest cover per triangle. Darker, cooler green.
+        // sunk into the wall, the cheapest cover per triangle. Darker, cooler green,
+        // each dome its own size and shade, widest at the foot and thinning as it
+        // climbs, over a darkened patch of wall (equal domes stacked read as a column).
         for (let k = 0, ni = Math.round(w * (0.2 + r.next() * 0.14) * thin); k < ni; k++) {
-          let tt = r.jitter(w * 0.95), yy = y + 0.3, rad = 0.8 + r.next() * 0.45;
-          const top = y + gap * (0.4 + r.next() * 0.55);
-          const c = tint3(IVY[r.int(0, IVY.length - 1)], 0.85 + r.next() * 0.3);
+          const t0 = r.jitter(w * 0.95), top = y + gap * (0.4 + r.next() * 0.55), spread = 0.9 + r.next() * 0.7;
+          let tt = t0, yy = y + 0.3, rad = 0.8 + r.next() * 0.45;
           // Bounded by count: the climb is a geometric series (rad shrinks), so
           // `yy < top` alone never ends when top is more than ~19 radii up (it
           // hung the boot). Each step spreads sideways: a patch, not a column.
           for (let step = 0; yy < top && step < 14; step++) {
-            leafBld.pushSphere(Q(tt, yy, 0.12), rad, 4, 4, c);
-            if (r.next() < 0.6) leafBld.pushSphere(Q(tt + (r.bool() ? 1 : -1) * rad * (1.0 + r.next() * 0.5), yy + r.jitter(0.3), 0.1), rad * (0.6 + r.next() * 0.3), 4, 4, c);
-            yy += rad * 1.3; tt += r.jitter(0.6); rad *= 0.95;
+            const fade = 1 - 0.6 * Math.min(1, (yy - y) / (top - y));
+            const ivy = (): Vec3 => tint3(IVY[r.int(0, IVY.length - 1)], 0.7 + r.next() * 0.5);
+            leafBld.pushSphere(Q(tt, yy, 0.12), rad * (0.7 + r.next() * 0.5), 4, 4, ivy(), LEAF_LIFT);
+            if (r.next() < 0.75 * fade + 0.1) leafBld.pushSphere(Q(tt + (r.bool() ? 1 : -1) * spread * fade * (0.6 + r.next() * 0.6), yy + r.jitter(0.3), 0.1), rad * (0.45 + r.next() * 0.4), 4, 4, ivy(), LEAF_LIFT);
+            yy += rad * 1.3; tt += r.jitter(0.6); rad *= 0.93;
           }
+          // Kept inside the patch's outline: it should show only between domes.
+          const sw = spread * 0.8, sy = y + 0.3 + (Math.min(yy, top) - y - 0.3) * 0.75;
+          bld.pushQuad(Q(t0 - sw, y + 0.3, WALL_SHADE_D), Q(t0 + sw, y + 0.3, WALL_SHADE_D), Q(t0 + sw * 0.25, sy, WALL_SHADE_D), Q(t0 - sw * 0.25, sy, WALL_SHADE_D), wallShade.col, 1, { doubleSided: true });
         }
       }
     }

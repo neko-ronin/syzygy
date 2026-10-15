@@ -700,3 +700,28 @@ warm time varies, so `dayPhase` (`_capture.json`, `provenance.lightDelivery`) la
 or 0.824 from run to run. 0.001 moved every shadow edge in the skyline frame: 12% of pixels
 differed between builds, against 0.56% between two base runs at the same phase. Compare only
 phase-matched sequence frames; the frozen hero pair is immune.
+
+## 2026-10-15 — sheet D curtains, same-window A/B
+
+Base `86c699a` against the curtain change (HANDOFF item 4), fixed high, `--gpu-passes`, ABBA
+order per route (all: new, base, base, new; garden: base, new, new, base). The machine was
+shared: other sessions' captures, and a browser tab holding one core near 100% throughout.
+The reports were not committed (1.3-4.5 MB each).
+
+| route | base /s | new /s | base span ms | new span ms |
+|---|---|---|---|---|
+| garden | 59.99, 59.99 | 59.99, 59.59 | 13.59, 13.44 | 13.62, 14.28 |
+| hero | 48.43, 43.39 | 49.55, 47.90 | 18.50, 20.43 | 18.05, 18.80 |
+| skyline | 58.39, 59.85 | 59.36, 58.32 | 14.80, 14.37 | 14.52, 14.98 |
+| flight | 56.54, 55.26 | 55.92, 55.74 | 14.62, 14.90 | 14.75, 14.86 |
+
+- Garden, the only route that sees the green belt: about +0.4 ms span (gbuffer 2.45, 2.48 ->
+  2.56, 2.64 ms), still at 60/s. The other routes are within run-to-run spread.
+- LOD 0 foliage triangles (seed 42): (1,4) 309k -> 404k, (0,4) 292k -> 373k, (1,3) 116k -> 146k.
+  Foliage is not drawn in shadow passes, so the cost is G-buffer only.
+- **Not this change:** the base itself was slower than the 2026-10-13 session end on every
+  route (hero 43-48/s at 18.5-20.4 ms against 59.35-59.85/s at 14.4 ms). The item 1
+  benchmark session traced this to heat on this fanless Mac, not content (PITFALLS §33).
+  On a cooled machine `86c699a` costs the hero about +0.95 ms, mostly shadows (56-57/s).
+  So every figure in this table carries the same thermal offset on both sides; read the
+  deltas, not the absolutes.

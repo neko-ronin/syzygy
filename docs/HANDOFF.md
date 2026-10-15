@@ -155,10 +155,35 @@ must buy its cost back first; cheapest known lever: the D30 lived kits cost ~0.1
        pinned `--quality low` (0.521) and pinned potato (0.520), and in another current-code
        run at potato (0.517). Match the next black frame against this one before diagnosing
        it. Full sequences also need `--timeout 900`: the 120 s default stops after ~10 poses.
-4. **Sheet D, curtains not beads.** Hanging masses read as strings of equal glossy spheres:
-   wide at the ledge, narrowing below, mixed sizes and hues, contact shadow on the wall
-   (`hangLeaves`, ivy loop in `pushTerraces`). Keep `TERRACE_HANG_BUDGET`: without it one
-   chunk carried 1.04M foliage triangles.
+4. **Sheet D, curtains not beads — done, awaiting review (2026-10-15).** `hangLeaves` is
+   now a curtain: a fringe of 0.4-1.1 m masses across a 1.2-3.6 m ledge (back row darker),
+   then 3-4 strands of shrinking masses, longest near the middle and drawing in, so the
+   outline narrows below. Each mass picks its own green from `TERRACE_LEAF`; ivy domes vary
+   in size and shade and thin as they climb. All terrace foliage uses `normalLift: 0.5`
+   (`LEAF_LIFT`). **Foliage casts no shadow-map shadow** (`renderer.ts` skips it in shadow
+   passes), so curtains against a wall (tier-top gardens) and ivy patches get a tapered
+   patch of `base x 0.45` wall behind them, kept inside the foliage outline. The
+   soffit's wall-shadow strip was single-sided and **culled on 2 of 4 faces**: `facePoint`
+   runs `t` the same way on opposite faces, so a fixed vertex order faces into the wall
+   on half of them (found by the item 5 session, which adds a winding-checked `faceQuad`).
+   That strip and the new patches are now `doubleSided`, at 0.1 m off the wall
+   (`WALL_SHADE_D`, was 0.03).
+   `TERRACE_HANG_BUDGET` is unchanged; curtains per band went from 0.25-0.45 to
+   0.18-0.32 per metre of face, since each one is wider.
+   - Frames: pose 13 before/after, not committed; re-shoot with `--pose=13-terraces-d`
+     against `86c699a` (the RNG stream changed, so the layout moved; compare
+     character, not position). `pixel_share` foliage on the facade rect 24.2% -> 23.7%.
+     A sparser first pass dropped it to 20%, which read as bare. Pose `04-canal-level` has
+     no terrace planting in frame, so it is not evidence for this item.
+   - Cost, LOD 0 foliage triangles (seed 42): (1,4) 309k -> 404k, (0,4) 292k -> 373k,
+     (1,3) 116k -> 146k (about +30%; foliage skips shadow passes). Frame rate (D32), A/B
+     against `86c699a` on a shared machine: garden 59.99/59.59/s vs 59.99/59.99, span about
+     +0.4 ms. Hero, skyline and flight are within spread of the base. The base hero was at
+     43-48/s from heat on the machine, not content (PITFALLS §33); read the deltas only.
+   - **Honest read:** at the tier tops and band edges the masses now hang as tapering
+     curtains, not paired bead strings. Up close a strand is still a string of spheres, and the
+     ellipsoid "lemon" masses on the bands (`pushSphere(.., 5, 3, ..)`, three sectors)
+     are untouched. Not yet seen by a non-implementing reviewer.
 5. **Sheet B, weathering — done, awaiting review (2026-10-15).** `weatherRoom` (citymesh.ts)
    dresses every bolted-on room, on scaffolds and accreted crowns. On the seen face: panel
    seams, a grime skirt, soot runs from the roof edge and under each window, framed windows
