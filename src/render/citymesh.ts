@@ -13,7 +13,7 @@
 
 import { makeRng, qRotate, type Vec3, type Mat4, type Rng } from '../core/math';
 import {
-  MeshBuilder, type Mesh, FACE_ALL, type MeshOpts,
+  MeshBuilder, mergeInto, type Mesh, FACE_ALL, type MeshOpts,
 } from '../world/geometry';
 import {
   type BuildingInstance, type Cable, type CityChunk, type PropInstance, PropKind,
@@ -1291,6 +1291,13 @@ export interface BakedChunk {
   walking: WalkingSurfaceTriangles;
   /** World-space geometry for everything opaque and static. */
   opaque: Mesh;
+  /**
+   * Indices of `opaque` the far shadow cascades (2, 3) draw. Ground furniture
+   * (footway clutter, islands) is the tail after this; past cascade 1's 160 m
+   * its shadow is a few texels and it cost ~0.45 ms of the far cascades at the
+   * hero (PERFORMANCE 2026-10-15).
+   */
+  shadowFarIndexCount: number;
   /** Thin geometry that wants double-sided, alpha-tested treatment. */
   foliage: Mesh;
   boundsMin: Vec3;
@@ -1485,8 +1492,9 @@ export function bakeChunk(chunk: CityChunk, lod: number, seed: number): BakedChu
   // CPU and cannot be reconstructed in a shader without porting ~90 lines of
   // warped noise and risking a silent disagreement. See `src/render/groundbake.ts`.
   let marketLights: BakedChunk['marketLights'];
+  const furniture = new MeshBuilder();
   if (lod < 2) {
-    const gres = bakeGroundDetail(solid, chunk, cityPlan(seed), lod, rng, lights as GroundLight[]);
+    const gres = bakeGroundDetail(solid, chunk, cityPlan(seed), lod, rng, lights as GroundLight[], furniture);
     obstacles.push(...gres.obstacles);
     marketStalls = gres.marketStalls;
     if (gres.clutter.marketLights > 0 || gres.clutter.marketLightsDropped > 0) {
@@ -1504,11 +1512,14 @@ export function bakeChunk(chunk: CityChunk, lod: number, seed: number): BakedChu
   }
 
   const opaque = solid.build();
+  const shadowFarIndexCount = opaque.indexCount;
+  mergeInto(opaque, furniture.build());
   const foliage = leaf.build();
   return {
     obstacles, marketStalls,
     walking: walkingTriangles(opaque),
     opaque,
+    shadowFarIndexCount,
     foliage,
     boundsMin: opaque.boundsMin,
     boundsMax: opaque.boundsMax,

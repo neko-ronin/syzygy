@@ -7,6 +7,7 @@ import { MeshBuilder, type Mesh } from '../world/geometry';
 import { makeRng } from '../core/math';
 import { bakeChunk } from './citymesh';
 import { bakeMarketDetail, marketBakeState } from './marketbake';
+import { bakeGroundDetail } from './groundbake';
 import { pedestrianMesh } from './pedestrianmesh';
 
 function requireThat(ok: unknown, message: string): asserts ok {
@@ -61,6 +62,14 @@ const before = mesh.indexCount;
 bakeMarketDetail(mesh, ctx, state);
 requireThat(mesh.indexCount === before, 'revisiting a trace must not emit a second copy of the same market');
 const baked = bakeChunk(chunk, 0, seed);
+// Shadow cascades 2-3 draw only opaque[0, shadowFarIndexCount). The tail must be
+// exactly what `pushClutterItem` emitted, or something larger loses its far shadow.
+{
+  const furniture = new MeshBuilder();
+  const g = bakeGroundDetail(new MeshBuilder(), chunk, city.plan, 0, makeRng(seed), [], furniture);
+  requireThat(furniture.triangleCount > 0 && furniture.triangleCount === g.clutter.tris + g.islands.tris, 'the furniture builder must hold exactly the clutter and island triangles');
+  requireThat(baked.shadowFarIndexCount > 0 && baked.shadowFarIndexCount < baked.opaque.indexCount, 'a LOD 0 chunk must keep its body in the far cascades and its furniture after it');
+}
 for (const surface of GROUND_SURFACE_CLASSES) {
   for (const family of BAND_ORDER) {
     const packed = Math.fround(groundSurfaceTag(surface, family, 0.14));

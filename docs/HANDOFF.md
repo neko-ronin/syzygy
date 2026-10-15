@@ -65,6 +65,12 @@ must buy its cost back first; cheapest known lever: the D30 lived kits cost ~0.1
      **D32: acceptable, cut nothing.** The low figures from the shared machine (43-48/s, lighting
      6.4-7.0 ms) were heat: this Mac throttles after ~15 min of back-to-back legs, on both sides
      (PITFALLS §33). An untried cheap win: keep small LOD 0 furniture out of far cascades 2-3.
+   - **Far cascades skip furniture (2026-10-15).** Cascades 2-3 (past 160 m) no longer draw
+     LOD 0 footway clutter and islands (`BakedChunk.shadowFarIndexCount`, a pure reorder of the
+     chunk mesh). Cooled ABBA, 4 legs a side: far cascades 3.65 -> 3.35 ms, span -0.26 ms, hero
+     56.8 -> 57.7/s, two-vsync frames 5-7% -> 3.4-4.6% (PERFORMANCE, last section). Hero,
+     market, skyline and aerial frames show no change beyond same-build noise to the
+     implementer; **awaiting a non-implementing reviewer** (PROCESS rule 9).
 2. **The island tree — done, awaiting review.** Trunk forks into limbs at 2.1-2.6 m; a crown
    of 8-11 masses on a jittered golden-angle spiral, 0.6-1.05 m, yellower greens after
    sheet D; shading normals bent up (`MeshOpts.normalLift`, spheres only) so the crown is
@@ -176,6 +182,9 @@ must buy its cost back first; cheapest known lever: the D30 lived kits cost ~0.1
   --scene=<base>/_scene.json` for the hero (PITFALLS §27). Compare frames shot **with the
   same pose sequence** and read `lodHistogram` in `_capture.json` (PITFALLS §30). A pose can
   set `crowd: 0` for a diagnostic of what the crowd hides. Delete your `shots/` runs.
+  Sequence poses let the day clock run through warm, so `dayPhase` (`_capture.json`) drifts
+  0.001 between runs and moves every shadow edge: compare only phase-matched frames, and run
+  a same-build control before reading a base/new pixel diff.
 - **Pixel numbers:** `python3 tools/pixel_share.py <png> [--rect=x,y,w,h]` (stdlib) gives
   the foliage, near-black and warm-bright shares quoted in the docs; pose 13's facade is
   `--rect=500,90,590,780`. Review 6 judged its foliage share as undercounting (sky in the

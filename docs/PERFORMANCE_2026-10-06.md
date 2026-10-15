@@ -644,3 +644,59 @@ acceptable, and nothing should be cut for it. The hottest hero leg measured 47.4
 well above 30. A cheap win, untried and unmeasured: keep small LOD 0 furniture out of the far
 cascades (2-3), which carry about half the added shadow cost. Whether their shadows show at
 that range has not been checked by eye.
+
+## 2026-10-15 — ground furniture out of the far shadow cascades, cooled ABBA
+
+Reports: `benchmarks/far-cascade-ab/`, not committed (raw reports; figures below). Hero only, `--gpu-passes`, ABBA ABBA: `f01`, `f04`,
+`f05`, `f08` are `4c0f4fb`; `f02`, `f03`, `f06`, `f07` are this change on top of it. Before
+every leg all gates passed twice, 15 s apart: top CPU < 30%, Metal `Device Utilization %`
+< 20, a free GPU lock, battery `Temperature` <= 3400 (PITFALLS §33). The gates held each leg
+67-247 s, mostly for heat (3409-3450 after a leg) and once for a 98% GPU reading from another
+app; 8 legs took 25 minutes. Before the run a debug build of another project's app held
+46-53% CPU, and the owner quit it.
+
+**The change:** shadow cascades 2 and 3 (pixels past 160 m) no longer draw LOD 0 ground
+furniture: footway clutter and the D30 islands, i.e. every `pushClutterItem` (trees, parasols,
+sitters, benches, planters). `bakeChunk` appends that furniture last in the chunk's index
+buffer and records where it starts (`BakedChunk.shadowFarIndexCount`); `drawChunks` draws
+only the part before it in cascades 2-3. The draws and buffers are the same, and the G-buffer
+and cascades 0-1 draw everything. Baked in both trees, the 3x3 LOD 0 ring round the hero and
+four LOD 1 chunks have identical triangle multisets (every vertex attribute hashed), vertex
+counts, lights, obstacles and walking surfaces: a pure reorder. Furniture is 504k of the
+ring's 1.37M LOD 0 triangles (37%). `__selftest_ground_contract.ts` checks the tail holds
+exactly the clutter and island triangles.
+
+| | `4c0f4fb` | furniture out of cascades 2-3 |
+|---|---|---|
+| submitted/s | 55.96, 57.05, 56.96, 57.13 | 57.49, 57.93, 57.36, 58.02 |
+| GPU span ms | 15.66, 15.38, 15.38, 15.35 | 15.22, 15.13, 15.27, 15.13 |
+| cascades 2+3 | 3.59, 3.68, 3.64, 3.68 | 3.29, 3.37, 3.37, 3.38 |
+| cascade 0 / 1 | 1.23-1.25 / 1.12-1.22 | 1.23-1.24 / 1.12-1.21 |
+| G-buffer | 1.99-2.03 | 2.01-2.06 |
+| lighting | 5.08-5.36 | 5.09-5.14 |
+| TAA (control) | 0.343-0.344 | 0.343-0.345 |
+| triangles/frame, all passes (mean) | 7.33-7.43M | 7.03-7.24M |
+| submission intervals > 25 ms in 30 s | 121, 89, 90, 86 | 76, 62, 79, 60 |
+| p95 submission interval ms | 33.1, 31.9, 32.3, 31.1 | 18.8, 18.7, 18.7, 17.7 |
+
+**Result:** cascades 2+3 -0.29 ms (the ranges do not overlap), GPU span -0.26 ms, hero 56.8
+-> 57.7 submitted/s. Two-vsync frames fall from 5.0-7.2% to 3.4-4.6%, which is what moves the
+p95 interval from the second vsync to the first; p99 and completion-latency p95 stay ~33 ms.
+That recovers about two thirds of the +0.45 ms the D30 islands added to the far cascades (the
+sibling's cooled ABBA against `11b163f`); the base here measures the same 3.65 ms as `86c699a`
+did there. Cascade 0 (+0.23) and the G-buffer (+0.15) are untouched by design. Still short of
+60/s, which D32 does not ask for.
+
+**Frames, not committed.** Hero pair (`--hero-pair`, the base `_scene.json` replayed on both
+builds): no pixel differs by more than 24/255, and 0.16% by more than 8, as grain on near
+pedestrians (0.05% between two base runs). `09-market-down` and `-day`, `01-wide-skyline` and
+`05-aerial-top`: the base/new differences match a same-build control (6.6 vs 6.7%; 2.4 vs
+0.6-6.4%; 17.7 vs 18.2%), and the skyline's ground blobs are canal water. The implementer saw
+no shadow anyone would miss; **a non-implementing reviewer has not judged the frames yet**
+(PROCESS rule 9).
+
+**Capture pitfall met:** sequence captures let the day clock run through warm and settle, and
+warm time varies, so `dayPhase` (`_capture.json`, `provenance.lightDelivery`) lands on 0.823
+or 0.824 from run to run. 0.001 moved every shadow edge in the skyline frame: 12% of pixels
+differed between builds, against 0.56% between two base runs at the same phase. Compare only
+phase-matched sequence frames; the frozen hero pair is immune.

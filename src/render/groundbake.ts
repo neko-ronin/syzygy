@@ -268,10 +268,14 @@ export interface GroundBakeResult {
  * `bld` is the chunk's solid builder, so this streams and evicts with the chunk
  * and is covered by the same frustum test and the same shadow cascades as the
  * buildings standing on it.
+ *
+ * `small` takes the furniture (`pushClutterItem`: footway clutter and islands).
+ * `bakeChunk` appends it after everything else so the far shadow cascades can
+ * stop short of it (`BakedChunk.shadowFarIndexCount`); by default it is `bld`.
  */
 export function bakeGroundDetail(
   bld: MeshBuilder, chunk: CityChunk, plan: CityPlan, lod: number, rng: Rng,
-  lights: GroundLight[],
+  lights: GroundLight[], small: MeshBuilder = bld,
 ): GroundBakeResult {
   // Ceiling on lights THIS BAKE contributes, so a dense market chunk cannot eat
   // the whole clustered-light budget that the buildings already draw from.
@@ -329,6 +333,7 @@ export function bakeGroundDetail(
   const maxX = minX + size, maxZ = minZ + size;
   const t0 = Date.now();
   const before = bld.indexCount;
+  const smallBefore = small.indexCount;
 
   const roadCells = new Set<number>();
   const footwayCells = new Set<number>();
@@ -389,7 +394,7 @@ export function bakeGroundDetail(
     clipToChunk(trace, minX, minZ, maxX, maxZ);
     if (trace.to - trace.from < 1) continue;
     emitTrace(
-      bld, chunk, plan, trace, lod, rng, lights, footwayCells, pendingMarket, pendingFire,
+      bld, small, chunk, plan, trace, lod, rng, lights, footwayCells, pendingMarket, pendingFire,
       marketSeenKeys, marketState, minX, minZ, size, res, lightCap,
     );
     res.roads++;
@@ -448,7 +453,7 @@ export function bakeGroundDetail(
   }
 
   res.fieldMs = Date.now() - t0;
-  res.triangles = (bld.indexCount - before) / 3;
+  res.triangles = (bld.indexCount - before + (small === bld ? 0 : small.indexCount - smallBefore)) / 3;
   return res;
 }
 
@@ -1177,7 +1182,7 @@ function bakeIslands(
 
 /** Emit kerb, kerb top, footway band and paint for one traced carriageway. */
 function emitTrace(
-  bld: MeshBuilder, chunk: CityChunk, plan: CityPlan, t: Trace, lod: number, rng: Rng,
+  bld: MeshBuilder, small: MeshBuilder, chunk: CityChunk, plan: CityPlan, t: Trace, lod: number, rng: Rng,
   lights: GroundLight[], footwayCells: Set<number>, pendingMarket: GroundLight[], pendingFire: GroundLight[],
   marketSeenKeys: Set<string>, marketState: { seen: boolean; emitted: MarketBakeState },
   minX: number, minZ: number, size: number, res: GroundBakeResult, maxLights: number,
@@ -1440,11 +1445,11 @@ function emitTrace(
               const P = placer(px, yHi, pz, Math.sin(turn), Math.cos(turn));
               const style = districtStyle(t.districtId);
               const pal = style.palette;
-              const componentStart = bld.vertexCount;
-              pushClutterItem(bld, name, P, {
+              const componentStart = small.vertexCount;
+              pushClutterItem(small, name, P, {
                 kerb: grammar.kerbAlbedo, trim: pal.trim, metal: pal.metal, accent: style.accentColor,
               }, rng, res.clutter);
-              pushObstacleSince(bld, componentStart, name, res.obstacles);
+              pushObstacleSince(small, componentStart, name, res.obstacles);
               res.clutter.placed++;
               // A lamp that emits no light is a PHANTOM: the light is the point.
               //
@@ -1473,7 +1478,7 @@ function emitTrace(
   if (lod < 1 && t.kind !== 'market') {
     const isl = streetIslands(plan, chunk, t.p, t.from, t.to, t.kind, plan.seed);
     if (isl.length) {
-      bakeIslands(bld, isl, t.districtId, marketState.emitted.islands, res);
+      bakeIslands(small, isl, t.districtId, marketState.emitted.islands, res);
       res.streetIslands.push(...isl);
     }
   }
@@ -1518,7 +1523,7 @@ function emitTrace(
     // are exactly the kind of counter that agrees with itself and disagrees
     // with the frame.
     if (desc.stalls.length === 0 && desc.strings.length === 0) return;
-    bakeIslands(bld, desc.islands, t.districtId, marketState.emitted.islands, res);
+    bakeIslands(small, desc.islands, t.districtId, marketState.emitted.islands, res);
     // Count distinct traces only for the report; see the dedup below.
     if (!marketState.seen) {
       res.clutter.marketTraces++;

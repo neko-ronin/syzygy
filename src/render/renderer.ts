@@ -98,6 +98,8 @@ interface ChunkEntry {
   /** Detail level this mesh was baked at. Recorded so a rebake can be audited. */
   lod: number;
   mesh: GpuMesh | null;
+  /** `BakedChunk.shadowFarIndexCount`: cascades 2-3 skip the furniture tail. */
+  shadowFarIndexCount: number;
   foliage: GpuMesh | null;
   lights: BakedChunk['lights'];
   /** Market lanterns this chunk's bake produced, carried for the delivery stat. */
@@ -1276,7 +1278,7 @@ export class Renderer {
     );
     this.chunks.set(key, {
       obstacles: baked.obstacles, walking: baked.walking, marketStalls: baked.marketStalls, version: ++this.residencyRevision,
-      cx, cz, lod, mesh, foliage, lights: baked.lights, radius, centre, lastUsed: this.frameIndex,
+      cx, cz, lod, mesh, shadowFarIndexCount: baked.shadowFarIndexCount, foliage, lights: baked.lights, radius, centre, lastUsed: this.frameIndex,
       marketProduced: baked.marketLights?.produced ?? 0,
     });
   }
@@ -1734,11 +1736,13 @@ export class Renderer {
       const vis = sphereInFrustum(planes, e.centre, e.radius);
       if (!vis) { culled++; continue; }
       e.lastUsed = this.frameIndex;
+      // Far cascades stop before the chunk's ground furniture (see BakedChunk).
+      const count = shadowOnly && cascade >= 2 ? e.shadowFarIndexCount : e.mesh.indexCount;
       pass.setVertexBuffer(0, e.mesh.vbo);
       pass.setIndexBuffer(e.mesh.ibo, e.mesh.indexFormat);
-      pass.drawIndexed(e.mesh.indexCount);
+      pass.drawIndexed(count);
       draws++;
-      tris += e.mesh.indexCount / 3;
+      tris += count / 3;
       chunkMeshes++;
       if (!shadowOnly && e.foliage && this.q.foliageEnabled) {
         pass.setVertexBuffer(0, e.foliage.vbo);
