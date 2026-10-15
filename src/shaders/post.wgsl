@@ -42,7 +42,7 @@ fn fsFull(@builtin(vertex_index) vi: u32) -> PostOut {
 @group(1) @binding(8) var depthTex : texture_depth_2d;
 
 /** Camera-basis distortion applied to a centred, aspect-corrected uv. */
-fn warpLens(uvIn: vec2f) -> vec2f {
+fn warpLens(uvIn: vec2f, wobble: f32) -> vec2f {
   var uv = uvIn;
   let c = uv - 0.5;
   let aspect = F.screen.x / F.screen.y;
@@ -59,7 +59,7 @@ fn warpLens(uvIn: vec2f) -> vec2f {
   w.y += bend * (1.0 - cos(ca.y * 2.2)) * 0.06;
   // 3. Screen-space wobble: low-frequency, slowly drifting. The "impossible
   //    geometry" tell — subtle enough to feel, too strong to notice directly.
-  let warp = F.lens.z;
+  let warp = F.lens.z * wobble;
   if (warp > 0.001) {
     let t = F.time.x;
     w.x += sin(ca.y * 5.3 + t * 0.31) * warp * 0.010;
@@ -67,6 +67,24 @@ fn warpLens(uvIn: vec2f) -> vec2f {
   }
   uv = vec2f(w.x / aspect, w.y) + 0.5;
   return uv;
+}
+
+/**
+ * Zoom that keeps the warped frame inside the source. Past [0,1] the
+ * clamp-to-edge sampler repeats the outermost column, which shows up as
+ * horizontal smears down the frame edges. Measured on the wobble-free warp at
+ * the corners and edge midpoints, plus the wobble and CA amplitudes as fixed
+ * margins, so the crop does not breathe with the wobble.
+ */
+fn lensCrop() -> f32 {
+  var m = vec2f(0.5);
+  for (var i = 0u; i < 9u; i++) {
+    let p = vec2f(f32(i % 3u), f32(i / 3u)) * 0.5;
+    m = max(m, abs(warpLens(p, 0.0) - 0.5));
+  }
+  let aspect = F.screen.x / F.screen.y;
+  m += vec2f(F.lens.z * 0.010 / aspect, F.lens.z * 0.008) + F.lens3.y * 0.0011 * 0.5;
+  return max(m.x, m.y) * 2.0;
 }
 
 /** Tilt-shift band: 1.0 in focus, 0.0 at the extremes. */
@@ -413,13 +431,9 @@ fn shafts(v: PostOut) -> @location(0) vec4f {
 @fragment
 fn composite(v: PostOut) -> @location(0) vec4f {
   if (F.misc.w > 0.5) { return debugView(v); }
-  var uv = warpLens(v.uv);
-
-  // The barrel warp can push corners past the frame. Fade them out over a
-  // narrow band rather than hard-cutting to black, so the vignette reads as a
-  // lens rather than a mask.
-  let edge = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
-  let outFade = smoothstep(-0.045, 0.012, edge);
+  // The barrel warp pushes corners past the frame; crop in rather than sample
+  // there (see lensCrop).
+  let uv = 0.5 + (warpLens(v.uv, 1.0) - 0.5) / lensCrop();
 
   // Chromatic aberration: sample R/G/B at slightly different radial scales.
   let ca = F.lens3.y * 0.0011;
@@ -479,7 +493,7 @@ fn composite(v: PostOut) -> @location(0) vec4f {
   let g = hash21(uv * F.screen.xy + vec2f(F.time.z * 1.7, F.time.z * 2.3)) - 0.5;
   col += g * F.weather4.z * 0.030 * (1.0 - l * 0.75);
 
-  col = max(col, vec3f(0.0)) * outFade;
+  col = max(col, vec3f(0.0));
   return vec4f(linearToSrgb(col), 1.0);
 }
 
