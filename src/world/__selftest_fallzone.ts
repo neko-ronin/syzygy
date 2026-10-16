@@ -11,7 +11,7 @@ import { beltBand, districtAtField, districtField } from './districts';
 import { GROUND_Y, cityPlan, sampleStreetPlan, type StreetSample } from './citygen';
 import {
   CORE_CLEAR, PIER_PITCH, PIER_SHIFT, SHAFT_CLEAR,
-  buildFallZone, footprintsOverlap, onFrame, roadClear,
+  buildFallZone, footprintsOverlap, onFrame, patchAt, reachable, roadClear, toFrame,
 } from './fallzone';
 
 const DEFAULT_SEED = 0x5e7a17;
@@ -115,8 +115,95 @@ function columns(): void {
   }
 }
 
+function links(): void {
+  console.log('\nLINKS & GROUND');
+  for (const seed of SEEDS) {
+    const z = buildFallZone(seed);
+    const f = districtField(seed), plan = cityPlan(seed);
+    const col = z.columns;
+    // Off-limits: about a quarter of the deck band, sampled on a 12 m grid.
+    let inBand = 0, inPatch = 0;
+    for (let x = LO; x < HI; x += 12) {
+      for (let q = LO; q < HI; q += 12) {
+        if (beltBand(f, x, q) !== 1) continue;
+        inBand++;
+        if (patchAt(z, x, q)) inPatch++;
+      }
+    }
+    const offShare = inPatch / Math.max(1, inBand);
+    if (inBand > 0 && (offShare < 0.15 || offShare > 0.35)) fail(`seed ${seed}: off-limits covers ${(100 * offShare).toFixed(0)}% of the deck band`);
+    for (const c of col) {
+      if (c.offLimits !== !!patchAt(z, c.x, c.z)) fail(`seed ${seed}: column ${c.id} offLimits flag disagrees with the patches`);
+      if (c.offLimits && c.access !== 'none') fail(`seed ${seed}: off-limits column ${c.id} has ground access (${c.access})`);
+      if (!c.offLimits && c.access === 'none') fail(`seed ${seed}: open column ${c.id} has no way up`);
+    }
+    // Everyone can get home: ground access, then decks, bridges and ropeways.
+    const seen = reachable(z);
+    const stranded = col.filter((c) => !seen.has(c.id)).length;
+    if (stranded > 0) fail(`seed ${seed}: ${stranded} columns cannot be reached from the ground`);
+    // Spans: decks join grid-adjacent intact piers; bridges stay short; nothing passes through a third pile.
+    for (const d of z.decks) {
+      const a = col[d.a], b = col[d.b];
+      const adj = a.node && b.node && Math.abs(a.node[0] - b.node[0]) + Math.abs(a.node[1] - b.node[1]) === 1;
+      if (a.kind !== 'pier' || b.kind !== 'pier' || a.break !== 'intact' || b.break !== 'intact' || !adj) fail(`seed ${seed}: deck ${d.a}-${d.b} does not join adjacent intact piers`);
+    }
+    const spans: [number, number, number, number, number[]][] = [
+      ...z.decks.map((d) => [col[d.a].x, col[d.a].z, col[d.b].x, col[d.b].z, [d.a, d.b]] as [number, number, number, number, number[]]),
+      ...z.bridges.map((b) => [col[b.a].x, col[b.a].z, col[b.b].x, col[b.b].z, [b.a, b.b]] as [number, number, number, number, number[]]),
+      ...z.ropeways.flatMap((rw) => rw.stations.slice(1).map((s, k) => {
+        const p = rw.stations[k];
+        return [p[0], p[2], s[0], s[2], k === 0 ? [rw.columns[0]] : [rw.columns[k - 1], rw.columns[k]]] as [number, number, number, number, number[]];
+      })),
+    ];
+    let through = 0;
+    for (const [ax, az, bx, bz, skip] of spans) {
+      const len = Math.hypot(bx - ax, bz - az);
+      for (let t = 0; t <= len; t += 1) {
+        const px = ax + ((bx - ax) * t) / len, pz = az + ((bz - az) * t) / len;
+        const [pa, pb] = toFrame(z.gridX, z.gridZ, z.gridYaw, px, pz);
+        const hitCol = col.find((c) => {
+          if (skip.includes(c.id)) return false;
+          const [ca, cb] = toFrame(z.gridX, z.gridZ, z.gridYaw, c.x, c.z);
+          return Math.abs(pa - ca) < Math.max(c.halfX, c.pileHalfX) && Math.abs(pb - cb) < Math.max(c.halfZ, c.pileHalfZ);
+        });
+        if (hitCol) { through++; break; }
+      }
+    }
+    if (through > 0) fail(`seed ${seed}: ${through} spans pass through a third pile`);
+    const longBridges = z.bridges.filter((b) => {
+      const a = col[b.a], c = col[b.b];
+      return Math.hypot(a.x - c.x, a.z - c.z) > 160;
+    }).length;
+    if (longBridges > 0) fail(`seed ${seed}: ${longBridges} bridges span more than 160 m`);
+    // Slabs keep off every carriageway but alleys, outside the fences.
+    let onRoad = 0;
+    for (const w of z.wreck) {
+      if (w.kind !== 'slab' || patchAt(z, w.x, w.z)) continue;
+      for (let u = -1; u <= 1; u += 0.25) {
+        for (let v = -1; v <= 1; v += 0.25) {
+          const [px, pz] = onFrame(w.x, w.z, w.yaw, u * w.halfX, v * w.halfZ * Math.cos(w.tilt));
+          if (roadClear(plan, px, pz) < 0) { onRoad++; u = v = 2; }
+        }
+      }
+    }
+    if (onRoad > 0) fail(`seed ${seed}: ${onRoad} slabs lie on a street outside the fences`);
+    const bodies = z.wreck.filter((w) => w.kind === 'body').length;
+    if (bodies !== col.filter((c) => c.kind === 'spire').length) fail(`seed ${seed}: ${bodies} spire bodies for the spire stumps`);
+    if (seed === DEFAULT_SEED) {
+      const perPile = z.bridges.length / Math.max(1, col.length);
+      console.log(`  default seed: ${z.patches.length} patches (${(100 * offShare).toFixed(0)}% of the deck band), `
+        + `${z.wreck.length - bodies} slabs, ${bodies} bodies, ${z.decks.length} decks, ${z.bridges.length} bridges `
+        + `(${perPile.toFixed(2)} per pile), ${z.ropeways.length} ropeways (${z.ropeways.map((rw) => rw.columns.length).join(', ')} stations)`);
+      if (perPile < 0.5 || perPile > 1.5) fail(`${perPile.toFixed(2)} bridges per pile, not about one`);
+      if (z.ropeways.length < 1) fail('no village ropeway');
+      if (z.wreck.length - bodies < 15) fail(`only ${z.wreck.length - bodies} fallen slabs`);
+    }
+  }
+}
+
 belt();
 columns();
+links();
 
 console.log(`\nVIOLATIONS ${problems.length === 0 ? 'none' : problems.length}`);
 for (const p of problems) console.log(`  - ${p}`);

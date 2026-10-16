@@ -50,6 +50,15 @@ const SPIRES_MIN = 3, SPIRES_MAX = 5;
 const SPIRE_SPACING = 300;
 /** First-pass mean of the repair knob, until the owner says how long ago it fell. */
 const REPAIR_MEAN = 0.35;
+/** Longest rope or catwalk between two piles, pile edge to pile edge. */
+export const MAX_BRIDGE_GAP = 40;
+/** Share of the deck band fenced, flooded or overgrown (DESIGN §8: about a quarter). */
+export const OFF_LIMITS_SHARE = 0.25;
+/** Ropeway cable sag as a share of its span; networks.ts hangs the line with it. */
+export const ROPE_SAG = 0.04;
+const SLAB_CHANCE = 0.3;
+const DECK_KEEP = 0.6;
+const ROPEWAYS = 2;
 
 // ---------------------------------------------------------------- types
 
@@ -357,6 +366,287 @@ function placeColumns(zone: FallZone, plan: CityPlan, r: Rng, lo: number, hi: nu
   return out;
 }
 
+// ---------------------------------------------------------------- ground
+
+/** Deck-band grid cells, by their corner node (i, j). */
+function deckCells(zone: FallZone, plan: CityPlan, lo: number, hi: number): [number, number][] {
+  const out: [number, number][] = [];
+  const N = gridSpan(lo, hi);
+  for (let j = -N; j <= N; j++) {
+    for (let i = -N; i <= N; i++) {
+      const [x, z] = onFrame(zone.gridX, zone.gridZ, zone.gridYaw, (i + 0.5) * PIER_PITCH, (j + 0.5) * PIER_PITCH);
+      if (x >= lo && x < hi && z >= lo && z < hi && beltBand(plan.districts, x, z) === 1) out.push([i, j]);
+    }
+  }
+  return out;
+}
+
+/** The off-limits patch covering (x, z), if any. */
+export function patchAt(zone: FallZone, x: number, z: number): OffLimitsPatch | undefined {
+  const [a, b] = toFrame(zone.gridX, zone.gridZ, zone.gridYaw, x, z);
+  return zone.patches.find((p) => {
+    const [pa, pb] = toFrame(zone.gridX, zone.gridZ, zone.gridYaw, p.x, p.z);
+    return Math.abs(a - pa) <= p.halfX && Math.abs(b - pb) <= p.halfZ;
+  });
+}
+
+/** Fenced, flooded and overgrown rectangles of whole grid cells, until they cover OFF_LIMITS_SHARE of the deck band. */
+function placePatches(zone: FallZone, plan: CityPlan, cells: [number, number][]): void {
+  const P = PIER_PITCH, seed = zone.seed;
+  const order = [...cells].sort((a, b) => hash3(a[0], a[1], seed ^ 0x0ff) - hash3(b[0], b[1], seed ^ 0x0ff) || a[0] - b[0] || a[1] - b[1]);
+  const target = OFF_LIMITS_SHARE * cells.length * P * P;
+  let area = 0;
+  for (const [i, j] of order) {
+    if (area >= target) break;
+    const pr = makeRng(hash3(i, j, seed ^ 0x9a7c));
+    const w = pr.int(1, 3), h = pr.int(1, 2);
+    const ca = (i + 0.5 * w) * P, cb = (j + 0.5 * h) * P, hx = 0.5 * w * P, hz = 0.5 * h * P;
+    const clash = zone.patches.some((p) => {
+      const [pa, pb] = toFrame(zone.gridX, zone.gridZ, zone.gridYaw, p.x, p.z);
+      return Math.abs(pa - ca) < p.halfX + hx && Math.abs(pb - cb) < p.halfZ + hz;
+    });
+    if (clash) continue;
+    const [x, z] = onFrame(zone.gridX, zone.gridZ, zone.gridYaw, ca, cb);
+    if (beltBand(plan.districts, x, z) !== 1) continue;
+    const roll = pr.next();
+    zone.patches.push({ x, z, halfX: hx, halfZ: hz, kind: roll < 0.4 ? 'fenced' : roll < 0.7 ? 'flooded' : 'overgrown' });
+    area += 4 * hx * hz;
+  }
+}
+
+/** Whether a column's shaft (as a disc grown by `pad`) meets a wreck piece's plan footprint. */
+export function shaftMeetsWreck(c: FallColumn, w: WreckPiece, pad: number): boolean {
+  const [lx, lz] = toFrame(w.x, w.z, w.yaw, c.x, c.z);
+  const rad = Math.hypot(c.halfX, c.halfZ) + pad;
+  return Math.abs(lx) < w.halfX + rad && Math.abs(lz) < w.halfZ * Math.cos(w.tilt) + rad;
+}
+
+/** Each spire's fallen body: a long ridge from its foot along the belt, cut short where the belt ends. */
+function placeBodies(zone: FallZone, plan: CityPlan): void {
+  for (const c of zone.columns) {
+    if (c.kind !== 'spire') continue;
+    const r = makeRng(c.seed ^ 0xb0d1);
+    const ang = zone.gridYaw + (r.bool() ? 0 : Math.PI) + r.jitter(0.3);
+    let len = r.range(150, 280);
+    while (len > 80 && beltBand(plan.districts, ...onFrame(c.x, c.z, ang, c.halfX + len, 0)) === 0) len -= 20;
+    const [x, z] = onFrame(c.x, c.z, ang, c.halfX + len / 2, 0);
+    const halfZ = c.halfX * 0.6, halfY = c.halfX * 0.35;
+    zone.wreck.push({ kind: 'body', x, y: GROUND_Y + halfY, z, yaw: ang, tilt: r.range(0.02, 0.08), halfX: len / 2, halfY, halfZ });
+  }
+}
+
+/**
+ * Fallen deck slabs: one at every node whose pier came down, and at SLAB_CHANCE of
+ * the deck cells. Outside the fences a slab keeps off every carriageway but an
+ * alley (paths stay open); it never lands on a standing column. Too big: shrink
+ * twice, then give up.
+ */
+function placeSlabs(zone: FallZone, plan: CityPlan, cells: [number, number][], fallen: [number, number, number, number][]): void {
+  const seed = zone.seed;
+  const spots: { x: number; z: number; key: number }[] = fallen.map(([x, z, i, j]) => ({ x, z, key: hash3(i, j, seed ^ 0x51a1) }));
+  for (const [i, j] of cells) {
+    if (makeRng(hash3(i, j, seed ^ 0x51ab)).next() >= SLAB_CHANCE) continue;
+    const [x, z] = onFrame(zone.gridX, zone.gridZ, zone.gridYaw, (i + 0.5) * PIER_PITCH, (j + 0.5) * PIER_PITCH);
+    spots.push({ x, z, key: hash3(i, j, seed ^ 0x51a2) });
+  }
+  for (const s of spots) {
+    const r = makeRng(s.key);
+    const x = s.x + r.jitter(10), z = s.z + r.jitter(10);
+    const yaw = zone.gridYaw + r.jitter(0.5), tilt = r.range(0.08, 0.6), halfY = 1.2;
+    let hx = r.range(10, 25), hz = r.range(6, 14);
+    const open = !patchAt(zone, x, z);
+    for (let k = 0; k < 3; k++, hx *= 0.7, hz *= 0.7) {
+      const piece: WreckPiece = { kind: 'slab', x, y: GROUND_Y + halfY * Math.cos(tilt) + hz * Math.sin(tilt), z, yaw, tilt, halfX: hx, halfY, halfZ: hz };
+      // The self-test samples these same 9 x 9 points, so the two agree exactly.
+      let onRoad = false;
+      for (let u = -1; u <= 1 && !onRoad; u += 0.25) {
+        for (let v = -1; v <= 1 && !onRoad; v += 0.25) {
+          const [px, pz] = onFrame(x, z, yaw, u * hx, v * hz * Math.cos(tilt));
+          if (roadClear(plan, px, pz) < 0.5) onRoad = true;
+        }
+      }
+      if (open && onRoad) continue;
+      if (zone.columns.some((c) => shaftMeetsWreck(c, piece, 2))) continue;
+      zone.wreck.push(piece);
+      break;
+    }
+  }
+}
+
+// ---------------------------------------------------------------- links
+
+/** Plan gap between two columns' footprints along the line between them (conservative). */
+const pileGap = (a: FallColumn, b: FallColumn): number =>
+  Math.hypot(a.x - b.x, a.z - b.z) - Math.max(a.pileHalfX, a.pileHalfZ, a.halfX) - Math.max(b.pileHalfX, b.pileHalfZ, b.halfX);
+
+/** Slab test: does the segment (x0,z0)-(x1,z1) meet the box |x| <= hx, |z| <= hz? */
+function segHitsBox(x0: number, z0: number, x1: number, z1: number, hx: number, hz: number): boolean {
+  let t0 = 0, t1 = 1;
+  for (const [p, d, h] of [[x0, x1 - x0, hx], [z0, z1 - z0, hz]]) {
+    if (Math.abs(d) < 1e-9) { if (Math.abs(p) > h) return false; continue; }
+    let ta = (-h - p) / d, tb = (h - p) / d;
+    if (ta > tb) [ta, tb] = [tb, ta];
+    t0 = Math.max(t0, ta); t1 = Math.min(t1, tb);
+    if (t0 > t1) return false;
+  }
+  return true;
+}
+
+/** Whether the plan segment a->b passes within `pad` of any column not in `skip`. */
+export function segmentBlocked(zone: FallZone, ax: number, az: number, bx: number, bz: number, skip: readonly number[], pad: number): boolean {
+  const [p0, q0] = toFrame(zone.gridX, zone.gridZ, zone.gridYaw, ax, az);
+  const [p1, q1] = toFrame(zone.gridX, zone.gridZ, zone.gridYaw, bx, bz);
+  for (const c of zone.columns) {
+    if (skip.includes(c.id)) continue;
+    const [cx, cz] = toFrame(zone.gridX, zone.gridZ, zone.gridYaw, c.x, c.z);
+    if (segHitsBox(p0 - cx, q0 - cz, p1 - cx, q1 - cz, Math.max(c.halfX, c.pileHalfX) + pad, Math.max(c.halfZ, c.pileHalfZ) + pad)) return true;
+  }
+  return false;
+}
+
+/** Deck fragments still spanning between grid-adjacent intact piers: streets in the sky. */
+function placeDecks(zone: FallZone): void {
+  const at = new Map<string, FallColumn>();
+  for (const c of zone.columns) if (c.node) at.set(`${c.node[0]},${c.node[1]}`, c);
+  for (const c of zone.columns) {
+    if (c.kind !== 'pier' || c.break !== 'intact' || !c.node) continue;
+    for (const [di, dj] of [[1, 0], [0, 1]]) {
+      const o = at.get(`${c.node[0] + di},${c.node[1] + dj}`);
+      if (!o || o.kind !== 'pier' || o.break !== 'intact') continue;
+      const r = makeRng(hash3(c.id, o.id, zone.seed ^ 0xdec));
+      if (r.next() >= DECK_KEEP) continue;
+      // Shifted piers can bring a third column into the gap; the fragment fell there.
+      if (segmentBlocked(zone, c.x, c.z, o.x, o.z, [c.id, o.id], 1)) continue;
+      zone.decks.push({ a: c.id, b: o.id, y: zone.deckY, width: r.range(14, 24) });
+    }
+  }
+}
+
+function bridgeBetween(zone: FallZone, a: FallColumn, b: FallColumn): VillageBridge {
+  const r = makeRng(hash3(a.id, b.id, zone.seed ^ 0xb21d));
+  const y = Math.min(a.pileTop, b.pileTop) - BOX_H;
+  return {
+    a: a.id, b: b.id,
+    ya: clamp(y, a.pileBase + 1, a.pileTop - 1), yb: clamp(y, b.pileBase + 1, b.pileTop - 1),
+    kind: a.kind === 'lattice' && b.kind === 'lattice' ? 'truss' : r.next() < 0.6 ? 'rope' : 'catwalk',
+  };
+}
+
+/** About one bridge per pile: each column to its nearest neighbour, if close, unlinked and clear of third piles. */
+function placeBridges(zone: FallZone): void {
+  const linked = new Set<string>();
+  const key = (a: number, b: number): string => (a < b ? `${a},${b}` : `${b},${a}`);
+  for (const d of zone.decks) linked.add(key(d.a, d.b));
+  for (const c of zone.columns) {
+    let best: FallColumn | null = null, gap = Infinity;
+    for (const o of zone.columns) {
+      if (o === c) continue;
+      const g = pileGap(c, o);
+      if (g < gap) { gap = g; best = o; }
+    }
+    if (!best || gap > MAX_BRIDGE_GAP || linked.has(key(c.id, best.id))) continue;
+    if (segmentBlocked(zone, c.x, c.z, best.x, best.z, [c.id, best.id], 1)) continue;
+    linked.add(key(c.id, best.id));
+    zone.bridges.push(bridgeBetween(zone, c, best));
+  }
+}
+
+const stationSample: StreetSample = { dist: 0, px: 0, pz: 0, tx: 1, tz: 0, width: 1, kind: 'street', clearance: 0 };
+
+/** A ground station beside a road, off the belt, straight across the belt from `c`. */
+function groundStation(zone: FallZone, plan: CityPlan, c: FallColumn): [number, number] | null {
+  for (let d = 0; d <= 400; d += 8) {
+    for (const side of [1, -1]) {
+      const [x, z] = onFrame(c.x, c.z, zone.gridYaw, 0, side * d);
+      if (beltBand(plan.districts, x, z) !== 0) continue;
+      const s = sampleStreetPlan(plan, x, z, stationSample);
+      if (s.clearance >= 1.5 && s.clearance <= 8) return [x, z];
+    }
+  }
+  return null;
+}
+
+/** A ropeway from the nearest ground station up to `start`, then up to `hops` more piles, off-limits ones first. */
+function ropewayFrom(zone: FallZone, plan: CityPlan, start: FallColumn, used: Set<number>, hops: number): Ropeway | null {
+  const g = groundStation(zone, plan, start);
+  if (!g || segmentBlocked(zone, g[0], g[1], start.x, start.z, [start.id], 1)) return null;
+  const rw: Ropeway = { stations: [[g[0], GROUND_Y + 4, g[1]]], columns: [] };
+  let at = start;
+  for (let k = 0; k <= hops; k++) {
+    rw.columns.push(at.id);
+    used.add(at.id);
+    rw.stations.push([at.x, at.pileTop + 3, at.z]);
+    const from = at;
+    const next = zone.columns
+      .filter((o) => !used.has(o.id) && Math.hypot(o.x - from.x, o.z - from.z) >= 40 && Math.hypot(o.x - from.x, o.z - from.z) <= 160)
+      .sort((p, q) => Number(q.offLimits) - Number(p.offLimits)
+        || Math.hypot(p.x - from.x, p.z - from.z) - Math.hypot(q.x - from.x, q.z - from.z) || p.id - q.id)
+      .find((o) => !segmentBlocked(zone, from.x, from.z, o.x, o.z, [from.id, o.id], 1));
+    if (!next) break;
+    at = next;
+  }
+  return rw;
+}
+
+/** ROPEWAYS lines, each starting 300 m or more from the others, off-limits and tall piles first. */
+function placeRopeways(zone: FallZone, plan: CityPlan): void {
+  const used = new Set<number>();
+  const order = [...zone.columns].sort((p, q) => Number(q.offLimits) - Number(p.offLimits) || q.pileTop - p.pileTop || p.id - q.id);
+  for (const c of order) {
+    if (zone.ropeways.length >= ROPEWAYS) break;
+    if (used.has(c.id)) continue;
+    if (zone.ropeways.some((rw) => Math.hypot(rw.stations[1][0] - c.x, rw.stations[1][2] - c.z) < 300)) continue;
+    const rw = ropewayFrom(zone, plan, c, used, 3);
+    if (rw && rw.columns.length >= 2) zone.ropeways.push(rw);
+    else if (rw) for (const id of rw.columns) used.delete(id);
+  }
+}
+
+/** Column ids people can reach from the ground: their own access, then across decks, bridges and ropeways. */
+export function reachable(zone: FallZone): Set<number> {
+  const adj = new Map<number, number[]>();
+  const link = (a: number, b: number): void => {
+    if (!adj.has(a)) adj.set(a, []);
+    if (!adj.has(b)) adj.set(b, []);
+    adj.get(a)!.push(b);
+    adj.get(b)!.push(a);
+  };
+  for (const d of zone.decks) link(d.a, d.b);
+  for (const b of zone.bridges) link(b.a, b.b);
+  for (const rw of zone.ropeways) for (let k = 1; k < rw.columns.length; k++) link(rw.columns[k - 1], rw.columns[k]);
+  const queue = zone.columns.filter((c) => c.access !== 'none').map((c) => c.id);
+  for (const rw of zone.ropeways) if (rw.columns.length > 0) queue.push(rw.columns[0]);
+  const seen = new Set<number>();
+  while (queue.length > 0) {
+    const id = queue.pop()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    for (const n of adj.get(id) ?? []) if (!seen.has(n)) queue.push(n);
+  }
+  return seen;
+}
+
+/**
+ * Nobody is stranded: a column nobody can reach gets a bridge to the nearest
+ * reachable one (clear of third piles), else a ropeway of its own, else, as a
+ * last resort the self-test reports, a winch.
+ */
+function connectStranded(zone: FallZone, plan: CityPlan): void {
+  for (;;) {
+    const seen = reachable(zone);
+    const stranded = zone.columns.find((c) => !seen.has(c.id));
+    if (!stranded) return;
+    const to = zone.columns.filter((c) => seen.has(c.id) && Math.hypot(c.x - stranded.x, c.z - stranded.z) <= 160)
+      .sort((p, q) => pileGap(stranded, p) - pileGap(stranded, q) || p.id - q.id)
+      .slice(0, 10)
+      .find((o) => !segmentBlocked(zone, stranded.x, stranded.z, o.x, o.z, [stranded.id, o.id], 1));
+    if (to) { zone.bridges.push(bridgeBetween(zone, stranded, to)); continue; }
+    const rw = ropewayFrom(zone, plan, stranded, new Set(), 0);
+    if (rw) { zone.ropeways.push(rw); continue; }
+    stranded.access = 'winch';
+  }
+}
+
 // ---------------------------------------------------------------- the zone
 
 const zoneCache = new Map<number, FallZone>();
@@ -387,6 +677,17 @@ export function buildFallZone(seed: number): FallZone {
   };
   const fallen: [number, number, number, number][] = [];
   zone.columns = placeColumns(zone, plan, r, lo, hi, fallen);
+  const cells = deckCells(zone, plan, lo, hi);
+  placePatches(zone, plan, cells);
+  // A spire's body knocked down every column it fell across.
+  placeBodies(zone, plan);
+  zone.columns = zone.columns.filter((c) => c.kind === 'spire' || !zone.wreck.some((w) => shaftMeetsWreck(c, w, 2)));
   zone.columns.forEach((c, i) => { c.id = i; });
+  for (const c of zone.columns) if (patchAt(zone, c.x, c.z)) { c.offLimits = true; c.access = 'none'; }
+  placeSlabs(zone, plan, cells, fallen);
+  placeDecks(zone);
+  placeBridges(zone);
+  placeRopeways(zone, plan);
+  connectStranded(zone, plan);
   return zone;
 }
