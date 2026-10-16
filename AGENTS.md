@@ -74,6 +74,7 @@ There are three "what went wrong" documents and they are not interchangeable:
 npx tsc --noEmit                            # must be clean
 npx vite build                              # must be clean
 npx vite-node@6.0.0 src/world/__selftest.ts       # citygen   — prints "VIOLATIONS: none"
+npx vite-node@6.0.0 src/world/__selftest_fallzone.ts   # fall zone — prints "VIOLATIONS none"
 npx vite-node@6.0.0 src/sim/__selftest.ts         # sim       — ALL PASS
 npx vite-node@6.0.0 src/camera/__selftest.ts      # camera    — ALL PASS
 node tools/lsp-check.mjs                    # 5/5 language servers

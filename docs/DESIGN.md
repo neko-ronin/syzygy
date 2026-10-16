@@ -286,8 +286,8 @@ Honest inventory, so nobody mistakes absence for oversight:
 
 ### Section B's makeshift village: the fall zone (designed with the owner, 2026-10-15)
 
-**Status: lore and form designed. Placement and rendering not started.** The order of work
-stands: placement next, then rendering. Judge it against the sheet only once it renders.
+**Status: lore, form and placement done (placement pass, 2026-10-15; a greybox in frame at
+poses 16-19). Rendering not started.** Judge it against the sheet only once it renders.
 
 **What it replaces.** `pushScaffold` (citymesh.ts) bolts a column of shanty rooms on a
 scaffold up a tower's face from street level and adds an accreted crown; `weatherRoom`
@@ -401,6 +401,11 @@ heights are first-pass values for the placement pass to tune.
   field looking up (frame 2's angle), one level with the piles (frame 1), a skyline pose
   that shows the mid band, and a close pose within 3 m of a pile (the missing close-focus
   pose above).
+- **Placement compromise (owner, 2026-10-15):** the deck came after the lower city, so its
+  piers keep a nominal 48 m grid but shift up to 14 m off streets, arterials, the rail, the
+  market and the canal; alleys and the old buildings they needed were disregarded. Commerce
+  (street islands) keeps out; a quarter of the crowd still goes in. Code: `src/world/fallzone.ts`
+  (placement), `src/render/fallmesh.ts` (greybox), `src/world/__selftest_fallzone.ts`.
 - **Cost (D32).** Most piles are mid- and far-field silhouettes, so rendering needs a LOD
   split: far, a few merged boxes with lit windows; near, `weatherRoom` and the revival kit.
   Record the frame rate with every geometry addition; 30 fps is the floor.

@@ -965,6 +965,28 @@ the item 4 (sheet D) work makes it `doubleSided`. `faceQuad` is the single-sided
 all four faces. A feature that shows on some towers and not others, with the same chance on
 each, is a winding problem before it is a probability problem.
 
+## 35. A fleet on one line: every vehicle of a kind rode the first route of that kind
+
+`TrafficSim.assign` pointed each vehicle at `byKind[kind]`, the first route of
+its kind, so a city with two tram lines ran four trams on one and none on the
+other; the second heavy cable car, later funiculars and every zipline but the
+first ran empty. Nothing counted vehicles per line. Fixed by spreading a kind
+over `routesOf[kind]` (`i % n`); the sim self-test now fails if every cable car
+shares one of several lines, and checks a vehicle's line kind instead of its
+altitude (village ropeways start on the ground). Recurrence sign: a line with no
+vehicles on it, or a twin line busy on one side only.
+
+## 36. Mirrored grid nodes drew the same rolls: an XOR of imul products is sign-symmetric
+
+`imul(i, A) ^ imul(j, B) ^ imul(c, C)` often equals the same expression for
+`(-i, -j)`, because `imul(-i, A)` is `-imul(i, A)`; a finalizer applied after the
+XOR cannot separate inputs that already collided. The fall zone's first node hash
+gave piers mirrored through the grid origin identical rolls (caught by the
+self-test's duplicate-seed check); it now mixes in sequence
+(`mix32(mix32(mix32(c) ^ a) ^ b)`). **Open:** citygen's `lotHash` has the same
+shape: 2420 of 7260 mirrored lot pairs (33%) share a hash at salt 17. Fixing it
+re-rolls every building in the city, so it is the owner's call.
+
 ## Working norms that held up
 
 - **Measure before theorising.** Every bug above cost far less time to measure

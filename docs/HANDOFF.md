@@ -1,5 +1,9 @@
 # Handoff
 
+**2026-10-15, fall zone placement pass:** see item 5 below. On the way it found that every
+vehicle of a kind rode the first line of that kind, so second tram, cable car, funicular and
+zipline lines ran empty. That is fixed in `f486b57` (PITFALLS §35).
+
 ## Next session — start here (2026-10-14)
 
 **Where the code is.** Everything is on `main` (no remote). The review 6 branch
@@ -216,8 +220,27 @@ in place of `01d` (which still moves with the poses run before it). See "Capture
 5. **Sheet B, weathering — done, but on the wrong form (owner, 2026-10-15).** The bolted-on
    room columns it dresses misread the reference: left in place, not to be extended or
    reviewed as the target. **The village is now designed (lore and form, 2026-10-15):**
-   DESIGN §8 "Section B's makeshift village" and D33. Next is its placement pass, which
-   also retires these rooms. What was built: `weatherRoom` (citymesh.ts)
+   DESIGN §8 "Section B's makeshift village" and D33.
+   **Placement pass done (branch `fall-zone-placement`, `374fb7c`..HEAD, not yet merged):**
+   `src/world/fallzone.ts` places the zone per seed and `src/render/fallmesh.ts` draws it as a
+   greybox. At the default seed: 151 columns (pier 93, core 25, silo 8, stack 5, lattice 17,
+   spire 3); 25 off-limits patches (22% of the deck band); 66 slabs and 3 spire bodies; 1 deck
+   fragment; 82 bridges; 2 ropeways of 4 stations. 4141 old buildings stand. The bolted-on
+   rooms are no longer built (`pushScaffold` kept only as a parts bin), and poses 12/12-night
+   are retired. New poses 16-19 come from `src/world/__probe_fallzone.ts`. The sequence
+   `2026-10-16T01-33-03` matches base `2026-10-16T01-44-48` on every regular pose except crowd
+   noise, and 06 loses the scaffold. Benchmark (contended, ABBA): no measurable cost, all legs
+   above 30 fps. **Honest read:** 16 reads as frame 2's forest; 17 shows a deck fragment between
+   full-height piers; 18 does not yet show a distinct mid band (camera too low, needs a better
+   viewpoint); 19 shows only a greybox face. **Open owner calls:**
+   - what caused the fall, and how long ago;
+   - the burnt quarter;
+   - only 1 deck fragment at the default seed (intact piers are independent rolls; surviving
+     sections could cluster);
+   - citygen's `lotHash` mirrors 33% of lots (PITFALLS §36).
+
+   Not yet seen by a non-implementing reviewer. Next: the village rendering pass (DESIGN §8).
+   What was built: `weatherRoom` (citymesh.ts)
    dresses every bolted-on room, on scaffolds and accreted crowns. On the seen face: panel
    seams, a grime skirt, soot runs from the roof edge and under each window, framed windows
    with a cross bar, a lit side window (40%), a railed balcony cantilevered off the floor
