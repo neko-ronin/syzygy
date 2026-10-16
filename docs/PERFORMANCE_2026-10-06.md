@@ -725,3 +725,24 @@ The reports were not committed (1.3-4.5 MB each).
   On a cooled machine `86c699a` costs the hero about +0.95 ms, mostly shadows (56-57/s).
   So every figure in this table carries the same thermal offset on both sides; read the
   deltas, not the absolutes.
+
+## 2026-10-15 — fall zone greybox (branch `fall-zone-placement`), ABBA under contention
+
+Reports: `benchmarks/2026-10-16T01-5*` and `02-0*` in the branch and base worktrees, not
+committed. Base = `fe7be0a`, the branch's start. `--route=all --quality=high --gpu-passes`,
+legs A B B A. **Contended throughout:** another project's agent held ~75-80% of a core on
+every leg, so the < 30% CPU gate never opened. Read the adjacent pair, not the absolutes.
+
+| leg | hero /s | span ms | skyline /s | span ms | flight /s | span ms |
+|---|---|---|---|---|---|---|
+| A1 base (first, coolest) | 51.29 | 17.39 | 43.15 | 21.05 | 41.77 | 20.60 |
+| B1 head | 33.56 | 27.58 | 42.56 | 20.91 | 45.30 | 17.93 |
+| B2 head | 36.55 | 25.19 | 44.86 | 20.20 | 45.74 | 18.41 |
+| A2 base (last) | 34.99 | 26.47 | 44.53 | 20.34 | 45.07 | 19.25 |
+
+- **Drift, not content:** the same base code went 17.4 -> 26.5 ms hero span between its first
+  and last leg (heat and the contending process, PITFALLS §33). B2 against A2, adjacent and
+  equally hot: hero 25.19 vs 26.47 ms, skyline 20.20 vs 20.34, flight 18.41 vs 19.25. No
+  measurable cost; the greybox is a few thousand box triangles per belt chunk.
+- **D32:** every leg on both sides is above the 30 fps floor (lowest: head hero 33.56/s, base
+  hero 34.99/s, both contended). Re-run on a quiet machine before quoting an absolute.

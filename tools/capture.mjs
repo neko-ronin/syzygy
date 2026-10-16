@@ -335,30 +335,6 @@ const POSES = [
     settle: 40,
   },
   {
-    // Sheet B feature review: a scaffold with rooms bolted on, on a 440 m Copper
-    // Stacks tower, from 38 m and 25 degrees off its face (picked from the
-    // per-building seed, D29 plan). The face points +z, into the sun: the sun
-    // path never reaches a -z face, and the old rust-hangar face read flat in shade.
-    name: '12-scaffold-b',
-    label: 'sheet B: a scaffold with bolted-on rooms on a Copper Stacks tower, noon',
-    position: [-300.8, 14, -484.1], lookAt: [-287.3, 30, -519.7], fov: 1.0, roll: 0,
-    time: 'noon',
-    weather: { sky: 'clear', haze: 0.22 },
-    lens: { fov: 1.0, exposure: 0.92 },
-    settle: 30,
-  },
-  {
-    // Same camera at night: sheet B's warmth is its lit windows, which a noon
-    // frame cannot judge.
-    name: '12-scaffold-b-night',
-    label: 'sheet B: SAME camera as 12-scaffold-b, night — lit room windows',
-    position: [-300.8, 14, -484.1], lookAt: [-287.3, 30, -519.7], fov: 1.0, roll: 0,
-    time: 'night',
-    weather: { sky: 'night', cloudCover: 0.3, haze: 0.3 },
-    lens: { fov: 1.0, bloom: 0.8, exposure: 1.28 },
-    settle: 30,
-  },
-  {
     // Sheet D feature review: planted terrace bands and vines on a garden-suburb
     // (verdant-canyon) block, from 45 m, looking slightly up (D29 plan).
     name: '13-terraces-d',
@@ -429,6 +405,46 @@ const POSES = [
     weather: { sky: 'clear', haze: 0.25 },
     lens: { fov: 1.05, bloom: 0.3, exposure: 0.92, saturation: 1.08, vignette: 0.34 },
     settle: 40,
+  },
+  {
+    // Derived by src/world/__probe_fallzone.ts (seed 5e7a17).
+    name: '16-fall-wreck-up',
+    label: 'sheet B: the wreck field looking up at a knot of piles, dusk',
+    position: [540, 2.1, -504], lookAt: [600, 130.1, -504], fov: 1.05, roll: 0,
+    time: 'dusk',
+    weather: { sky: 'dusk', cloudCover: 0.35, haze: 0.3 },
+    lens: { fov: 1.05 },
+    settle: 30,
+  },
+  {
+    // Derived by src/world/__probe_fallzone.ts (seed 5e7a17).
+    name: '17-fall-piles-level',
+    label: 'sheet B: level with a deck fragment between two piles, morning',
+    position: [798.2, 156.4, -445.1], lookAt: [768.5, 158.4, -478.9], fov: 1.05, roll: 0,
+    time: 'morning',
+    weather: { sky: 'clear', cloudCover: 0.35, haze: 0.3 },
+    lens: { fov: 1.05 },
+    settle: 30,
+  },
+  {
+    // Derived by src/world/__probe_fallzone.ts (seed 5e7a17).
+    name: '18-fall-skyline',
+    label: 'sheet B: the fall zone as a mid band on the skyline, dusk',
+    position: [1322.1, 160, 41], lookAt: [727.4, 110.4, -634.5], fov: 1.12, roll: 0,
+    time: 'dusk',
+    weather: { sky: 'dusk', cloudCover: 0.35, haze: 0.3 },
+    lens: { fov: 1.12 },
+    settle: 30,
+  },
+  {
+    // Derived by src/world/__probe_fallzone.ts (seed 5e7a17).
+    name: '19-fall-pile-close',
+    label: 'sheet B: on a deck fragment, 3 m from a village pile, noon',
+    position: [759.5, 152, -470.9], lookAt: [750.5, 155.4, -463], fov: 1.1, roll: 0,
+    time: 'noon',
+    weather: { sky: 'clear', cloudCover: 0.35, haze: 0.3 },
+    lens: { fov: 1.1 },
+    settle: 30,
   },
 ];
 
