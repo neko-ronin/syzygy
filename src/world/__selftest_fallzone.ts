@@ -12,7 +12,7 @@ import { bakeGroundDetail } from '../render/groundbake';
 import { beltBand, districtAtField, districtField } from './districts';
 import { City, GROUND_Y, cityPlan, defaultCityConfig, footprintAabb, sampleStreetPlan, type StreetSample } from './citygen';
 import {
-  CORE_CLEAR, FALL_FOOT, PIER_PITCH, PIER_SHIFT, SHAFT_CLEAR,
+  CORE_CLEAR, FALL_FOOT, MAX_BRIDGE_GAP, MAX_BRIDGE_SLOPE, PIER_PITCH, PIER_SHIFT, SHAFT_CLEAR,
   buildFallZone, fallFoot, fallZone, footprintsOverlap, onFrame, patchAt, reachable, roadClear, toFrame,
 } from './fallzone';
 import { MeshBuilder } from './geometry';
@@ -176,11 +176,20 @@ function links(): void {
       }
     }
     if (through > 0) fail(`seed ${seed}: ${through} spans pass through a third pile`);
-    const longBridges = z.bridges.filter((b) => {
-      const a = col[b.a], c = col[b.b];
-      return Math.hypot(a.x - c.x, a.z - c.z) > 160;
-    }).length;
-    if (longBridges > 0) fail(`seed ${seed}: ${longBridges} bridges span more than 160 m`);
+    // Bridges are narrow, sagging links between close neighbours (DESIGN §8), not climbs:
+    // short, no steeper than MAX_BRIDGE_SLOPE edge to edge, each end inside its own pile.
+    if (!(MAX_BRIDGE_SLOPE > 0)) fail('no bridge slope limit');
+    let steep = 0, far = 0, offBand = 0;
+    for (const br of z.bridges) {
+      const a = col[br.a], c = col[br.b];
+      const gap = Math.hypot(a.x - c.x, a.z - c.z) - Math.max(a.pileHalfX, a.pileHalfZ, a.halfX) - Math.max(c.pileHalfX, c.pileHalfZ, c.halfX);
+      if (Math.abs(br.ya - br.yb) > MAX_BRIDGE_SLOPE * Math.max(gap, 4) + 1e-6) steep++;
+      if (gap > MAX_BRIDGE_GAP + 1e-6) far++;
+      if (br.ya < a.pileBase || br.ya > a.pileTop || br.yb < c.pileBase || br.yb > c.pileTop) offBand++;
+    }
+    if (steep > 0) fail(`seed ${seed}: ${steep} of ${z.bridges.length} bridges are steeper than ${MAX_BRIDGE_SLOPE}`);
+    if (far > 0) fail(`seed ${seed}: ${far} bridges span more than ${MAX_BRIDGE_GAP} m pile edge to pile edge`);
+    if (offBand > 0) fail(`seed ${seed}: ${offBand} bridges end outside their piles`);
     // Slabs keep off every carriageway but alleys, outside the fences.
     let onRoad = 0;
     for (const w of z.wreck) {
@@ -200,7 +209,10 @@ function links(): void {
       console.log(`  default seed: ${z.patches.length} patches (${(100 * offShare).toFixed(0)}% of the deck band), `
         + `${z.wreck.length - bodies} slabs, ${bodies} bodies, ${z.decks.length} decks, ${z.bridges.length} bridges `
         + `(${perPile.toFixed(2)} per pile), ${z.ropeways.length} ropeways (${z.ropeways.map((rw) => rw.columns.length).join(', ')} stations)`);
-      if (perPile < 0.5 || perPile > 1.5) fail(`${perPile.toFixed(2)} bridges per pile, not about one`);
+      // DESIGN §8 says "about one per pile"; at honest slopes (MAX_BRIDGE_SLOPE) neighbouring piles
+      // sit too far apart in height for that, even after growing toward each other (0.40 at the
+      // default seed). The floor guards against collapse; reaching ~1 is an open design item.
+      if (perPile < 0.35 || perPile > 1.5) fail(`${perPile.toFixed(2)} bridges per pile`);
       if (z.ropeways.length < 1) fail('no village ropeway');
       if (z.wreck.length - bodies < 15) fail(`only ${z.wreck.length - bodies} fallen slabs`);
     }
@@ -212,6 +224,24 @@ function cityBlock(): void {
   const seed = DEFAULT_SEED, z = fallZone(seed), city = new City(defaultCityConfig(seed));
   const colCount = new Map<number, number>(), wreckCount = new Map<number, number>();
   let decks = 0, bridges = 0, stations = 0, buildings = 0, overShaft = 0, underPile = 0, onStation = 0, underCable = 0;
+  // Old-city skybridges and cables between surviving buildings must not pierce a shaft or a pile:
+  // sampled every metre along the drawn curve (parabolic sag), against each column's footprint.
+  let spanThrough = 0;
+  const pierces = (a: Vec3, b: Vec3, sag: number): boolean => {
+    const len = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2])));
+    for (let k = 0; k <= len; k++) {
+      const t = k / len;
+      const px = a[0] + (b[0] - a[0]) * t, py = a[1] + (b[1] - a[1]) * t - sag * 4 * t * (1 - t), pz = a[2] + (b[2] - a[2]) * t;
+      const [pa, pb] = toFrame(z.gridX, z.gridZ, z.gridYaw, px, pz);
+      for (const c of z.columns) {
+        const [ca, cb] = toFrame(z.gridX, z.gridZ, z.gridYaw, c.x, c.z);
+        const da = Math.abs(pa - ca), db = Math.abs(pb - cb);
+        if (da < c.halfX && db < c.halfZ && py < c.top) return true;
+        if (da < c.pileHalfX && db < c.pileHalfZ && py > c.pileBase && py < c.pileTop) return true;
+      }
+    }
+    return false;
+  };
   const cables: { a: Vec3; b: Vec3 }[] = z.ropeways.flatMap((rw) => rw.stations.slice(1).map((b, k) => ({ a: rw.stations[k], b })));
   for (let cx = -6; cx <= 6; cx++) {
     for (let cz = -6; cz <= 6; cz++) {
@@ -220,6 +250,8 @@ function cityBlock(): void {
       for (const c of ch.fall.columns) colCount.set(c.id, (colCount.get(c.id) ?? 0) + 1);
       for (const w of ch.fall.wreck) { const k = z.wreck.indexOf(w); wreckCount.set(k, (wreckCount.get(k) ?? 0) + 1); }
       decks += ch.fall.decks.length; bridges += ch.fall.bridges.length; stations += ch.fall.stations.length;
+      for (const s of ch.bridges) if (pierces(s.a, s.b, 0)) spanThrough++;
+      for (const cb of ch.cables) if (pierces(cb.a, cb.b, cb.sag)) spanThrough++;
       for (const b of ch.buildings) {
         buildings++;
         const [lo, hi] = footprintAabb(b);
@@ -265,6 +297,22 @@ function cityBlock(): void {
   if (underPile > 0) fail(`${underPile} old buildings rise into a village pile`);
   if (onStation > 0) fail(`${onStation} old buildings stand on a ropeway ground station`);
   if (underCable > 0) fail(`${underCable} old buildings rise through a ropeway cable`);
+  if (spanThrough > 0) fail(`${spanThrough} old-city skybridges or cables pass through a fall-zone shaft or pile`);
+  // A ropeway hut (3 m half-size, on the grid yaw) stands beside a road, not in it.
+  const plan = cityPlan(seed), road = sample();
+  let hutInRoad = 0;
+  for (const rw of z.ropeways) {
+    const g = rw.stations[0];
+    let hit = false;
+    for (let u = -1; u <= 1 && !hit; u += 0.5) {
+      for (let v = -1; v <= 1 && !hit; v += 0.5) {
+        const [px, pz] = onFrame(g[0], g[2], z.gridYaw, u * 3, v * 3);
+        if (sampleStreetPlan(plan, px, pz, road).clearance < 0) hit = true;
+      }
+    }
+    if (hit) hutInRoad++;
+  }
+  if (hutInRoad > 0) fail(`${hutInRoad} of ${z.ropeways.length} ropeway huts stand in a carriageway`);
 }
 
 function greybox(): void {

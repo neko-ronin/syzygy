@@ -225,7 +225,13 @@ in place of `01d` (which still moves with the poses run before it). See "Capture
    `src/world/fallzone.ts` places the zone per seed and `src/render/fallmesh.ts` draws it as a
    greybox. At the default seed: 151 columns (pier 93, core 25, silo 8, stack 5, lattice 17,
    spire 3); 25 off-limits patches (22% of the deck band); 66 slabs and 3 spire bodies; 1 deck
-   fragment; 82 bridges; 2 ropeways of 4 stations. 4141 old buildings stand. The bolted-on
+   fragment; 61 bridges (0.40 per pile, all at most 1:2 and 40 m; neighbouring piles grow up to
+   4 boxes up / 6 down to meet); 9 ropeways, huts at least 4.5 m off any carriageway. 4138 old
+   buildings stand; old skybridges and cables that crossed a column or wreck are dropped
+   (24 before). These came from the independent code review (Opus), which also left
+   12 deferred minors in the branch's progress ledger. **Bridges per pile** is 0.40 against
+   DESIGN's "about one": honest slopes cannot reach it while neighbouring piles sit at such
+   different heights. That is an open design item for the owner. The bolted-on
    rooms are no longer built (`pushScaffold` kept only as a parts bin), and poses 12/12-night
    are retired. New poses 16-19 come from `src/world/__probe_fallzone.ts`. The sequence
    `2026-10-16T01-33-03` matches base `2026-10-16T01-44-48` on every regular pose except crowd

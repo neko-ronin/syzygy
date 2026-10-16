@@ -52,6 +52,8 @@ const SPIRE_SPACING = 300;
 const REPAIR_MEAN = 0.35;
 /** Longest rope or catwalk between two piles, pile edge to pile edge. */
 export const MAX_BRIDGE_GAP = 40;
+/** Steepest bridge, rise over run edge to edge (1:2, about 27 degrees): beyond it a link is a climb, not a bridge. */
+export const MAX_BRIDGE_SLOPE = 0.5;
 /** Share of the deck band fenced, flooded or overgrown (DESIGN §8: about a quarter). */
 export const OFF_LIMITS_SHARE = 0.25;
 /** Ropeway cable sag as a share of its span; networks.ts hangs the line with it. */
@@ -522,45 +524,112 @@ function placeDecks(zone: FallZone): void {
   }
 }
 
+/**
+ * A bridge sits level inside the overlap of the two piles' height bands, near its
+ * top; when the bands do not overlap it joins their closest ends, and `bridgeFits`
+ * decides whether that is still a bridge or already a climb.
+ */
 function bridgeBetween(zone: FallZone, a: FallColumn, b: FallColumn): VillageBridge {
   const r = makeRng(hash3(a.id, b.id, zone.seed ^ 0xb21d));
-  const y = Math.min(a.pileTop, b.pileTop) - BOX_H;
+  const aLo = a.pileBase + 1, aHi = a.pileTop - 1, bLo = b.pileBase + 1, bHi = b.pileTop - 1;
+  const lo = Math.max(aLo, bLo), hi = Math.min(aHi, bHi);
+  const y = lo <= hi ? Math.max(lo, hi - BOX_H) : (lo + hi) / 2;
   return {
     a: a.id, b: b.id,
-    ya: clamp(y, a.pileBase + 1, a.pileTop - 1), yb: clamp(y, b.pileBase + 1, b.pileTop - 1),
+    ya: clamp(y, aLo, aHi), yb: clamp(y, bLo, bHi),
     kind: a.kind === 'lattice' && b.kind === 'lattice' ? 'truss' : r.next() < 0.6 ? 'rope' : 'catwalk',
   };
 }
 
-/** About one bridge per pile: each column to its nearest neighbour, if close, unlinked and clear of third piles. */
+/** Short enough and shallow enough to be a bridge between these two piles (DESIGN §8: close neighbours). */
+const bridgeFits = (a: FallColumn, b: FallColumn, br: VillageBridge): boolean => {
+  const gap = pileGap(a, b);
+  return gap <= MAX_BRIDGE_GAP && Math.abs(br.ya - br.yb) <= MAX_BRIDGE_SLOPE * Math.max(gap, 4);
+};
+
+/** How far a pile grows to meet a neighbour: boxes stacked on the lower one, boxes hung below the higher one's outriggers. */
+const GROW_UP = 4 * BOX_H, GROW_DOWN = 6 * BOX_H;
+
+/**
+ * Neighbours build toward each other: when two piles' height bands miss, the lower
+ * one stacks up to GROW_UP and the higher one hangs boxes down to GROW_DOWN until
+ * they share a level a bridge can cross. False, and nothing changed, if they cannot.
+ */
+function growToMeet(a: FallColumn, b: FallColumn): boolean {
+  const [lower, upper] = a.pileTop <= b.pileTop ? [a, b] : [b, a];
+  // The bands a bridge may use are (base + 1, top - 1) on each pile.
+  const need = upper.pileBase + 2 - lower.pileTop;
+  if (need <= 0) return true;
+  if (need > GROW_UP + GROW_DOWN) return false;
+  const up = Math.min(GROW_UP, Math.ceil(need / BOX_H) * BOX_H);
+  const down = Math.max(0, need - up);
+  if (lower.pileTop + up - GROUND_Y > 225 || upper.pileBase - down - GROUND_Y < 8) return false;
+  lower.pileTop += up;
+  upper.pileBase -= down;
+  return true;
+}
+
+/**
+ * A bridge from `a` to `o` if one can stand: close, clear of third piles, and level
+ * enough once the two piles have grown toward each other. Grows them only when it
+ * returns a bridge.
+ */
+function tryBridge(zone: FallZone, a: FallColumn, o: FallColumn): VillageBridge | null {
+  if (pileGap(a, o) > MAX_BRIDGE_GAP || segmentBlocked(zone, a.x, a.z, o.x, o.z, [a.id, o.id], 1)) return null;
+  const br = bridgeBetween(zone, a, o);
+  if (bridgeFits(a, o, br)) return br;
+  if (!growToMeet(a, o)) return null;
+  return bridgeBetween(zone, a, o);
+}
+
+/**
+ * About one bridge per pile: each column to the first of its six nearest
+ * neighbours a bridge can reach (`tryBridge`), unless they are already linked.
+ */
 function placeBridges(zone: FallZone): void {
   const linked = new Set<string>();
   const key = (a: number, b: number): string => (a < b ? `${a},${b}` : `${b},${a}`);
   for (const d of zone.decks) linked.add(key(d.a, d.b));
   for (const c of zone.columns) {
-    let best: FallColumn | null = null, gap = Infinity;
-    for (const o of zone.columns) {
-      if (o === c) continue;
-      const g = pileGap(c, o);
-      if (g < gap) { gap = g; best = o; }
+    const near = zone.columns.filter((o) => o !== c)
+      .sort((p, q) => pileGap(c, p) - pileGap(c, q) || p.id - q.id)
+      .slice(0, 6);
+    for (const o of near) {
+      if (linked.has(key(c.id, o.id))) continue;
+      const br = tryBridge(zone, c, o);
+      if (!br) continue;
+      linked.add(key(c.id, o.id));
+      zone.bridges.push(br);
+      break;
     }
-    if (!best || gap > MAX_BRIDGE_GAP || linked.has(key(c.id, best.id))) continue;
-    if (segmentBlocked(zone, c.x, c.z, best.x, best.z, [c.id, best.id], 1)) continue;
-    linked.add(key(c.id, best.id));
-    zone.bridges.push(bridgeBetween(zone, c, best));
   }
 }
 
 const stationSample: StreetSample = { dist: 0, px: 0, pz: 0, tx: 1, tz: 0, width: 1, kind: 'street', clearance: 0 };
 
-/** A ground station beside a road, off the belt, straight across the belt from `c`. */
+/**
+ * Where a ropeway hut may stand: beside a road, not in it. The hut is 3 m half-size
+ * on the grid yaw, so its centre keeps more than its half-diagonal (4.24 m) from any
+ * carriageway edge, alleys included.
+ */
+const HUT_CLEAR_MIN = 4.5, HUT_CLEAR_MAX = 10;
+
+/**
+ * A ground station off the belt for a ropeway up to `c`: straight across the belt
+ * first, then along it and on the diagonals, the nearest whose line up to `c` is
+ * clear of other piles.
+ */
 function groundStation(zone: FallZone, plan: CityPlan, c: FallColumn): [number, number] | null {
+  const bearings: [number, number][] = [[0, 1], [0, -1], [1, 0], [-1, 0], [1, 1], [1, -1], [-1, 1], [-1, -1]];
   for (let d = 0; d <= 400; d += 8) {
-    for (const side of [1, -1]) {
-      const [x, z] = onFrame(c.x, c.z, zone.gridYaw, 0, side * d);
+    for (const [u, v] of bearings) {
+      const l = Math.hypot(u, v);
+      const [x, z] = onFrame(c.x, c.z, zone.gridYaw, (u / l) * d, (v / l) * d);
       if (beltBand(plan.districts, x, z) !== 0) continue;
       const s = sampleStreetPlan(plan, x, z, stationSample);
-      if (s.clearance >= 1.5 && s.clearance <= 8) return [x, z];
+      if (s.clearance < HUT_CLEAR_MIN || s.clearance > HUT_CLEAR_MAX) continue;
+      if (segmentBlocked(zone, x, z, c.x, c.z, [c.id], 1)) continue;
+      return [x, z];
     }
   }
   return null;
@@ -569,7 +638,7 @@ function groundStation(zone: FallZone, plan: CityPlan, c: FallColumn): [number, 
 /** A ropeway from the nearest ground station up to `start`, then up to `hops` more piles, off-limits ones first. */
 function ropewayFrom(zone: FallZone, plan: CityPlan, start: FallColumn, used: Set<number>, hops: number): Ropeway | null {
   const g = groundStation(zone, plan, start);
-  if (!g || segmentBlocked(zone, g[0], g[1], start.x, start.z, [start.id], 1)) return null;
+  if (!g) return null;
   const rw: Ropeway = { stations: [[g[0], GROUND_Y + 4, g[1]]], columns: [] };
   let at = start;
   for (let k = 0; k <= hops; k++) {
@@ -627,21 +696,37 @@ export function reachable(zone: FallZone): Set<number> {
 }
 
 /**
- * Nobody is stranded: a column nobody can reach gets a bridge to the nearest
- * reachable one (clear of third piles), else a ropeway of its own, else, as a
- * last resort the self-test reports, a winch.
+ * Nobody is stranded. A column nobody can reach gets, in order: a bridge to a
+ * reachable neighbour (`tryBridge`); the next stop on an existing ropeway whose last
+ * pile is 40-160 m away and clear; a ropeway of its own that chains on through
+ * other piles, off-limits ones first; else, as a last resort the self-test reports,
+ * a winch.
  */
 function connectStranded(zone: FallZone, plan: CityPlan): void {
   for (;;) {
     const seen = reachable(zone);
     const stranded = zone.columns.find((c) => !seen.has(c.id));
     if (!stranded) return;
-    const to = zone.columns.filter((c) => seen.has(c.id) && Math.hypot(c.x - stranded.x, c.z - stranded.z) <= 160)
+    let bridge: VillageBridge | null = null;
+    for (const o of zone.columns.filter((c) => seen.has(c.id))
       .sort((p, q) => pileGap(stranded, p) - pileGap(stranded, q) || p.id - q.id)
-      .slice(0, 10)
-      .find((o) => !segmentBlocked(zone, stranded.x, stranded.z, o.x, o.z, [stranded.id, o.id], 1));
-    if (to) { zone.bridges.push(bridgeBetween(zone, stranded, to)); continue; }
-    const rw = ropewayFrom(zone, plan, stranded, new Set(), 0);
+      .slice(0, 10)) {
+      bridge = tryBridge(zone, stranded, o);
+      if (bridge) break;
+    }
+    if (bridge) { zone.bridges.push(bridge); continue; }
+    const line = zone.ropeways.find((rw) => {
+      const last = zone.columns[rw.columns[rw.columns.length - 1]];
+      const d = Math.hypot(last.x - stranded.x, last.z - stranded.z);
+      return d >= 40 && d <= 160 && !segmentBlocked(zone, last.x, last.z, stranded.x, stranded.z, [last.id, stranded.id], 1);
+    });
+    if (line) {
+      line.columns.push(stranded.id);
+      line.stations.push([stranded.x, stranded.pileTop + 3, stranded.z]);
+      continue;
+    }
+    const onLines = new Set(zone.ropeways.flatMap((rw) => rw.columns));
+    const rw = ropewayFrom(zone, plan, stranded, onLines, 3);
     if (rw) { zone.ropeways.push(rw); continue; }
     stranded.access = 'winch';
   }
@@ -689,6 +774,10 @@ export function buildFallZone(seed: number): FallZone {
   placeBridges(zone);
   placeRopeways(zone, plan);
   connectStranded(zone, plan);
+  // Piles may have grown after their ropeway station was set: stations sit 3 m above the final top.
+  for (const rw of zone.ropeways) {
+    rw.columns.forEach((id, k) => { rw.stations[k + 1][1] = zone.columns[id].pileTop + 3; });
+  }
   return zone;
 }
 
@@ -792,6 +881,44 @@ function clearIndex(zone: FallZone): Map<number, Clearance[]> {
   if (clearCache.size > 8) clearCache.delete(clearCache.keys().next().value as number);
   clearCache.set(zone.seed, idx);
   return idx;
+}
+
+/**
+ * Whether a span between two surviving old buildings (a skybridge, or a cable with
+ * parabolic `sag`) passes within `pad` of a column's shaft or pile, or through a
+ * wreck piece. Clearing buildings left their spans standing; these must go too.
+ */
+export function fallBlocksSpan(seed: number, a: Vec3, b: Vec3, pad: number, sag = 0): boolean {
+  const zone = fallZone(seed);
+  const minX = Math.min(a[0], b[0]) - pad, maxX = Math.max(a[0], b[0]) + pad;
+  const minZ = Math.min(a[2], b[2]) - pad, maxZ = Math.max(a[2], b[2]) + pad;
+  const near = zone.columns.filter((c) => {
+    const r = Math.hypot(Math.max(c.halfX, c.pileHalfX), Math.max(c.halfZ, c.pileHalfZ));
+    return c.x + r > minX && c.x - r < maxX && c.z + r > minZ && c.z - r < maxZ;
+  });
+  const wreck = zone.wreck.filter((w) => {
+    const r = Math.hypot(w.halfX, w.halfZ);
+    return w.x + r > minX && w.x - r < maxX && w.z + r > minZ && w.z - r < maxZ;
+  });
+  if (near.length === 0 && wreck.length === 0) return false;
+  const n = Math.max(2, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]) / 2));
+  for (let k = 0; k <= n; k++) {
+    const t = k / n;
+    const x = a[0] + (b[0] - a[0]) * t, y = a[1] + (b[1] - a[1]) * t - sag * 4 * t * (1 - t), z = a[2] + (b[2] - a[2]) * t;
+    const [pa, pb] = toFrame(zone.gridX, zone.gridZ, zone.gridYaw, x, z);
+    for (const c of near) {
+      const [ca, cb] = toFrame(zone.gridX, zone.gridZ, zone.gridYaw, c.x, c.z);
+      const da = Math.abs(pa - ca), db = Math.abs(pb - cb);
+      if (da < c.halfX + pad && db < c.halfZ + pad && y < c.top + pad) return true;
+      if (da < c.pileHalfX + pad && db < c.pileHalfZ + pad && y > c.pileBase - pad && y < c.pileTop + pad) return true;
+    }
+    for (const w of wreck) {
+      const [lx, lz] = toFrame(w.x, w.z, w.yaw, x, z);
+      if (Math.abs(lx) < w.halfX + pad && Math.abs(lz) < w.halfZ * Math.cos(w.tilt) + pad
+        && y < w.y + w.halfZ * Math.sin(w.tilt) + w.halfY + pad) return true;
+    }
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------- the crowd

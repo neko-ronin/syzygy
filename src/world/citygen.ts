@@ -21,7 +21,7 @@ import {
   DISTRICT_STYLES, districtAtField, districtField, spineHit, waterDepthAt,
   type DistrictField, type DistrictStyle, type SpineHit, type SpineLine,
 } from './districts';
-import { fallChunk, fallClears, fallZone, type FallChunk } from './fallzone';
+import { fallBlocksSpan, fallChunk, fallClears, fallZone, type FallChunk } from './fallzone';
 
 export { waterDepthAt };
 
@@ -1119,11 +1119,15 @@ function buildChunk(plan: CityPlan, cfg: CityConfig, cx: number, cz: number): Ci
   buildings.sort((p, q) => p.position[0] - q.position[0] || p.position[2] - q.position[2]);
 
   const index = new BoxIndex(buildings, ox, oz, 44);
-  const bridges: Skybridge[] = [];
-  placeBridges(buildings, index, cfg.seed, cfg.detail, bridges);
+  const placedBridges: Skybridge[] = [];
+  placeBridges(buildings, index, cfg.seed, cfg.detail, placedBridges);
 
-  const cables: Cable[] = [];
-  placeCables(buildings, index, plan, cfg.seed, cfg.detail, cables);
+  const placedCables: Cable[] = [];
+  placeCables(buildings, index, plan, cfg.seed, cfg.detail, placedCables);
+  // Spans between surviving buildings that cross the fall zone's columns or wreck fell
+  // with them. Filtered after placement, so every placement draw keeps its order.
+  const bridges = placedBridges.filter((s) => !fallBlocksSpan(plan.seed, s.a, s.b, s.width / 2 + 0.5));
+  const cables = placedCables.filter((c) => !fallBlocksSpan(plan.seed, c.a, c.b, c.radius + 0.3, c.sag));
 
   const props: PropInstance[] = [];
   const allowance = buildings.length > 0
