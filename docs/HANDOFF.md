@@ -221,7 +221,7 @@ in place of `01d` (which still moves with the poses run before it). See "Capture
    room columns it dresses misread the reference: left in place, not to be extended or
    reviewed as the target. **The village is now designed (lore and form, 2026-10-15):**
    DESIGN §8 "Section B's makeshift village" and D33.
-   **Placement pass done (branch `fall-zone-placement`, `374fb7c`..HEAD, not yet merged):**
+   **Placement pass done (`374fb7c`..`a71f1b1`, merged to main and published 2026-10-16):**
    `src/world/fallzone.ts` places the zone per seed and `src/render/fallmesh.ts` draws it as a
    greybox. At the default seed: 151 columns (pier 93, core 25, silo 8, stack 5, lattice 17,
    spire 3); 25 off-limits patches (22% of the deck band); 66 slabs and 3 spire bodies; 1 deck
@@ -257,7 +257,7 @@ in place of `01d` (which still moves with the poses run before it). See "Capture
      sections could cluster);
    - citygen's `lotHash` mirrors 33% of lots (PITFALLS §36).
 
-   Not yet seen by a non-implementing reviewer. Next: the village rendering pass (DESIGN §8).
+   The code had an independent review (Opus); the frames (poses 16-19) have not yet been seen by a non-implementing reviewer (PROCESS rule 9). Next: the village rendering pass (DESIGN §8).
    What was built: `weatherRoom` (citymesh.ts)
    dresses every bolted-on room, on scaffolds and accreted crowns. On the seen face: panel
    seams, a grime skirt, soot runs from the roof edge and under each window, framed windows
