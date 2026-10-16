@@ -323,6 +323,8 @@ export class TrafficSim {
   private readonly byKind: Record<string, number> = {
     tram: -1, trolley: -1, cablecar: -1, funicular: -1, zipline: -1, cycle: -1,
   };
+  /** Every route index per kind, so a fleet spreads over all its lines, not only the first. */
+  private readonly routesOf: Record<string, number[]> = {};
 
   private readonly air: Vehicle[] = [];
   private readonly airPhase = new Float32Array(MAX_AIR);
@@ -389,6 +391,17 @@ export class TrafficSim {
     return this.routes[v.route]?.suspension ?? 'ground';
   }
 
+  /** The kind of line a vehicle rides ('zipline' for the zipline family), or null off any route. */
+  lineKindOf(v: Vehicle): string | null {
+    const r = this.routes[v.route];
+    return r ? (r.family === 'zipline' ? 'zipline' : r.lineKind) : null;
+  }
+
+  /** How many routes carry vehicles of this kind. */
+  lineCount(kind: string): number {
+    return this.routesOf[kind]?.length ?? 0;
+  }
+
   /** Fleet fraction, 0..1. */
   get fleetDensity(): number { return this.density; }
 
@@ -419,6 +432,11 @@ export class TrafficSim {
       const r = routes[i];
       const key = r.family === 'zipline' ? 'zipline' : r.lineKind;
       if (this.byKind[key] < 0) this.byKind[key] = i;
+    }
+    for (const k of Object.keys(this.routesOf)) delete this.routesOf[k];
+    for (let i = 0; i < routes.length; i++) {
+      const r = routes[i];
+      (this.routesOf[r.family === 'zipline' ? 'zipline' : r.lineKind] ??= []).push(i);
     }
     // Fallback pass, AFTER the sweep: a city whose only lines are funiculars
     // still needs something for trams, so fall back to any rail route.
@@ -528,7 +546,9 @@ export class TrafficSim {
       }
       return;
     }
-    const idx = this.byKind[v.kind] ?? -1;
+    // Spread a kind's fleet over all its lines; `byKind` (with its fallback) only when it has none.
+    const list = this.routesOf[v.kind];
+    const idx = list && list.length > 0 ? list[i % list.length] : this.byKind[v.kind] ?? -1;
     v.route = idx;
     if (idx < 0) { v.alive = false; return; }
     this.railDir[i] = 1;

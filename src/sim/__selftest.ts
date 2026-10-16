@@ -602,9 +602,14 @@ export function runSimSelfTest(): string {
   if (draw.maxGradeError >= 1e-3) {
     note(`written forward column disagrees with the sim tangent by ${draw.maxGradeError}`);
   }
-  if (cableAlts.length > 0 && cableFloor < railCeiling + 20) {
-    note(`cable cars fly at ${cableFloor.toFixed(0)}m while trams reach ${railCeiling.toFixed(0)}m — they are on the wrong lines`);
-  }
+  // A vehicle rides a line of its own kind. Village ropeways (DESIGN §8) start at
+  // a ground station, so altitude no longer separates cable cars from trams; the
+  // line kind does, and it is what the fallback bug above got wrong.
+  const wrongLine = traffic.vehicles.filter((v) => v.alive && v.route >= 0 && traffic.lineKindOf(v) !== v.kind).length;
+  if (wrongLine > 0) note(`${wrongLine} alive vehicles ride a line of another kind`);
+  // And a fleet spreads over its lines: every vehicle of a kind used to ride the first.
+  const cableRoutes = new Set(traffic.vehicles.filter((v) => v.alive && v.kind === 'cablecar').map((v) => v.route));
+  if (traffic.lineCount('cablecar') > 1 && cableRoutes.size < 2) note(`every cable car rides one of ${traffic.lineCount('cablecar')} cable car lines`);
 
   L.push('');
   L.push(`traffic draw  ${aliveDrawn} of ${traffic.activeCount} alive vehicles drawn as ${draw.count} instances`);
