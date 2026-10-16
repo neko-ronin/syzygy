@@ -14,6 +14,9 @@ import {
   CORE_CLEAR, PIER_PITCH, PIER_SHIFT, SHAFT_CLEAR,
   buildFallZone, fallZone, footprintsOverlap, onFrame, patchAt, reachable, roadClear, toFrame,
 } from './fallzone';
+import { MeshBuilder } from './geometry';
+import { pushOrientedBox, yawTiltBasis } from '../render/fallmesh';
+import { bakeChunk } from '../render/citymesh';
 
 const DEFAULT_SEED = 0x5e7a17;
 const SEEDS = [DEFAULT_SEED, 42, 7, 13, 99, 1234, 31337, 0xbeef];
@@ -262,10 +265,48 @@ function cityBlock(): void {
   if (underCable > 0) fail(`${underCable} old buildings rise through a ropeway cable`);
 }
 
+function greybox(): void {
+  console.log('\nGREYBOX');
+  // Every face of a yawed, tilted box winds outward (PITFALLS §34 is what happens otherwise).
+  let inward = 0;
+  for (let k = 0; k < 24; k++) {
+    const c: Vec3 = [k, 3, -k];
+    const mb = new MeshBuilder();
+    pushOrientedBox(mb, c, ...yawTiltBasis(k * 0.7, (k % 6) * 0.11), [5, 1.2, 3], [0.5, 0.5, 0.5]);
+    const m = mb.build();
+    for (let i = 0; i < m.indexCount; i += 3) {
+      const v = [0, 1, 2].map((q) => { const o = m.indices[i + q] * 3; return [m.positions[o], m.positions[o + 1], m.positions[o + 2]]; });
+      const e1 = [v[1][0] - v[0][0], v[1][1] - v[0][1], v[1][2] - v[0][2]], e2 = [v[2][0] - v[0][0], v[2][1] - v[0][1], v[2][2] - v[0][2]];
+      const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+      const out = [0, 1, 2].map((a) => (v[0][a] + v[1][a] + v[2][a]) / 3 - c[a]);
+      if (n[0] * out[0] + n[1] * out[1] + n[2] * out[2] <= 0) inward++;
+    }
+  }
+  if (inward > 0) fail(`${inward} greybox triangles wind into their box`);
+
+  // Every column, wreck piece, patch and station a chunk bakes registers its crowd obstacle.
+  const seed = DEFAULT_SEED, city = new City(defaultCityConfig(seed));
+  let want = 0, got = 0, chunks = 0;
+  for (let cx = -6; cx <= 6; cx++) {
+    for (let cz = -6; cz <= 6; cz++) {
+      const ch = city.getChunk(cx, cz);
+      if (!ch) continue;
+      const n = ch.fall.columns.length + ch.fall.wreck.length + ch.fall.patches.length + ch.fall.stations.length;
+      if (n === 0) continue;
+      chunks++;
+      want += n;
+      got += bakeChunk(ch, 0, seed).obstacles.filter((o) => o.kind.startsWith('fall-') || o.kind.startsWith('off-limits-')).length;
+    }
+  }
+  console.log(`  ${chunks} chunks bake fall-zone items; ${got}/${want} obstacles`);
+  if (got !== want) fail(`${want - got} fall-zone items registered no crowd obstacle`);
+}
+
 belt();
 columns();
 links();
 cityBlock();
+greybox();
 
 console.log(`\nVIOLATIONS ${problems.length === 0 ? 'none' : problems.length}`);
 for (const p of problems) console.log(`  - ${p}`);

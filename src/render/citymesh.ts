@@ -25,6 +25,7 @@ import {
 } from '../world/districts';
 import { groundGrammarFor, groundSurfaceTag, walkingFamily, walkingAlbedo } from '../world/groundgrammar';
 import { bakeGroundDetail, type GroundLight } from './groundbake';
+import { pushFallChunk } from './fallmesh';
 import type { CrowdObstacle } from '../world/crowdobstacles';
 import { walkingTriangles, type WalkingSurfaceTriangles } from '../world/walkingsurfaces';
 import type { MarketStall } from '../world/marketgrammar';
@@ -670,6 +671,12 @@ function catwalk(bld: MeshBuilder, Q: (t: number, y: number, d: number) => Vec3,
   }
 }
 
+/**
+ * Retired (DESIGN §8, D33): nothing calls this. The bolted-on room columns
+ * misread sheet B. Kept only until the village rendering pass lifts
+ * `weatherRoom`, `catwalk`, `faceQuad` and the scaffold members out of it into
+ * the pile kit; delete it then.
+ */
 export function pushScaffold(bld: MeshBuilder, b: BuildingInstance, dp: DistrictProfile, lod: number, lights?: BakedChunk['lights']): void {
   const chance = SCAFFOLD_CHANCE[dp.style.key] ?? 0;
   if (!chance || lod >= 2) return;
@@ -1497,7 +1504,6 @@ export function bakeChunk(chunk: CityChunk, lod: number, seed: number): BakedChu
   for (const b of chunk.buildings) {
     const dp = profileFor(b.districtId);
     pushBuilding(solid, b, dp, rng, lod);
-    pushScaffold(solid, b, dp, lod, lights);
     pushTerraces(solid, leaf, b, dp, lod);
     pushOldTownFire(solid, b, chunk.props, lights, lod);
     // Ground footprint comes from the generator's actual occupied bounds.
@@ -1520,6 +1526,10 @@ export function bakeChunk(chunk: CityChunk, lod: number, seed: number): BakedChu
       });
     }
   }
+
+  // --- the fall zone (DESIGN §8): a greybox until the village rendering pass.
+  // Before the props and ground furniture, so the far shadow cascades draw it.
+  pushFallChunk(solid, chunk.fall, lod, obstacles);
 
   // --- props
   for (const p of chunk.props) {
