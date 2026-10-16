@@ -691,3 +691,118 @@ export function buildFallZone(seed: number): FallZone {
   connectStranded(zone, plan);
   return zone;
 }
+
+// ---------------------------------------------------------------- chunks
+
+/** What one chunk bakes of the zone: everything anchored inside it, resolved. */
+export interface FallChunk {
+  /** The grid frame's yaw; every column and patch is aligned to it. */
+  yaw: number;
+  columns: FallColumn[];
+  decks: { deck: DeckFragment; a: FallColumn; b: FallColumn }[];
+  bridges: { bridge: VillageBridge; a: FallColumn; b: FallColumn }[];
+  patches: OffLimitsPatch[];
+  wreck: WreckPiece[];
+  /** Ropeway ground stations: the hut at the foot of each line. */
+  stations: Vec3[];
+}
+
+/** One chunk's share: an item belongs to the chunk holding its centre, a span to the one holding its midpoint. */
+export function fallChunk(zone: FallZone, ox: number, oz: number, size: number): FallChunk {
+  const inside = (x: number, z: number): boolean => x >= ox && x < ox + size && z >= oz && z < oz + size;
+  const col = zone.columns;
+  const mid = (a: FallColumn, b: FallColumn): boolean => inside((a.x + b.x) / 2, (a.z + b.z) / 2);
+  return {
+    yaw: zone.gridYaw,
+    columns: col.filter((c) => inside(c.x, c.z)),
+    decks: zone.decks.filter((d) => mid(col[d.a], col[d.b])).map((d) => ({ deck: d, a: col[d.a], b: col[d.b] })),
+    bridges: zone.bridges.filter((b) => mid(col[b.a], col[b.b])).map((b) => ({ bridge: b, a: col[b.a], b: col[b.b] })),
+    patches: zone.patches.filter((p) => inside(p.x, p.z)),
+    wreck: zone.wreck.filter((w) => inside(w.x, w.z)),
+    stations: zone.ropeways.map((rw) => rw.stations[0]).filter((s) => inside(s[0], s[2])),
+  };
+}
+
+// ---------------------------------------------------------------- the old city makes way
+
+/** A clearance shape: an old building meeting it in plan is gone if it rises above `y`. */
+interface Clearance { minX: number; minZ: number; maxX: number; maxZ: number; y: number }
+const CLEAR_CELL = 64;
+const clearCache = new Map<number, Map<number, Clearance[]>>();
+const cellKey = (gx: number, gz: number): number => (gx + 4096) * 8192 + (gz + 4096);
+
+/**
+ * What the old city made way for (owner, 2026-10-15: "some older building may have
+ * been disrespected and disregarded"): shafts, wreck and ropeway huts from the
+ * ground; piles, decks, bridges and ropeway cables from their undersides. Spans are
+ * cut into 20 m pieces so a long diagonal does not clear a whole block.
+ */
+function clearances(zone: FallZone): Clearance[] {
+  const out: Clearance[] = [];
+  const ground = GROUND_Y - 1;
+  const rect = (x: number, z: number, yaw: number, hx: number, hz: number, y: number): void => {
+    let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity;
+    for (const [u, v] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const [px, pz] = onFrame(x, z, yaw, u * hx, v * hz);
+      minX = Math.min(minX, px); maxX = Math.max(maxX, px); minZ = Math.min(minZ, pz); maxZ = Math.max(maxZ, pz);
+    }
+    out.push({ minX, minZ, maxX, maxZ, y });
+  };
+  const span = (a: Vec3, b: Vec3, half: number, drop: number): void => {
+    const n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[2] - a[2]) / 20));
+    for (let k = 0; k < n; k++) {
+      const t0 = k / n, t1 = (k + 1) / n;
+      const x0 = a[0] + (b[0] - a[0]) * t0, z0 = a[2] + (b[2] - a[2]) * t0;
+      const x1 = a[0] + (b[0] - a[0]) * t1, z1 = a[2] + (b[2] - a[2]) * t1;
+      const y = Math.min(a[1] + (b[1] - a[1]) * t0, a[1] + (b[1] - a[1]) * t1) - drop;
+      out.push({ minX: Math.min(x0, x1) - half, minZ: Math.min(z0, z1) - half, maxX: Math.max(x0, x1) + half, maxZ: Math.max(z0, z1) + half, y });
+    }
+  };
+  for (const c of zone.columns) {
+    rect(c.x, c.z, zone.gridYaw, c.halfX + 2, c.halfZ + 2, ground);
+    rect(c.x, c.z, zone.gridYaw, c.pileHalfX + 2, c.pileHalfZ + 2, c.pileBase - 2);
+  }
+  for (const w of zone.wreck) rect(w.x, w.z, w.yaw, w.halfX + 1, w.halfZ + 1, ground);
+  const col = zone.columns;
+  for (const d of zone.decks) span([col[d.a].x, d.y, col[d.a].z], [col[d.b].x, d.y, col[d.b].z], d.width / 2 + 1, 3);
+  for (const br of zone.bridges) span([col[br.a].x, br.ya, col[br.a].z], [col[br.b].x, br.yb, col[br.b].z], 2, 3);
+  for (const rw of zone.ropeways) {
+    const g = rw.stations[0];
+    rect(g[0], g[2], zone.gridYaw, 4, 4, ground);
+    for (let k = 1; k < rw.stations.length; k++) {
+      const a = rw.stations[k - 1], b = rw.stations[k];
+      span(a, b, 3, Math.hypot(b[0] - a[0], b[2] - a[2]) * ROPE_SAG + 4);
+    }
+  }
+  return out;
+}
+
+function clearIndex(zone: FallZone): Map<number, Clearance[]> {
+  const hit = clearCache.get(zone.seed);
+  if (hit) return hit;
+  const idx = new Map<number, Clearance[]>();
+  for (const c of clearances(zone)) {
+    for (let gx = Math.floor(c.minX / CLEAR_CELL); gx <= Math.floor(c.maxX / CLEAR_CELL); gx++) {
+      for (let gz = Math.floor(c.minZ / CLEAR_CELL); gz <= Math.floor(c.maxZ / CLEAR_CELL); gz++) {
+        const list = idx.get(cellKey(gx, gz));
+        if (list) list.push(c); else idx.set(cellKey(gx, gz), [c]);
+      }
+    }
+  }
+  if (clearCache.size > 8) clearCache.delete(clearCache.keys().next().value as number);
+  clearCache.set(zone.seed, idx);
+  return idx;
+}
+
+/** Whether the old building with these bounds made way for the fall zone. */
+export function fallClears(seed: number, min: Vec3, max: Vec3): boolean {
+  const idx = clearIndex(fallZone(seed));
+  for (let gx = Math.floor(min[0] / CLEAR_CELL); gx <= Math.floor(max[0] / CLEAR_CELL); gx++) {
+    for (let gz = Math.floor(min[2] / CLEAR_CELL); gz <= Math.floor(max[2] / CLEAR_CELL); gz++) {
+      for (const c of idx.get(cellKey(gx, gz)) ?? []) {
+        if (max[0] > c.minX && min[0] < c.maxX && max[2] > c.minZ && min[2] < c.maxZ && max[1] > c.y) return true;
+      }
+    }
+  }
+  return false;
+}

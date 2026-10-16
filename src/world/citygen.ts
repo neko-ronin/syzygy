@@ -21,6 +21,7 @@ import {
   DISTRICT_STYLES, districtAtField, districtField, spineHit, waterDepthAt,
   type DistrictField, type DistrictStyle, type SpineHit, type SpineLine,
 } from './districts';
+import { fallChunk, fallClears, fallZone, type FallChunk } from './fallzone';
 
 export { waterDepthAt };
 
@@ -90,6 +91,8 @@ export interface CityChunk {
   boundsMax: Vec3;
   /** Coarse district ids, DISTRICT_CELL x DISTRICT_CELL over the chunk. */
   districtByCell: Int8Array;
+  /** The fall zone's share of this chunk (fallzone.ts, DESIGN §8). */
+  fall: FallChunk;
 }
 
 export interface CityConfig {
@@ -691,6 +694,8 @@ export interface LotAudit {
   random: number;
   /** Swallowed by a neighbour in de-overlap. */
   overlap: number;
+  /** Made way for the fall zone's columns, wreck and spans. */
+  fall: number;
   /** Surviving buildings; must equal the chunk's building count. */
   kept: number;
 }
@@ -703,7 +708,7 @@ export function auditChunkLots(plan: CityPlan, cfg: CityConfig, cx: number, cz: 
   const pitch = clamp(size * Math.sqrt(LOT_SURVIVAL / Math.max(4, cfg.buildingsPerChunk)), 10, 46);
   const i0 = Math.ceil(ox / pitch), i1 = Math.floor((ox + size) / pitch);
   const j0 = Math.ceil(oz / pitch), j1 = Math.floor((oz + size) / pitch);
-  const out: LotAudit = { candidates: 0, road: 0, pocket: 0, random: 0, overlap: 0, kept: 0 };
+  const out: LotAudit = { candidates: 0, road: 0, pocket: 0, random: 0, overlap: 0, fall: 0, kept: 0 };
 
   const cands: BuildingInstance[] = [];
   for (let iz = j0; iz <= j1; iz++) {
@@ -720,6 +725,7 @@ export function auditChunkLots(plan: CityPlan, cfg: CityConfig, cx: number, cz: 
       if (pocket < 0.085) { out.pocket++; continue; }
       if (lotRng(ix, iz, 17).next() < 0.06) { out.random++; continue; }
       const b = makeBuilding(plan, cfg, ix, iz, wx, wz, pitch);
+      if (b && fallClears(plan.seed, b.aabbMin, b.aabbMax)) { out.fall++; continue; }
       if (b) cands.push(b);
     }
   }
@@ -1085,7 +1091,8 @@ function buildChunk(plan: CityPlan, cfg: CityConfig, cx: number, cz: number): Ci
       const wz = (iz + 0.5) * pitch + lr.jitter(pitch * 0.19);
       if (wx < ox || wx >= ox + size || wz < oz || wz >= oz + size) continue;
       const b = makeBuilding(plan, cfg, ix, iz, wx, wz, pitch);
-      if (b) candidates.push(b);
+      // The old city made way for the fall zone's columns, wreck and spans (DESIGN §8).
+      if (b && !fallClears(plan.seed, b.aabbMin, b.aabbMax)) candidates.push(b);
     }
   }
 
@@ -1140,14 +1147,17 @@ function buildChunk(plan: CityPlan, cfg: CityConfig, cx: number, cz: number): Ci
     }
   }
 
+  const fall = fallChunk(fallZone(plan.seed), ox, oz, size);
   let maxY = GROUND_Y;
   for (const b of buildings) if (b.aabbMax[1] > maxY) maxY = b.aabbMax[1];
+  for (const c of fall.columns) if (c.pileTop > maxY) maxY = c.pileTop;
 
   return {
     cx, cz, buildings, props, bridges, cables,
     boundsMin: [ox, GROUND_Y - 1, oz],
     boundsMax: [ox + size, maxY, oz + size],
     districtByCell,
+    fall,
   };
 }
 

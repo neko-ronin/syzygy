@@ -7,11 +7,12 @@
  * Prints a `VIOLATIONS` line; that line is the result. Exits 1 on any violation.
  */
 
+import type { Vec3 } from '../core/math';
 import { beltBand, districtAtField, districtField } from './districts';
-import { GROUND_Y, cityPlan, sampleStreetPlan, type StreetSample } from './citygen';
+import { City, GROUND_Y, cityPlan, defaultCityConfig, footprintAabb, sampleStreetPlan, type StreetSample } from './citygen';
 import {
   CORE_CLEAR, PIER_PITCH, PIER_SHIFT, SHAFT_CLEAR,
-  buildFallZone, footprintsOverlap, onFrame, patchAt, reachable, roadClear, toFrame,
+  buildFallZone, fallZone, footprintsOverlap, onFrame, patchAt, reachable, roadClear, toFrame,
 } from './fallzone';
 
 const DEFAULT_SEED = 0x5e7a17;
@@ -201,9 +202,70 @@ function links(): void {
   }
 }
 
+function cityBlock(): void {
+  console.log('\nCITY');
+  const seed = DEFAULT_SEED, z = fallZone(seed), city = new City(defaultCityConfig(seed));
+  const colCount = new Map<number, number>(), wreckCount = new Map<number, number>();
+  let decks = 0, bridges = 0, stations = 0, buildings = 0, overShaft = 0, underPile = 0, onStation = 0, underCable = 0;
+  const cables: { a: Vec3; b: Vec3 }[] = z.ropeways.flatMap((rw) => rw.stations.slice(1).map((b, k) => ({ a: rw.stations[k], b })));
+  for (let cx = -6; cx <= 6; cx++) {
+    for (let cz = -6; cz <= 6; cz++) {
+      const ch = city.getChunk(cx, cz);
+      if (!ch) continue;
+      for (const c of ch.fall.columns) colCount.set(c.id, (colCount.get(c.id) ?? 0) + 1);
+      for (const w of ch.fall.wreck) { const k = z.wreck.indexOf(w); wreckCount.set(k, (wreckCount.get(k) ?? 0) + 1); }
+      decks += ch.fall.decks.length; bridges += ch.fall.bridges.length; stations += ch.fall.stations.length;
+      for (const b of ch.buildings) {
+        buildings++;
+        const [lo, hi] = footprintAabb(b);
+        for (const c of z.columns) {
+          // Distance from the column's centre to the footprint: under the shaft's (or the
+          // pile's) inscribed half-width means they certainly overlap.
+          const gap = Math.hypot(Math.max(lo[0] - c.x, 0, c.x - hi[0]), Math.max(lo[2] - c.z, 0, c.z - hi[2]));
+          if (gap < Math.min(c.halfX, c.halfZ)) overShaft++;
+          if (b.aabbMax[1] > c.pileBase && gap < Math.min(c.pileHalfX, c.pileHalfZ)) underPile++;
+        }
+        for (const rw of z.ropeways) {
+          const g = rw.stations[0];
+          if (g[0] > lo[0] - 3 && g[0] < hi[0] + 3 && g[2] > lo[2] - 3 && g[2] < hi[2] + 3) onStation++;
+        }
+        for (const { a, b: e } of cables) {
+          const len = Math.hypot(e[0] - a[0], e[2] - a[2]);
+          for (let t = 0; t <= len; t += 2) {
+            const px = a[0] + ((e[0] - a[0]) * t) / len, pz = a[2] + ((e[2] - a[2]) * t) / len;
+            const py = a[1] + ((e[1] - a[1]) * t) / len - len * 0.04;
+            if (px > lo[0] && px < hi[0] && pz > lo[2] && pz < hi[2] && b.aabbMax[1] > py) { underCable++; break; }
+          }
+        }
+      }
+    }
+  }
+  // Items anchored outside the city's chunks (a pier shifted past the edge, a
+  // station found beyond it) are baked by no chunk, by design.
+  const inCity = (x: number, q: number): boolean => x >= LO && x < HI && q >= LO && q < HI;
+  const col = z.columns;
+  const midIn = (a: number, b: number): boolean => inCity((col[a].x + col[b].x) / 2, (col[a].z + col[b].z) / 2);
+  const missCol = col.filter((c) => inCity(c.x, c.z) && colCount.get(c.id) !== 1).length;
+  const missWreck = z.wreck.filter((w, k) => inCity(w.x, w.z) && wreckCount.get(k) !== 1).length;
+  const wantDecks = z.decks.filter((d) => midIn(d.a, d.b)).length;
+  const wantBridges = z.bridges.filter((b) => midIn(b.a, b.b)).length;
+  const wantStations = z.ropeways.filter((rw) => inCity(rw.stations[0][0], rw.stations[0][2])).length;
+  console.log(`  ${buildings} buildings stand; chunks carry ${colCount.size} columns, ${wreckCount.size} wreck pieces, ${decks} decks, ${bridges} bridges, ${stations} stations`);
+  if (missCol > 0) fail(`${missCol} columns are baked by zero or several chunks`);
+  if (missWreck > 0) fail(`${missWreck} wreck pieces are baked by zero or several chunks`);
+  if (decks !== wantDecks) fail(`chunks carry ${decks} decks of ${wantDecks}`);
+  if (bridges !== wantBridges) fail(`chunks carry ${bridges} bridges of ${wantBridges}`);
+  if (stations !== wantStations) fail(`chunks carry ${stations} ropeway stations of ${wantStations}`);
+  if (overShaft > 0) fail(`${overShaft} old buildings still stand on a column's shaft`);
+  if (underPile > 0) fail(`${underPile} old buildings rise into a village pile`);
+  if (onStation > 0) fail(`${onStation} old buildings stand on a ropeway ground station`);
+  if (underCable > 0) fail(`${underCable} old buildings rise through a ropeway cable`);
+}
+
 belt();
 columns();
 links();
+cityBlock();
 
 console.log(`\nVIOLATIONS ${problems.length === 0 ? 'none' : problems.length}`);
 for (const p of problems) console.log(`  - ${p}`);

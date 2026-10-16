@@ -342,12 +342,12 @@ export function runCitySelfTest(): string {
   // Lot audit: why candidate lots never became buildings, over the same 64
   // chunks. `kept` must reconcile with the building count or the mirror has
   // drifted from the generator and every number in this block is suspect.
-  const lotAudit = { candidates: 0, road: 0, pocket: 0, random: 0, overlap: 0, kept: 0 };
+  const lotAudit = { candidates: 0, road: 0, pocket: 0, random: 0, overlap: 0, fall: 0, kept: 0 };
   for (const [cx, cz] of grid) {
     const a = auditChunkLots(plan, cfg, cx, cz);
     lotAudit.candidates += a.candidates; lotAudit.road += a.road;
     lotAudit.pocket += a.pocket; lotAudit.random += a.random;
-    lotAudit.overlap += a.overlap; lotAudit.kept += a.kept;
+    lotAudit.overlap += a.overlap; lotAudit.fall += a.fall; lotAudit.kept += a.kept;
   }
   if (lotAudit.kept !== buildings) {
     fail(`lot audit does not reconcile: ${lotAudit.kept} kept vs ${buildings} buildings`);
@@ -663,7 +663,7 @@ export function runCitySelfTest(): string {
   L.push(`setback       one-sided canyon ${f2(canyonMin)}..${f2(canyonMax)}m; ${waterLots} buildings over the canal, ${overlaps} overlaps`);
   L.push(`              centre clearance p10 ${f2(pct(centreClear, 0.1))}m / p50 ${f2(pct(centreClear, 0.5))}m / p90 ${f2(pct(centreClear, 0.9))}m, min ${f2(Math.min(...centreClear))}m`);
   L.push(`              headroom over minClear p50 ${f2(pct(headroom, 0.5))}m; <2m ${(100 * headroom.filter((h) => h < 2).length / headroom.length).toFixed(1)}% / >25m ${(100 * headroom.filter((h) => h > 25).length / headroom.length).toFixed(1)}%; corner-min <0.5m ${(100 * cornerMin.filter((c) => c < 0.5).length / cornerMin.length).toFixed(1)}%`);
-  L.push(`lots          ${lotAudit.candidates} candidates -> road-foul ${lotAudit.road} / pocket ${lotAudit.pocket} / random ${lotAudit.random} / overlap ${lotAudit.overlap} / kept ${lotAudit.kept}`);
+  L.push(`lots          ${lotAudit.candidates} candidates -> road-foul ${lotAudit.road} / pocket ${lotAudit.pocket} / random ${lotAudit.random} / overlap ${lotAudit.overlap} / fall-zone ${lotAudit.fall} / kept ${lotAudit.kept}`);
   const apparentKinds = Object.entries(apparentByKind)
     .map(([k, v]) => `${k} ${f2(pct(v, 0.5))}m (n=${v.length})`)
     .join(' / ');
