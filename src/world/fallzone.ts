@@ -794,6 +794,17 @@ function clearIndex(zone: FallZone): Map<number, Clearance[]> {
   return idx;
 }
 
+// ---------------------------------------------------------------- the crowd
+
+/** Share of crowd seats kept inside the zone: thin foot traffic, not none (owner: "concessions are made"). */
+export const FALL_FOOT = 0.25;
+
+/** Whether agent `i` may take a seat at (x, z): always off the belt, FALL_FOOT of agents on it. */
+export function fallFoot(f: DistrictField, x: number, z: number, i: number): boolean {
+  if (beltBand(f, x, z) === 0) return true;
+  return (Math.imul(i + 1, 0x9e3779b1) >>> 0) / 4294967296 < FALL_FOOT;
+}
+
 /** Whether the old building with these bounds made way for the fall zone. */
 export function fallClears(seed: number, min: Vec3, max: Vec3): boolean {
   const idx = clearIndex(fallZone(seed));

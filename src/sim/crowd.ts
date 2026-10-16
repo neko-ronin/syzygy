@@ -22,6 +22,7 @@ import { NavGraph, type NavNode } from '../world/networks';
 import { MAT, INSTANCE_FLOATS } from '../render/citymesh';
 import { PEDESTRIAN_RADIUS, PEDESTRIAN_HEIGHT, type CrowdObstacle } from '../world/crowdobstacles';
 import { WalkingSurfaceSet, type WalkingSurfaceTriangles } from '../world/walkingsurfaces';
+import { fallFoot } from '../world/fallzone';
 import {
   districtAt, districtField, districtPaletteLinear, districtStyle, spineHit, spinePoint,
   type ResolvedPalette, type SpineHit,
@@ -1227,6 +1228,8 @@ export class CrowdSim {
     const lat = side * (placed.width * 0.5 + FOOTWAY_SETBACK);
     const cx = placed.x + nx * lat;
     const cz = placed.z + nz * lat;
+    // The fall zone (DESIGN §8): most people keep away from the ruins; a few still go in.
+    if (!fallFoot(districtField(this.seedRef.seed), cx, cz, i)) return false;
     // Members cluster inside GROUP_RADIUS so their head/torso masses overlap.
     //
     // The member fork is what makes them different people. Without it every

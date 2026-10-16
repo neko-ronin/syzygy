@@ -7,12 +7,13 @@
  * Prints a `VIOLATIONS` line; that line is the result. Exits 1 on any violation.
  */
 
-import type { Vec3 } from '../core/math';
+import { makeRng, type Vec3 } from '../core/math';
+import { bakeGroundDetail } from '../render/groundbake';
 import { beltBand, districtAtField, districtField } from './districts';
 import { City, GROUND_Y, cityPlan, defaultCityConfig, footprintAabb, sampleStreetPlan, type StreetSample } from './citygen';
 import {
-  CORE_CLEAR, PIER_PITCH, PIER_SHIFT, SHAFT_CLEAR,
-  buildFallZone, fallZone, footprintsOverlap, onFrame, patchAt, reachable, roadClear, toFrame,
+  CORE_CLEAR, FALL_FOOT, PIER_PITCH, PIER_SHIFT, SHAFT_CLEAR,
+  buildFallZone, fallFoot, fallZone, footprintsOverlap, onFrame, patchAt, reachable, roadClear, toFrame,
 } from './fallzone';
 import { MeshBuilder } from './geometry';
 import { buildRailLines, tramTrack } from './networks';
@@ -323,9 +324,39 @@ function trams(): void {
   if (ropeLines !== want) fail(`${ropeLines} ropeway lines for ${want} village ropeways`);
 }
 
+function foot(): void {
+  console.log('\nFOOT TRAFFIC & COMMERCE');
+  const f = districtField(DEFAULT_SEED), plan = cityPlan(DEFAULT_SEED);
+  let inBelt = 0, keptIn = 0, offBelt = 0, keptOff = 0;
+  for (let k = 0; k < 20000; k++) {
+    const x = LO + ((k * 7919) % 3328), z = LO + ((k * 104729) % 3328);
+    const ok = fallFoot(f, x, z, k);
+    if (beltBand(f, x, z) > 0) { inBelt++; if (ok) keptIn++; } else { offBelt++; if (ok) keptOff++; }
+  }
+  const share = keptIn / Math.max(1, inBelt);
+  console.log(`  seats kept: ${(100 * share).toFixed(1)}% in the belt (${inBelt} samples), ${keptOff}/${offBelt} off it`);
+  if (keptOff !== offBelt) fail(`${offBelt - keptOff} seats refused off the belt`);
+  if (Math.abs(share - FALL_FOOT) > 0.03) fail(`belt seats kept ${(100 * share).toFixed(1)}%, not ~${100 * FALL_FOOT}%`);
+  // Street islands (cafes, planters, benches) keep out of the zone.
+  const city = new City(defaultCityConfig(DEFAULT_SEED));
+  let islands = 0, inZone = 0;
+  for (let cx = -6; cx <= 6; cx++) {
+    for (let cz = -6; cz <= 6; cz++) {
+      const ch = city.getChunk(cx, cz);
+      if (!ch || ch.fall.columns.length === 0) continue;
+      const g = bakeGroundDetail(new MeshBuilder(), ch, plan, 0, makeRng(1), []);
+      islands += g.streetIslands.length;
+      inZone += g.streetIslands.filter((s) => beltBand(f, s.x, s.z) > 0).length;
+    }
+  }
+  console.log(`  ${islands} street islands on the zone's chunks, ${inZone} inside the belt`);
+  if (inZone > 0) fail(`${inZone} street islands stand in the industrial belt`);
+}
+
 cityBlock();
 greybox();
 trams();
+foot();
 
 console.log(`\nVIOLATIONS ${problems.length === 0 ? 'none' : problems.length}`);
 for (const p of problems) console.log(`  - ${p}`);

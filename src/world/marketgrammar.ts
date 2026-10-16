@@ -45,7 +45,7 @@ import { GROUND_Y, sampleStreetPlan } from './citygen';
 import { tramTrack } from './networks';
 import type { CityChunk, CityPlan, RoadKind, StreetSample } from './citygen';
 import {
-  MARKET_DISTRICT, districtAtField, districtPaletteLinear, districtStyle, spineHit, spinePoint,
+  MARKET_DISTRICT, beltBand, districtAtField, districtPaletteLinear, districtStyle, spineHit, spinePoint,
   type ResolvedPalette, type SpineHit,
 } from './districts';
 
@@ -1406,6 +1406,8 @@ export function streetIslands(
     if (walked < next) continue;
     const lived = LIVED_THRESHOLD[districtAtField(plan.districts, x, z)] ?? 0.05;
     if (fbm2(x / LIVED_WAVELENGTH + 17.3, z / LIVED_WAVELENGTH - 4.1, 3) < lived) { walked = 0; next = 6; continue; }
+    // Commerce keeps out of the fall zone's ruins (DESIGN §8).
+    if (beltBand(plan.districts, x, z) > 0) { walked = 0; next = 6; continue; }
     const r = makeRng((seed ^ 0x51ab ^ Math.imul(Math.round(x * 4), 73856093) ^ Math.imul(Math.round(z * 4), 19349663)) >>> 0);
     walked = 0;
     const [pc, clump, open] = w < 16 ? STREET_ISLAND_GAPS.lane : STREET_ISLAND_GAPS.route;
@@ -1417,7 +1419,8 @@ export function streetIslands(
     // Toward the middle: an island hard against one edge reads as kerb clutter.
     const lat = r.range(-reach, reach) * 0.6;
     const ix = x - tz * lat, iz = z + tx * lat;
-    const ok = at(ix, iz, tx, tz, w, STREET_ISLAND_EDGE + rad)
+    // The island itself too: the lateral shift can carry it over the belt's edge.
+    const ok = beltBand(plan.districts, ix, iz) === 0 && at(ix, iz, tx, tz, w, STREET_ISLAND_EDGE + rad)
       && [[1, 0], [-1, 0], [0, 1], [0, -1]].every(([u, v]) =>
         at(ix + (tx * u - tz * v) * rad, iz + (tz * u + tx * v) * rad, tx, tz, w, STREET_ISLAND_EDGE))
       && !footprintObstructed(chunk, ix, iz, tx, tz, rad, -rad, rad, 0.6, rad + 40)
