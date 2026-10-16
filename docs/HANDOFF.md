@@ -228,8 +228,20 @@ in place of `01d` (which still moves with the poses run before it). See "Capture
    fragment; 61 bridges (0.40 per pile, all at most 1:2 and 40 m; neighbouring piles grow up to
    4 boxes up / 6 down to meet); 9 ropeways, huts at least 4.5 m off any carriageway. 4138 old
    buildings stand; old skybridges and cables that crossed a column or wreck are dropped
-   (24 before). These came from the independent code review (Opus), which also left
-   12 deferred minors in the branch's progress ledger. **Bridges per pile** is 0.40 against
+   (24 before). These came from the independent code review (Opus). Its deferred minors:
+   - a spire body runs into another spire (seed 0xbeef);
+   - spire bodies lie across open streets (fence them, or accept);
+   - ground clutter sits inside shafts and under wreck (the ground bake does not know the zone);
+   - the fleet spread relies on `KIND_MIX` having a prime length (use a per-kind ordinal);
+   - `fallFoot` thins inside groups rather than whole groups;
+   - items anchored outside the city box are never baked;
+   - the tram cut has no synthetic starts-inside or crosses-twice test;
+   - pier short side, slab size and spire placement fall short of DESIGN's values;
+   - cable cars and funiculars move at some seeds because `gatherTowers` sees fewer buildings
+     (not an RNG shift);
+   - deck fragments are rare (1 at the default seed).
+
+   **Bridges per pile** is 0.40 against
    DESIGN's "about one": honest slopes cannot reach it while neighbouring piles sit at such
    different heights. That is an open design item for the owner. The bolted-on
    rooms are no longer built (`pushScaffold` kept only as a parts bin), and poses 12/12-night
