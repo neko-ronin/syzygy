@@ -401,8 +401,8 @@ const POSES = [
     // R2 asks for the wide skyline at both phases, side by side: whether night
     // out-reads day is the owner's call from the pair, not from a mean.
     // Same camera, lens and weather; phase, exposure and bloom as 09-market-down.
-    // LAST in the list: poses without `time` inherit the previous phase, and in
-    // second place it turned every later pose (01a, 05-aerial...) into night.
+    // After every pose that sets no `time`: those inherit the previous phase, and
+    // in second place it turned every later pose (01a, 05-aerial...) into night.
     name: '01-wide-skyline-night',
     label: 'wide skyline, SAME camera as 01-wide-skyline, night',
     position: [323, 150, 506], lookAt: [-491, 280, -754], fov: 1.12, roll: 0,
@@ -410,6 +410,25 @@ const POSES = [
     weather: { sky: 'night', cloudCover: 0.34, haze: 0.22, aerialHaze: 0.4 },
     lens: { tiltShift: 0.62, focusWidth: 0.34, fov: 1.12, exposure: 1.28, bloom: 0.8 },
     settle: 30,
+  },
+  {
+    // D30 islands' review camera. `01d-street-crowd` cannot be one: it derives
+    // from the live crowd and moved between three places in one session (review
+    // 7). Literal, on the spine 4 m past 09's camera and 3 m right of the
+    // centreline, looking the same way, so noon lights the islands from behind
+    // the lens. Measured from `marketGrammarFor` (seed 0x5e7a17): tree-bench
+    // 10.1 m, planters 16.5, cafe with parasol 17.9, cafe with sitters 31.3,
+    // planters 50.8. Last in the list, so every pose above keeps its sequence
+    // history (PITFALLS §30); it sets its own phase, and the crowd is restored.
+    name: '09-market-islands',
+    label: 'market spine islands at 10-31 m, noon, crowd on: D30 furniture, signs of use, sheet-A colour',
+    position: [1.16 + 0.2557 * 4 + 0.9668 * 3, 2.6, 0.36 - 0.9668 * 4 + 0.2557 * 3],
+    lookAt: [1.16 + 0.2557 * 34 + 0.9668 * 3, 1.4, 0.36 - 0.9668 * 34 + 0.2557 * 3],
+    fov: 1.05, roll: 0,
+    time: 'noon',
+    weather: { sky: 'clear', haze: 0.25 },
+    lens: { fov: 1.05, bloom: 0.3, exposure: 0.92, saturation: 1.08, vignette: 0.34 },
+    settle: 40,
   },
 ];
 
@@ -596,11 +615,33 @@ async function waitForApp(page, timeoutMs) {
 }
 
 /** Feature-detected call into the app surface; never throws. */
-/** A pose's `crowd` count, applied after setPose in both the sequence and single-shot paths. */
+/**
+ * A pose's `crowd` count, applied after setPose in both the sequence and single-shot paths.
+ *
+ * The count outlives its pose. `01g-kerb-face` sets 0, and every later pose of a
+ * sequence (the market, the scaffolds, the old town) was shot with no crowd
+ * until review 7 noticed. A pose that sets no `crowd` after one that did gets the
+ * boot crowd back (`resetCrowd`, the world's density); its settle refills it.
+ */
+let crowdOverridden = false;
 async function applyPoseCrowd(page, pose) {
-  if (pose.crowd === undefined) return;
+  if (pose.crowd === undefined) {
+    if (!crowdOverridden) return;
+    const r = await callApp(page, 'resetCrowd');
+    // A build older than resetCrowd keeps the old leak; say so rather than fail,
+    // so base commits can still be shot with this harness.
+    if (r.skipped) {
+      say(`    ! ${pose.name}: crowd not restored (${r.reason}); it and every later pose keep the last pose's count`);
+      crowdOverridden = false;
+      return;
+    }
+    if (!r.ok) throw new Error(`resetCrowd: ${r.error}`);
+    crowdOverridden = false;
+    return;
+  }
   const r = await callApp(page, 'setCrowdCount', pose.crowd);
   if (!r.ok) throw new Error(`setCrowdCount: ${r.error || r.reason}`);
+  crowdOverridden = true;
 }
 
 async function callApp(page, method, ...args) {

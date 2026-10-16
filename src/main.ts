@@ -944,6 +944,13 @@ class App {
         app.crowd.setCount(Math.max(0, n | 0));
         if ((n | 0) <= 0) app.crowd.clearPopulation();
       },
+      /**
+       * Undo `setCrowdCount`: the seeding target goes back to the world's crowd
+       * density, as at boot, and refills over `rebuildStride` frames. The capture
+       * harness calls it for a pose that sets no `crowd` after one that did; without
+       * it, one `crowd: 0` pose emptied every later pose of a sequence.
+       */
+      resetCrowd: () => app.crowd.setDensity(app.world.crowds.density),
       setPose: (pose: {
         position?: [number, number, number]; lookAt?: [number, number, number];
         fov?: number; roll?: number; derive?: DerivedPoseId;

@@ -38,9 +38,9 @@ must buy its cost back first; cheapest known lever: the D30 lived kits cost ~0.1
 
 **Review 7 (2026-10-15, [VISION_2026-10-15_R7](VISION_2026-10-15_R7.md), independent,
 read-only): done (watch) overall.** Items 1, 2 and 4 done (watch); far cascades done;
-city-wide intact on all 24 poses. Two harness findings matter for the next review: `01g`'s
-`crowd: 0` carries into every later pose of a full sequence, and `01d` derives a different
-camera depending on which poses run before it.
+city-wide intact on all 24 poses. Its two harness findings are fixed: a pose's `crowd` no
+longer carries into later poses, and the islands have a literal camera, `09-market-islands`,
+in place of `01d` (which still moves with the poses run before it). See "Captures" below.
 
 1. **D30 islands that read — done (watch), review 7 (2026-10-15); benchmarked 2026-10-15.**
    - Spine: gaps tightened (clump 3-7 m, open 9-18 m) and half the islands get a partner
@@ -68,7 +68,8 @@ camera depending on which poses run before it.
      low pieces at 01c are present and hidden by the crowd. Watch: the first 12 m at 09 is
      bare; planter bases read grey; the sitters' heads are bare balls on a gap, unlike the
      walkers'. Island distances quoted against `01d` do not reproduce: its camera moves with
-     the run. Next: a literal island camera on the spine.
+     the run. Judge islands at `09-market-islands` now (tree-bench 10.1 m, planters 16.5,
+     cafe with parasol 17.9, cafe with sitters 31.3, measured from `marketGrammarFor`).
    - Cost: islands are ~35-55k triangles per LOD 0 chunk (~9 LOD 0 chunks resident).
      **Benchmarked 2026-10-15** (PERFORMANCE, "D30 islands that read"; ABBA against `11b163f`,
      eight clean hero runs a side): hero GPU span 14.62 -> 15.57 ms (+0.95), **60 -> 56-57/s**.
@@ -270,10 +271,15 @@ camera depending on which poses run before it.
 - **Captures:** `node tools/capture.mjs --dev --sequence --pose=<name> ...`; `--hero-pair
   --scene=<base>/_scene.json` for the hero (PITFALLS §27). Compare frames shot **with the
   same pose sequence** and read `lodHistogram` in `_capture.json` (PITFALLS §30). A pose can
-  set `crowd: 0` for a diagnostic of what the crowd hides, but the count carries into every
-  later pose: in a full sequence everything after `01g-kerb-face` has no crowd. `01d` derives
-  from the live crowd, so its camera moves with the poses run before it (review 7 got three
-  places). Delete your `shots/` runs.
+  set `crowd: 0` for a diagnostic of what the crowd hides. The next pose without a `crowd`
+  gets the boot crowd back (`resetCrowd`, the world's density). Until 2026-10-15 the count
+  carried on, so every pose after `01g-kerb-face` in a full sequence had no crowd: older
+  full-sequence frames after 01g are crowd-free, not comparable to new ones. A build older
+  than `resetCrowd` still leaks and the run says so. With the crowd on, a full sequence takes
+  ~10 min (578 s under memory pressure, was ~2): keep `--timeout 900`. `01d` derives from
+  the live crowd, so its camera moves with the poses run before it (review 7 got three
+  places); judge islands at the literal `09-market-islands`, last in the list, which holds
+  one camera alone or in a full run (2.6 cm apart). Delete your `shots/` runs.
   Sequence poses let the day clock run through warm, so `dayPhase` (`_capture.json`) drifts
   0.001 between runs and moves every shadow edge: compare only phase-matched frames, and run
   a same-build control before reading a base/new pixel diff.
