@@ -249,7 +249,7 @@ const planHit: SpineHit = { dist: 0, px: 0, pz: 0, tx: 1, tz: 0, along: 0 };
 const planSample: StreetSample = { dist: 0, px: 0, pz: 0, tx: 1, tz: 0, width: 1, kind: 'street', clearance: 0 };
 
 /** Fills and returns `out` with the nearest carriageway to (x, z). */
-export function sampleStreetPlan(plan: CityPlan, x: number, z: number, out: StreetSample): StreetSample {
+export function sampleStreetPlan(plan: CityPlan, x: number, z: number, out: StreetSample, alleys = true): StreetSample {
   const d = plan.districts;
   const ox = d.ox, oz = d.oz;
   let best = Infinity;
@@ -330,49 +330,53 @@ export function sampleStreetPlan(plan: CityPlan, x: number, z: number, out: Stre
     out.kind = 'street';
   }
 
-  const AP = plan.alleyPeriod;
-  const warpAlleyAt = (wx: number, wz: number): number =>
-    60 * fbm2(wx * 0.0034 + ox + 31, wz * 0.0034 + oz - 17, 2);
-  const awq = warpAlleyAt(x, z);
-  const nau = Math.round((x + awq) / AP), nav = Math.round((z + awq) / AP);
-  let xau = nau * AP - awq;
-  for (let k = 0; k < 12; k++) {
-    const nxau = nau * AP - warpAlleyAt(xau, z);
-    if (Math.abs(nxau - xau) < 1e-4) { xau = nxau; break; }
-    xau = nxau;
-  }
-  let zav = nav * AP - awq;
-  for (let k = 0; k < 12; k++) {
-    const nzav = nav * AP - warpAlleyAt(x, zav);
-    if (Math.abs(nzav - zav) < 1e-4) { zav = nzav; break; }
-    zav = nzav;
-  }
-  const adu = x - xau, adv = z - zav;
-  // Correct central difference of the alley warp. The previous code used a 0.2
-  // factor here against the warp's own 60 amplitude (25x too small), so alley
-  // tangents ignored the warp slope entirely.
-  const aux = (warpAlleyAt(xau + 6, z) - warpAlleyAt(xau - 6, z)) / 12;
-  const auz = (warpAlleyAt(xau, z + 6) - warpAlleyAt(xau, z - 6)) / 12;
-  const avx = (warpAlleyAt(x + 6, zav) - warpAlleyAt(x - 6, zav)) / 12;
-  const avz = (warpAlleyAt(x, zav + 6) - warpAlleyAt(x, zav - 6)) / 12;
-  const mau = Math.abs(1 + aux) > 1e-3 ? -auz / (1 + aux) : -auz;
-  const mav = Math.abs(1 + avz) > 1e-3 ? -avx / (1 + avz) : -avx;
-  const inau = 1 / Math.sqrt(1 + mau * mau);
-  const inav = 1 / Math.sqrt(1 + mav * mav);
-  const distAU = Math.abs(adu) * inau, distAV = Math.abs(adv) * inav;
-  const aNear = distAU <= distAV;
-  const alleyClear = Math.min(distAU, distAV) - plan.alleyWidth * 0.5;
-  if (alleyClear < best) {
-    best = alleyClear;
-    if (aNear) {
-      out.dist = distAU; out.px = xau; out.pz = z;
-      out.tx = mau * inau; out.tz = inau;
-    } else {
-      out.dist = distAV; out.px = x; out.pz = zav;
-      out.tx = inav; out.tz = mav * inav;
+  // The fall zone (fallzone.ts) asks for clearance from everything but alleys:
+  // the deck's piers disregarded them.
+  if (alleys) {
+    const AP = plan.alleyPeriod;
+    const warpAlleyAt = (wx: number, wz: number): number =>
+      60 * fbm2(wx * 0.0034 + ox + 31, wz * 0.0034 + oz - 17, 2);
+    const awq = warpAlleyAt(x, z);
+    const nau = Math.round((x + awq) / AP), nav = Math.round((z + awq) / AP);
+    let xau = nau * AP - awq;
+    for (let k = 0; k < 12; k++) {
+      const nxau = nau * AP - warpAlleyAt(xau, z);
+      if (Math.abs(nxau - xau) < 1e-4) { xau = nxau; break; }
+      xau = nxau;
     }
-    out.width = plan.alleyWidth;
-    out.kind = 'alley';
+    let zav = nav * AP - awq;
+    for (let k = 0; k < 12; k++) {
+      const nzav = nav * AP - warpAlleyAt(x, zav);
+      if (Math.abs(nzav - zav) < 1e-4) { zav = nzav; break; }
+      zav = nzav;
+    }
+    const adu = x - xau, adv = z - zav;
+    // Correct central difference of the alley warp. The previous code used a 0.2
+    // factor here against the warp's own 60 amplitude (25x too small), so alley
+    // tangents ignored the warp slope entirely.
+    const aux = (warpAlleyAt(xau + 6, z) - warpAlleyAt(xau - 6, z)) / 12;
+    const auz = (warpAlleyAt(xau, z + 6) - warpAlleyAt(xau, z - 6)) / 12;
+    const avx = (warpAlleyAt(x + 6, zav) - warpAlleyAt(x - 6, zav)) / 12;
+    const avz = (warpAlleyAt(x, zav + 6) - warpAlleyAt(x, zav - 6)) / 12;
+    const mau = Math.abs(1 + aux) > 1e-3 ? -auz / (1 + aux) : -auz;
+    const mav = Math.abs(1 + avz) > 1e-3 ? -avx / (1 + avz) : -avx;
+    const inau = 1 / Math.sqrt(1 + mau * mau);
+    const inav = 1 / Math.sqrt(1 + mav * mav);
+    const distAU = Math.abs(adu) * inau, distAV = Math.abs(adv) * inav;
+    const aNear = distAU <= distAV;
+    const alleyClear = Math.min(distAU, distAV) - plan.alleyWidth * 0.5;
+    if (alleyClear < best) {
+      best = alleyClear;
+      if (aNear) {
+        out.dist = distAU; out.px = xau; out.pz = z;
+        out.tx = mau * inau; out.tz = inau;
+      } else {
+        out.dist = distAV; out.px = x; out.pz = zav;
+        out.tx = inav; out.tz = mav * inav;
+      }
+      out.width = plan.alleyWidth;
+      out.kind = 'alley';
+    }
   }
 
   // Cheap conservative reject first: the wander can shift a line by at most

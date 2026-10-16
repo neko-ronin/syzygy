@@ -388,6 +388,20 @@ export function districtAtField(f: DistrictField, x: number, z: number): number 
   return n3 > 0.1 ? 0 : n3 < -0.12 ? 8 : (th > 0 ? 2 : 4);
 }
 
+/**
+ * The industrial belt's two bands (DESIGN §8, D33): 1 where the fallen deck stood,
+ * the belt's core along the railway; 2 where the belt widens into estates past
+ * r ~ 1 km; 0 off the belt. The band-1 edge repeats `districtAtField`'s belt
+ * threshold without its estate widening; the fall-zone self-test fails if band 2
+ * shows up inside 800 m of the origin, which is where a drift would show.
+ */
+export function beltBand(f: DistrictField, x: number, z: number): 0 | 1 | 2 {
+  if (districtAtField(f, x, z) !== 5) return 0;
+  const fx = (x + f.ox) * 0.0021, fz = (z + f.oz) * 0.0021;
+  const n2 = fbm2(fx * 1.3 - 8.2, fz * 1.3 + 2.6, 3);
+  return spineHit(f.rail, x, z, scratchHit).dist < f.rail.width * 0.8 + 75 + 30 * n2 ? 1 : 2;
+}
+
 /** Planar coordinates of a spine at distance `along` from its origin. */
 export const spinePoint = (s: SpineLine, along: number): Vec2 => {
   const ca = Math.cos(s.bearing), sa = Math.sin(s.bearing);
