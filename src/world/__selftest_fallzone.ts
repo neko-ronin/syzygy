@@ -15,6 +15,7 @@ import {
   buildFallZone, fallZone, footprintsOverlap, onFrame, patchAt, reachable, roadClear, toFrame,
 } from './fallzone';
 import { MeshBuilder } from './geometry';
+import { buildRailLines, tramTrack } from './networks';
 import { pushOrientedBox, yawTiltBasis } from '../render/fallmesh';
 import { bakeChunk } from '../render/citymesh';
 
@@ -305,8 +306,26 @@ function greybox(): void {
 belt();
 columns();
 links();
+function trams(): void {
+  console.log('\nTRAMS & ROPEWAYS');
+  for (const seed of SEEDS) {
+    const f = districtField(seed), plan = cityPlan(seed);
+    const lines = tramTrack(plan, seed);
+    const inside = lines.reduce((s, pts) => s + pts.filter((p) => beltBand(f, p[0], p[2]) > 0).length, 0);
+    if (inside > 0) fail(`seed ${seed}: ${inside} tram points run through the industrial belt`);
+    if (seed === DEFAULT_SEED) console.log(`  default seed: ${lines.length} tram lines, ${lines.map((p) => p.length).join(' + ')} points`);
+  }
+  const city = new City(defaultCityConfig(DEFAULT_SEED));
+  const rails = buildRailLines(city, DEFAULT_SEED);
+  const ropeLines = rails.filter((l) => l.kind === 'cablecar' && l.districtId === 5).length;
+  const want = fallZone(DEFAULT_SEED).ropeways.length;
+  console.log(`  ${rails.length} rail lines, ${ropeLines} of them village ropeways`);
+  if (ropeLines !== want) fail(`${ropeLines} ropeway lines for ${want} village ropeways`);
+}
+
 cityBlock();
 greybox();
+trams();
 
 console.log(`\nVIOLATIONS ${problems.length === 0 ? 'none' : problems.length}`);
 for (const p of problems) console.log(`  - ${p}`);

@@ -11,7 +11,8 @@ import {
   GROUND_Y, cityPlan, sampleStreetPlan,
   type BuildingInstance, type City, type CityPlan, type StreetSample,
 } from './citygen';
-import { DISTRICT_STYLES, districtAt, districtPaletteLinear, type DistrictStyle } from './districts';
+import { DISTRICT_STYLES, beltBand, districtAt, districtPaletteLinear, type DistrictField, type DistrictStyle } from './districts';
+import { ROPE_SAG, fallZone } from './fallzone';
 
 export interface RailLine {
   id: number;
@@ -163,6 +164,17 @@ const styleColor = (style: DistrictStyle, k: number): Vec3 => {
   ];
 };
 
+/** The longest run of `pts` off the industrial belt: trams end at the fall zone's edge (DESIGN §8). */
+function outsideBelt(pts: Vec3[], f: DistrictField): Vec3[] {
+  let best: [number, number] = [0, 0], start = -1;
+  for (let k = 0; k <= pts.length; k++) {
+    const out = k < pts.length && beltBand(f, pts[k][0], pts[k][2]) === 0;
+    if (out && start < 0) start = k;
+    if (!out && start >= 0) { if (k - start > best[1] - best[0]) best = [start, k]; start = -1; }
+  }
+  return pts.slice(best[0], best[1]);
+}
+
 /**
  * The two street trams: street level at the ends, viaduct mid-run. They take the
  * first draws from the network's stream and read only the plan, so the ground
@@ -175,17 +187,22 @@ function growTrams(plan: CityPlan, r: Rng, seed: number, lines: RailLine[]): voi
     const raw = walkStreet(plan, Math.cos(a) * rad, Math.sin(a) * rad, 16, 34);
     if (raw.length < 6) continue;
     const pts = resampleSpline(raw, 96);
+    // Both draws first, in their old order: a line cut short leaves the stream as it was.
     const hump = 8 + r.next() * 9;
-    for (let k = 0; k < pts.length; k++) {
-      pts[k][1] += 0.28 + rampProfile(k / (pts.length - 1), hump);
+    const speed = 10.5 + r.next() * 2.5;
+    // Cut before the viaduct ramp, so a line that ends at the zone's edge ends at street level.
+    const kept = outsideBelt(pts, plan.districts);
+    if (kept.length < 6) continue;
+    for (let k = 0; k < kept.length; k++) {
+      kept[k][1] += 0.28 + rampProfile(k / (kept.length - 1), hump);
     }
-    const mid = pts[pts.length >> 1];
+    const mid = kept[kept.length >> 1];
     const d = districtAt(mid[0], mid[2], seed);
     let crest = 0;
-    for (const p of pts) if (p[1] > crest) crest = p[1];
+    for (const p of kept) if (p[1] > crest) crest = p[1];
     lines.push({
-      id: lines.length, kind: 'tram', points: pts, closed: false,
-      speed: 10.5 + r.next() * 2.5, color: styleColor(DISTRICT_STYLES[d], 0.55),
+      id: lines.length, kind: 'tram', points: kept, closed: false,
+      speed, color: styleColor(DISTRICT_STYLES[d], 0.55),
       districtId: d, suspension: crest - GROUND_Y > 4 ? 'catenary' : 'ground',
     });
   }
@@ -254,6 +271,21 @@ export function buildRailLines(city: City, seed: number): RailLine[] {
       ], apex], 48),
       closed: false, speed: 5.5, color: styleColor(DISTRICT_STYLES[d], 0.3),
       districtId: d, suspension: 'ground',
+    });
+  }
+
+  // Village ropeways over the fall zone (DESIGN §8; frame 4's gondolas). Last, so
+  // every line above keeps its draws.
+  for (const rw of fallZone(seed).ropeways) {
+    const pts: Vec3[] = [];
+    for (let k = 1; k < rw.stations.length; k++) {
+      const a = rw.stations[k - 1], b = rw.stations[k];
+      const seg = spanCurve(a, b, Math.hypot(b[0] - a[0], b[2] - a[2]) * ROPE_SAG, 8);
+      pts.push(...(k === 1 ? seg : seg.slice(1)));
+    }
+    lines.push({
+      id: id++, kind: 'cablecar', points: resampleSpline(pts, 48), closed: false,
+      speed: 6, color: [0.62, 0.12, 0.07], districtId: 5, suspension: 'free',
     });
   }
   return lines;
