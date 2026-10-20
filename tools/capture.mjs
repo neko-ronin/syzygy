@@ -408,9 +408,11 @@ const POSES = [
   },
   {
     // Derived by src/world/__probe_fallzone.ts (seed 5e7a17).
+    // Round 0 re-derived: scored by the angular mass of the knot, not by the
+    // count of piles in the cone, and aimed at the village instead of past it.
     name: '16-fall-wreck-up',
     label: 'sheet B: the wreck field looking up at a knot of piles, dusk',
-    position: [540, 2.1, -504], lookAt: [600, 130.1, -504], fov: 1.05, roll: 0,
+    position: [570, 2.1, -516], lookAt: [615.4, 122.4, -495.6], fov: 1.05, roll: 0,
     time: 'dusk',
     weather: { sky: 'dusk', cloudCover: 0.35, haze: 0.3 },
     lens: { fov: 1.05 },
@@ -418,9 +420,14 @@ const POSES = [
   },
   {
     // Derived by src/world/__probe_fallzone.ts (seed 5e7a17).
+    // Round 0 re-derived: standing ON the deck fragment, clear of pier a's pile,
+    // looking along it toward pier b. 45 m off its side saw the deck edge on: a
+    // plank. Round 0's first pass put the camera off the FAR end of the deck
+    // (ux runs b->a), which put the whole of a's pile in the frame as an
+    // unsupported mass; this stands on the deck between the piers instead.
     name: '17-fall-piles-level',
-    label: 'sheet B: level with a deck fragment between two piles, morning',
-    position: [798.2, 156.4, -445.1], lookAt: [768.5, 158.4, -478.9], fov: 1.05, roll: 0,
+    label: 'sheet B: standing on the deck fragment, looking along it, morning',
+    position: [765.5, 152, -476.2], lookAt: [786.5, 159.4, -494.7], fov: 1.05, roll: 0,
     time: 'morning',
     weather: { sky: 'clear', cloudCover: 0.35, haze: 0.3 },
     lens: { fov: 1.05 },
@@ -428,9 +435,12 @@ const POSES = [
   },
   {
     // Derived by src/world/__probe_fallzone.ts (seed 5e7a17).
+    // Round 0 re-derived: the stretch of the mid band with the lowest old city
+    // behind it, 300 m off it on the downtown side, looking out over the low
+    // city. The old aim put the 819 m heart towers behind the band.
     name: '18-fall-skyline',
     label: 'sheet B: the fall zone as a mid band on the skyline, dusk',
-    position: [1322.1, 160, 41], lookAt: [727.4, 110.4, -634.5], fov: 1.12, roll: 0,
+    position: [-633.8, 123, 438.5], lookAt: [-669.5, 135.9, 736.3], fov: 1.12, roll: 0,
     time: 'dusk',
     weather: { sky: 'dusk', cloudCover: 0.35, haze: 0.3 },
     lens: { fov: 1.12 },
@@ -438,12 +448,14 @@ const POSES = [
   },
   {
     // Derived by src/world/__probe_fallzone.ts (seed 5e7a17).
+    // Round 0 re-derived: 3 m off the pile's CORNER, so the frame holds a
+    // vertical edge and two faces. Dead on to one flat face was a void.
     name: '19-fall-pile-close',
-    label: 'sheet B: on a deck fragment, 3 m from a village pile, noon',
-    position: [759.5, 152, -470.9], lookAt: [750.5, 155.4, -463], fov: 1.1, roll: 0,
+    label: 'sheet B: 3 m off a village pile corner, looking up its edge, noon',
+    position: [765.3, 152, -463.2], lookAt: [761.9, 153, -463.2], fov: 1, roll: 0,
     time: 'noon',
     weather: { sky: 'clear', cloudCover: 0.35, haze: 0.3 },
-    lens: { fov: 1.1 },
+    lens: { fov: 1 },
     settle: 30,
   },
 ];
