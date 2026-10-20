@@ -3,6 +3,8 @@
  * things, so placement can be judged in frame before anything is modelled. The
  * village rendering pass replaces the volumes with the columns, piles, revival
  * kit and wreckage. The crowd obstacles stay: they are placement, not looks.
+ * Round 0 of that pass lives in fallvillage.ts (the piles); the columns
+ * themselves are still volumes here.
  */
 
 import type { Vec3 } from '../core/math';
@@ -10,10 +12,10 @@ import { GROUND_Y } from '../world/citygen';
 import type { CrowdObstacle } from '../world/crowdobstacles';
 import type { FallChunk, FallColumn, PatchKind } from '../world/fallzone';
 import type { MeshBuilder } from '../world/geometry';
+import { pushFallVillage } from './fallvillage';
 
 const CONCRETE: Vec3 = [0.34, 0.35, 0.36];
 const STEEL: Vec3 = [0.14, 0.17, 0.21];
-const PILE: Vec3 = [0.13, 0.15, 0.18];
 const SLAB: Vec3 = [0.3, 0.31, 0.32];
 const SPAN: Vec3 = [0.2, 0.18, 0.16];
 const PATCH: Record<PatchKind, Vec3> = { fenced: [0.24, 0.25, 0.26], flooded: [0.06, 0.08, 0.1], overgrown: [0.14, 0.19, 0.11] };
@@ -82,8 +84,9 @@ function pushColumn(bld: MeshBuilder, c: FallColumn, flat: [Vec3, Vec3, Vec3]): 
   } else {
     pushOrientedBox(bld, [c.x, y, c.z], ax, ay, az, [c.halfX, h, c.halfZ], CONCRETE);
   }
-  const ph = (c.pileTop - c.pileBase) / 2;
-  pushOrientedBox(bld, [c.x, c.pileBase + ph, c.z], ax, ay, az, [c.pileHalfX, ph, c.pileHalfZ], PILE);
+  // The pile is the village's, drawn by pushFallVillage in pushFallChunk. The
+  // greybox volume this used to draw capped every pile with a flat slab at
+  // pileTop — the stepped silhouette this round must deliver cannot sit under it.
 }
 
 /** Greybox one chunk's share of the fall zone, and register what the crowd must walk around. */
@@ -94,6 +97,10 @@ export function pushFallChunk(bld: MeshBuilder, fall: FallChunk, lod: number, ob
     pushColumn(bld, c, flat);
     obstacles.push({ x: c.x, z: c.z, tx, tz, halfAlong: c.halfX, halfAcross: c.halfZ, minY: GROUND_Y, maxY: c.top, kind: `fall-${c.kind}` });
   }
+  // The village on each column (round 0, docs/FALL_VILLAGE_ROUND0.md): the
+  // piles pushColumn used to greybox. Real boxes at lod < 2, merged blocks
+  // beyond; the crowd obstacles above are placement and unchanged.
+  pushFallVillage(bld, fall, lod);
   for (const { deck, a, b } of fall.decks) {
     const pa: Vec3 = [a.x, deck.y - 1.2, a.z], pb: Vec3 = [b.x, deck.y - 1.2, b.z];
     const mid: Vec3 = [(pa[0] + pb[0]) / 2, pa[1], (pa[2] + pb[2]) / 2];

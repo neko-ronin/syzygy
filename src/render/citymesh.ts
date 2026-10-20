@@ -578,8 +578,9 @@ const IVY: Vec3[] = [[0.10, 0.22, 0.06], [0.13, 0.26, 0.07], [0.08, 0.19, 0.06]]
 /** Blooms on the odd terrace mass: warm pink and cream (sheet D's balcony flowers). */
 const TERRACE_FLOWER: Vec3[] = [[0.72, 0.30, 0.38], [0.80, 0.62, 0.50], [0.66, 0.22, 0.30]];
 const TARPS: Vec3[] = [[0.14, 0.24, 0.34], [0.55, 0.28, 0.12], [0.22, 0.28, 0.20], [0.42, 0.40, 0.36]];
-/** Sheet B's bolted-on rooms: slate sheet, faded blue, rust-red panel, timber, near-black, grey (pale ones read as primitives, review 5). */
-const ROOMS: Vec3[] = [[0.22, 0.24, 0.26], [0.17, 0.22, 0.27], [0.40, 0.15, 0.10], [0.33, 0.24, 0.16], [0.13, 0.15, 0.17], [0.30, 0.31, 0.30],
+/** Sheet B's bolted-on rooms: slate sheet, faded blue, rust-red panel, timber, near-black, grey (pale ones read as primitives, review 5).
+ *  Exported for fallvillage: DESIGN §8 says the fall-zone piles reuse this palette, not one of their own. */
+export const ROOMS: Vec3[] = [[0.22, 0.24, 0.26], [0.17, 0.22, 0.27], [0.40, 0.15, 0.10], [0.33, 0.24, 0.16], [0.13, 0.15, 0.17], [0.30, 0.31, 0.30],
   // Weighted to rust, red panel and soot (review 5: the sheet's towers are crusted with dark rust and red panels).
   [0.34, 0.12, 0.07], [0.46, 0.17, 0.09], [0.25, 0.13, 0.09], [0.10, 0.11, 0.12]];
 
