@@ -35,3 +35,6 @@ shots/
 
 # Runtime logs (tools/publish.mjs): local diagnostics, may hold local paths.
 logs/
+
+# Bytecode from the stdlib-only tools (pixel_share.py and friends).
+__pycache__/
