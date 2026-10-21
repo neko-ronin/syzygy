@@ -1,4 +1,4 @@
-# Vision baseline — the fall zone against sheet B (round 0)
+# Vision — the fall zone against sheet B (rounds 0 and 1)
 
 **Reviewer:** vision reviewer, read-only except `src/world/__probe_fallzone.ts`.
 **Date:** 2026-10-20. **Section:** B, `cold-industrial`.
@@ -8,10 +8,11 @@ ready. This document establishes the baseline and names what the *rendered*
 village must deliver in each pose. It is not a complaint that a greybox is a
 greybox.
 
-**Two runs, two documents-worth of evidence.** Part 1 is the **BEFORE**: the
-greybox baseline, run 15:55, before the village existed. Part 2 is the
-**AFTER**: the round-0 village (`fae3058`), run 16:41, with the re-derived
-cameras. Both are judged against sheet B; the AFTER is the one that counts.
+**Three runs, three documents-worth of evidence.** Part 1 is the **BEFORE**:
+the greybox baseline, run 15:55, before the village existed. Part 2 is the
+round-0 village (`fae3058`), run 16:41, with the re-derived cameras. Part 3 is
+the round-1 village (`b0d7bf3`, on the boot fix `7f06ac4`), run 20:14, **on
+`main`** — so unlike round 0's frames these are evidence of a committed build.
 
 ---
 
@@ -572,3 +573,240 @@ sheet's own middle distance.
 5. **The village has no faces.** Windows, doors, rails, ladders, laundry and
    the revival kit are rounds 1-2; the close-focus pose 19 is the one that
    cannot be judged until they land.
+
+---
+
+# PART 3 — ROUND 1: the cold village (`b0d7bf3`, run 20:14, `shots/2026-10-21T03-14-12`)
+
+## Close-out (DESIGN §6) — round 1
+
+```
+VERDICT:  more work needed
+EVIDENCE: references/B-cold-industrial-sheet.jpg
+          references/sections/B-cold-industrial/{01-monolith,02-fog-tram,03-snow-ropeway,04-tram-bridge}.jpg
+          shots/2026-10-21T03-14-12/{16-fall-wreck-up,17-fall-piles-level,18-fall-skyline,19-fall-pile-close}.png
+          shots/2026-10-21T03-14-12/_capture.json
+          shots/compare/2026-10-21T03-21-18.png (+ .txt)
+          (earlier: shots/2026-10-20T22-55-25 = greybox, shots/2026-10-20T23-39-50 = round 0)
+JUDGED:   silhouette, mid-band height, material read, palette, value structure,
+          atmospheric depth and human scale, per pose, in sheet-B vocabulary
+GAP:      the zone's largest surfaces are still plain smooth prisms — the column
+          shafts carry no break, no rebar, no stain and no salvage cut, and at
+          dusk they are the brightest, warmest thing in the frame, so the warm
+          is on the wrong objects
+NEXT:     model the column break: a sheared or cratered top with rebar, a
+          spalled face and a stain running down from it, on the shafts that
+          face the camera — then the village's crowns can be the brightest
+          thing in the dusk frames instead of the bare concrete
+CONFIRMED: the mid band now exists as a legible stratum of village crowns
+          (the largest crown reads at ~60 px in the frame, where the pile
+          record's own extent projects to 87 px and round 0's pile slab was
+          29 px; and the background behind the band is the low city at 139 m,
+          not the 819 m heart); the crowns are stepped masses with masts,
+          tanks, ribs and door leaves, not the flat greybox slab; the close
+          pose holds a real material read — a corrugated rust container, a door
+          leaf, two lit windows, a water tank on legs; the app boots, which is
+          the first boot check the fix ever had; 212 crown lights delivered,
+          0 starved, 0 refused tiles
+```
+
+**The run.** `node tools/orchestrate.mjs capture -- node tools/capture.mjs
+--dev --sequence --pose=fall --timeout 900` → PASS, 5 shots, 54.8 s, no GPU
+error, no WGSL error, **app ready (frameCount=569)** — the boot fix works, and
+this is the first time anything has booted it. The preflight gate was
+respected throughout: it blocked on disk (9.2 GB) and then on memory (72-244 MB)
+for about forty minutes, and was never bypassed.
+
+**Artifact, from `_capture.json`.** `dayPhase` 0.242 / 0.569 / 0.244 / 0.959 —
+the same four phases as the greybox and round-0 runs, so every frame here is
+phase-matched against them. `lodHistogram` [9,28,97,0] / [9,28,100,0] /
+[9,34,124,0] / [9,34,124,0]. **Lights: delivered 1189 / 1107 / 1383 / 1107
+against a 3072 cap, `starved 0` in all four poses, 5700/5700 tile bins, 0
+refused tiles.** The 212 crown lights are therefore *not* starved and the
+light budget is *not* the constraint in any of these frames.
+
+---
+
+## Pose 16 — the wreck field looking up at a knot of piles
+
+**What the frame shows now.** Three shafts rise out of the bottom of the frame
+and converge; they are **smooth, untextured, rust-orange prisms with clean
+flat tops**, and each carries a small dark crown of stepped boxes with two thin
+masts. The old city is at the upper left with warm lit windows, a black cable
+crosses the frame, and the sky is a smooth salmon-brown wash with no fog
+structure.
+
+**The palette did not move.** Measured over the whole frame: **94 % of pixels
+warm, mean RGB (107, 54, 40)** — against round 0's 94 % and (107, 54, 41). The
+warm-bright point count is 0.04 %, also unchanged. The village's own surfaces
+are cold; **the shafts are what is warm**, and the shafts are 80 % of the frame.
+
+**And the shafts are not modelled at all.** `fallmesh.ts` still draws a pier as
+one `pushOrientedBox` of `CONCRETE`. DESIGN §8's column table asks for
+"diagonal shears, spalled craters, rebar bristling, a few at clean salvage
+cuts, water stains running down from the breaks" — the *break kind* is in the
+placement data (`c.break`: intact, shear, crater, cut) and **nothing renders
+it**. Every one of the 93 piers is a clean-cut rectangular prism. At dusk that
+prism is the brightest surface in the zone, which is why the frame is 94 %
+salmon.
+
+**Sheet B asks (frame 2):** a bare, windowless, *dark* concrete column, with
+the pile — not the column — as the subject: a top-heavy stack of 6-8 boxy
+rooms overhanging the column, a stepped crown of aerials, dishes, ladders and
+a white tarp, warm gridded windows, rust-red panels, a railed catwalk, all
+against **deep teal fog**.
+
+**Question:** *does the eye land on the village or on the shaft?* Round 1: the
+shaft, by a distance. The crown is legible now — it has a silhouette with
+masts — but it is a hat on a stick: the pile is 9-26 m on a 60-150 m shaft, and
+no camera change fixes that ratio.
+
+**Most valuable change:** **model the column break** (see NEXT in the close-out).
+Second: the crown needs a *lit row* that reads at 20-100 m, not only at 3 m.
+
+## Pose 17 — level with a deck fragment
+
+**What the frame shows now.** The camera fix worked: we stand **on** the deck
+and look along it. Pier b's village is in the centre — a stepped stack of
+near-black boxes, narrowing as it rises, with a **grey cylinder water tank on
+legs** on top and one rust-red box at the left. The city behind is cold and
+deeply atmospheric (pale blue-white towers, teal, warm roof lights), and the
+deck is a large **blank white plane** across the bottom third.
+
+**The value structure is inverted for sheet B.** 0 % warm, 98 % cool, mean RGB
+(118, 135, 153) — and the subject is a **black silhouette** against a pale sky
+over a white ground. Sheet B is the other way round: a near-black mass read
+against a *mid* teal fog, with the ground dark. Here the frame is high-key
+everywhere except the subject, so the village reads as a cut-out.
+
+**And the deck is still a slab.** Nothing on it: no railing, no rooms, no stair
+head, no lamp, no cable run. The DESIGN calls it a street in the sky; at
+present it is a white table-top with a village at the far end.
+
+**The pile reads as a wedding cake.** The courses narrow as they rise, so the
+silhouette tapers; DESIGN wants the opposite — a pile 1.3-2× the column top,
+overhanging, hung on outriggers with the bracing visible below, top-heavy. At
+this camera the outriggers are hidden behind the pile's own footprint.
+
+**Sheet B asks (frame 1):** a dark near megastructure with platforms, catwalks
+and a skybridge, against heavy teal fog, with the far city a flat blue
+silhouette.
+
+**Question:** *is the street in the sky a street?* Round 1: no — it is a slab
+with a village at the end of it.
+
+**Most valuable change:** **the deck.** Railings, a line of boxes, a stair
+head, one warm lamp, a cable run — the same change as round 0's note, still
+unbuilt, and it is a third of the frame.
+
+## Pose 18 — the fall zone as a mid band on the skyline
+
+**What the frame shows now. This is the round-1 win.** The band exists and is
+legible: a field of piers, each carrying a stepped crown of rust-red and
+near-black boxes with thin masts, the largest crown reading at roughly 60 px
+(round 0's largest pile slab was 29 px). The background behind the band is the
+low city and the haze, not the 819 m heart. **The mid band is now a stratum.**
+
+**And it still does not read as sheet B.** Measured over the whole frame:
+**78 % warm, 0 % cool, mean RGB (93, 52, 42)** — against round 0's 78 %, 0 %
+and (93, 52, 42). The warm-bright point count is 0.21 %, again unchanged. At
+2.6× the crowns are clearly **dark red and black boxes with no lit row on
+any of them**; the only warm points in the frame belong to the *old city's*
+towers behind the zone. So the band reads as **dark hats on bright orange
+needles** — the inverse of sheet B, where the middle distance is a mass of
+warm window light held in cold blue.
+
+**Why, when 212 crown lights are delivered and none is starved:** the light
+budget is not the constraint. The crown light falls on surfaces whose albedo is
+dark slate, while the dusk sun on the bare piers is two orders of magnitude
+brighter; the lit patch is therefore dimmer than its neighbour and disappears
+at 300-1400 m. **This is a value relationship, not a delivery failure** — the
+same lesson as the market-lantern row in `COVERAGE.md` §"Market lantern hang
+height", where the fix was never brightness but the value of what the light
+lands on.
+
+**Sheet B asks (frame 3):** the middle distance is a **mass of warm window
+light** in cold blue, held between darker masses.
+
+**Question:** *does the band read as a stratum of lit villages, or as a row of
+orange columns?* Round 1: the latter, with the villages as dark hats on top.
+
+**Most valuable change:** the same as everywhere — **the warm has to be on the
+village and off the shafts.** Concretely: break the shafts (so their value
+drops and their hue stops being the sun's), and give each crown an emissive
+window row that is large enough to survive at 300 m.
+
+## Pose 19 — 3 m from a village pile
+
+**What the frame shows now. The best frame of the three rounds.** A rust-red
+container with visible **corrugation ribs and a door leaf**; above it a slate
+box room with **two lit windows** and a black box with a third; on top a **grey
+water tank on legs** with a mast; the pile on a grey base course on the white
+deck; behind it a cold blue-teal city with real atmospheric depth and warm
+roof lights. Measured 1 % warm, 93 % cool, mean RGB (117, 132, 149) — and
+unlike the other three frames, the *village's own surfaces* are the subject
+and they are cold slate and rust, as round 1 claimed.
+
+**The faces are partially delivered, and the lit windows read as spots.** At
+1.9×: ribs, a door leaf, and lit windows with a frame are all present. But the
+surfaces are **flat and clean** — no grime skirt, no soot run, no panel seam
+beyond the ribs, no balcony rail, no ladder, no laundry, no planter, no tarp.
+And the answer to "do the crown lights read as light, or as spots pasted on
+the surface?" is **spots**: the lit windows are emissive rectangles and the
+wall either side of them is the same value as the wall elsewhere. Nothing
+spills, nothing falls off, no pool forms under the sill.
+
+**Sheet B asks:** corrugated walls, seams, rust streaks, a framed lit window,
+a railed balcony, a zig-zag ladder, laundry, a plant box — and the doctrine's
+"a facade needs to survive a 3 m inspection".
+
+**Question:** *is there a face on the pile with a panel, a seam, a lit window
+and a rail on it?* Round 1: a face with a window, a rib and a door leaf, and
+nothing else.
+
+**Most valuable change:** **make the lit windows light.** Give them a spill
+(an emissive that also brightens the surface around it, or a crown light
+placed to graze the wall) and put the missing furniture on the faces —
+weatherRoom's grime skirt and soot runs, a railed balcony, a ladder, one
+planter. This is the frame that tests the doctrine and it is still empty.
+
+---
+
+## What round 1 actually moved, measured
+
+| | round 0 | round 1 | sheet B |
+| --- | --- | --- | --- |
+| 16 warm pixels / mean RGB | 94 % / (107, 54, 41) | 94 % / (107, 54, 40) | cold surfaces, warm points |
+| 18 warm pixels / mean RGB | 78 % / (93, 52, 42) | 78 % / (93, 52, 42) | cold surfaces, warm points |
+| 18 warm-bright points | 0.21 % | 0.21 % | a stratum of them |
+| 17 warm / cool | 0 % / 95 % | 0 % / 98 % | a mid-teal fog, not a pale sky |
+| 19 warm / cool | 4 % / 93 % | 1 % / 93 % | the village's own surfaces cold, rust as accent |
+| largest crown in 18 | 29 px | ~60-80 px | legible as a stratum |
+| lit row visible on a crown at 300-1400 m | no | **no** | yes |
+| lights starved | 0 | 0 | — |
+
+The village's **form** moved: stepped crowns, masts, tanks, ribs, door leaves,
+lit windows, and a band that now reads. The **section** did not move: the
+palette statistics of the dusk frames are the same numbers to the digit, and
+they will stay there until the surfaces that are warm in those frames — the
+column shafts — are modelled and darkened.
+
+## Open, after round 1
+
+1. **The column shafts are still plain prisms.** The largest surfaces in the
+   zone, unmodelled: no break, no rebar, no stain, no salvage cut, and a warm
+   sun on all of it. This is the gap.
+2. **The lit rows do not survive 300 m.** They are real at 19 and absent at 18.
+   The crown lights are delivered and invisible.
+3. **The deck fragment is still a slab**, and pose 17's frame is a third blank
+   plane.
+4. **The faces are flat and clean**; the lit windows do not light anything.
+5. **No city-wide check was run.** `wide-skyline` and `aerial-top` were not in
+   this run, so the homogenisation check (DESIGN §6.4) is still outstanding for
+   the village rendering.
+6. **The cantilever still reads as floating boxes** (pose 19, frame x 310-345,
+   y 585-650: a vertical column of small boxes with visible gaps and nothing
+   under them). Round 1 seated the cantilevers 0.3 m inside the record and
+   put a brace under each, which is right; the *read* is still a stack of
+   boxes hanging in the air at 300 m, because the shaft that should carry them
+   is 16 px wide against a bright city.
