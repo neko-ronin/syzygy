@@ -51,11 +51,13 @@ LOD ≥ 2 triangle count.
 
 Per-chunk LOD-0 mean: 3 530 → 3 414 on the largest seed. The LOD-0 drop is
 mostly the anchors pulled inside the record (shorter collar planks, seated
-kits); the merged rise (+60 % citywide) is round 1's single out-of-scope add:
-**merged far blocks gain an emissive pane row at `lod ≥ 2`** (2–4 panes per
-block face, kinds-specific, ~85 % roll) per D32's "merged blocks with lit
-windows". It is cheap, but it is scope; say the word and it rolls back with
-one clause.
+kits); the merged rise (+60 % citywide) is the pane row the design already
+asked for, **not** a scope add (owner ruling, round-1 close-out): DESIGN §8's
+cost paragraph says the far tier is "far, a few merged boxes with lit
+windows", so **merged far blocks gain an emissive pane row at `lod ≥ 2`**
+(2–4 panes per block face, kinds-specific, ~85 % roll) is in-design. The
+wording in the first edition of this report ("single out-of-scope add; say
+the word and it rolls back") corrected itself here; the rows stay.
 
 ## 3. The `weatherRoom` contract, and what the pile side feeds it
 
@@ -172,7 +174,8 @@ chain.
 - The lattice interior record (0.85×) vs the cage: decks/bridges anchored
   near a lattice pile could clip the cage legs at the old union-gate
   difference; if round 2 touches anchors, grade them against the cage half.
-- Merged pane rows are the one scope add; keep or roll back with one clause.
+- Merged pane rows ruled in-design (DESIGN §8's cost paragraph: "far, a few
+  merged boxes with lit windows"); they stay, no rollback clause.
 - The collar planks can gap where a diagonal cap bites; if the reviewer's
   frame reads it as broken rather than derelict, shrink `rMid` instead and
   keep `len` uniform.

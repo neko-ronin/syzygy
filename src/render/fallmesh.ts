@@ -3,18 +3,20 @@
  * things, so placement can be judged in frame before anything is modelled. The
  * village rendering pass replaces the volumes with the columns, piles, revival
  * kit and wreckage. The crowd obstacles stay: they are placement, not looks.
- * Round 0 of that pass lives in fallvillage.ts (the piles); the columns
- * themselves are still volumes here.
+ * Round 0 of that pass lives in fallvillage.ts (the piles) and round 2 lives
+ * in fallcolumn.ts (the shafts, ground to break); this file keeps the shared
+ * basis helpers, decks, bridges, patches, wreck and stations, and wires the
+ * two grammar files together.
  */
 
 import type { Vec3 } from '../core/math';
 import { GROUND_Y } from '../world/citygen';
 import type { CrowdObstacle } from '../world/crowdobstacles';
-import type { FallChunk, FallColumn, PatchKind } from '../world/fallzone';
+import type { FallChunk, PatchKind } from '../world/fallzone';
 import type { MeshBuilder } from '../world/geometry';
+import { pushColumn } from './fallcolumn';
 import { pushFallVillage } from './fallvillage';
 
-const CONCRETE: Vec3 = [0.34, 0.35, 0.36];
 const STEEL: Vec3 = [0.14, 0.17, 0.21];
 const SLAB: Vec3 = [0.3, 0.31, 0.32];
 const SPAN: Vec3 = [0.2, 0.18, 0.16];
@@ -55,40 +57,6 @@ function spanBasis(a: Vec3, b: Vec3): [Vec3, Vec3, Vec3] {
   return [ax, ay, az];
 }
 
-/** A hollow square tube: four walls of thickness `t`, so what stands inside it shows from above. */
-function pushTube(bld: MeshBuilder, c: Vec3, basis: [Vec3, Vec3, Vec3], hx: number, hy: number, hz: number, t: number, color: Vec3): void {
-  const [ax, ay, az] = basis;
-  const at = (u: number, w: number): Vec3 => [c[0] + ax[0] * u + az[0] * w, c[1], c[2] + ax[2] * u + az[2] * w];
-  pushOrientedBox(bld, at(0, hz - t / 2), ax, ay, az, [hx, hy, t / 2], color);
-  pushOrientedBox(bld, at(0, -hz + t / 2), ax, ay, az, [hx, hy, t / 2], color);
-  pushOrientedBox(bld, at(hx - t / 2, 0), ax, ay, az, [t / 2, hy, hz - t], color);
-  pushOrientedBox(bld, at(-hx + t / 2, 0), ax, ay, az, [t / 2, hy, hz - t], color);
-}
-
-function pushColumn(bld: MeshBuilder, c: FallColumn, flat: [Vec3, Vec3, Vec3]): void {
-  const [ax, ay, az] = flat;
-  const h = (c.top - GROUND_Y) / 2, y = GROUND_Y + h;
-  if (c.kind === 'silo') {
-    const rad = c.halfX / c.count;
-    for (let k = 0; k < c.count; k++) {
-      const off = (2 * k - (c.count - 1)) * rad;
-      pushOrientedBox(bld, [c.x + ax[0] * off, y, c.z + ax[2] * off], ax, ay, az, [rad, h, rad], CONCRETE);
-    }
-  } else if (c.kind === 'lattice') {
-    // Four legs, so the boxes slung inside the cage show.
-    for (const [u, w] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
-      pushOrientedBox(bld, [c.x + ax[0] * u * c.halfX + az[0] * w * c.halfZ, y, c.z + ax[2] * u * c.halfX + az[2] * w * c.halfZ], ax, ay, az, [0.8, h, 0.8], STEEL);
-    }
-  } else if (c.kind === 'spire') {
-    pushTube(bld, [c.x, y, c.z], flat, c.halfX, h, c.halfZ, 3, CONCRETE);
-  } else {
-    pushOrientedBox(bld, [c.x, y, c.z], ax, ay, az, [c.halfX, h, c.halfZ], CONCRETE);
-  }
-  // The pile is the village's, drawn by pushFallVillage in pushFallChunk. The
-  // greybox volume this used to draw capped every pile with a flat slab at
-  // pileTop — the stepped silhouette this round must deliver cannot sit under it.
-}
-
 /** The baked-chunk light list's element — citymesh's `BakedChunk['lights']`
  *  shape, declared structurally here so the fall files stay out of the bake's
  *  import graph. */
@@ -101,7 +69,7 @@ export function pushFallChunk(bld: MeshBuilder, fall: FallChunk, lod: number, ob
   const flat = yawTiltBasis(fall.yaw, 0);
   const tx = Math.cos(fall.yaw), tz = -Math.sin(fall.yaw);
   for (const c of fall.columns) {
-    pushColumn(bld, c, flat);
+    pushColumn(bld, c, flat, lod);
     obstacles.push({ x: c.x, z: c.z, tx, tz, halfAlong: c.halfX, halfAcross: c.halfZ, minY: GROUND_Y, maxY: c.top, kind: `fall-${c.kind}` });
   }
   // The village on each column (docs/FALL_VILLAGE_ROUND1.md): the piles
