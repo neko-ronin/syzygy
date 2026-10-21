@@ -128,7 +128,8 @@ where it went*.
 | `precip` | `weather3.w` (`common.wgsl:26`) | **No shader reads `weather3.w`.** No precipitation renderer |
 | ~~`structure-collapse`~~ **REMOVED** | Was an `EventKind` (`core/state.ts`), a tool (`agent/tools.ts`), local-brain triggers, a `/event` entry, and a weather handler grading dust/haze — with no fracture renderer behind any of it, so a collapse request returned a success receipt while nothing came down | **Excised, not built** (R5 keeps the fracture renderer as its own scope): kind removed from the state union, tool vocab and labels, local brain (collapse utterances now get an honest refusal with zero tool calls — verified), `/event` list, weather durations/tags/handlers, and the sim self-test list. `grep structure-collapse src/` returns nothing. Building it would be R5, briefed separately |
 | `debrisChunk()` | Defined at `citymesh.ts:900` | Never called. The GPU debris field R5 depends on does not exist |
-| Canal water | `bakeGround()` returns a water mesh (`citymesh.ts:898-902`) | **Still PHANTOM, and thinner than described:** nothing is ever pushed into the `w` builder, so the mesh is empty by construction — and no `ground.water` reference exists anywhere in `renderer.ts` (previously cited `renderer.ts:400`, gone to line drift; `renderer.ts:701` uploads `ground.mesh` only). Water as *data* (`waterDepthAt`) is live in lot placement. Re-verified round 5 |
+| Canal water | `bakeGround()` returns a water mesh (`citymesh.ts:898-902`) | **Still PHANTOM, and thinner than described:** nothing is ever pushed into the `w` builder, so the mesh is empty by construction — and no `ground.water` reference exists anywhere in `renderer.ts` (previously cited `renderer.ts:400`, gone to line drift; `renderer.ts:701` uploads `ground.mesh` only). Water as *data* (`waterDepthAt`) is live in lot placement. Re-verified round 5. **The fall zone's flooded lows do not close this row** — see the fall-zone section: those are a ground-surface class on quads that already exist, not a water surface the renderer draws |
+| `MAT.WATER` (matId 4) | `src/render/citymesh.ts:40` defines `WATER: 4`; `gbuffer.wgsl:91,715` and `lighting.wgsl:19` give matId 4 a roughness of 0.04 and a sky-reflection branch | **PHANTOM, and a new one.** The shader branch exists and **nothing in `src/` ever sets `MAT.WATER`** — `grep -rn "\.WATER\b" src/` returns no use — so the branch cannot execute. A material id with a consumer and no producer is a name that looks finished. Found 2026-10-20 in [`FLOODED_LOWS_SPIKE.md`](FLOODED_LOWS_SPIKE.md), which rejects using it: matId is a per-mesh `params` value, so reaching it needs a separate mesh and draw per patch, which is the shape of the phantom above |
 
 Two consequences worth stating plainly:
 
@@ -201,6 +202,27 @@ clean. Neither agent was wrong; they ran different compilers.
 
 ---
 
+## The fall zone (DESIGN §8, the sheet-B village)
+
+Added 2026-10-20. This section had no rows at all, which is the failure mode
+this map exists to catch: a whole subsystem — a 3 km band of piers, piles and
+wreck across the industrial belt — with 151 columns placed, a village rendering
+pass landed, and **nothing in this file to say so**. The section is new design
+work rather than a checklist item, so it gets its own section.
+
+| Subsystem | What exists | What is missing |
+| --- | --- | --- |
+| Placement | `src/world/fallzone.ts`: 151 columns per seed (93 pier, 25 core, 17 lattice, 8 silo, 5 stack, 3 spire), 1 deck fragment, 61 bridges, 69 wreck pieces, 25 off-limits patches, 9 ropeways. Grid frame, broken heights, per-column seed. Checked by `src/world/__selftest_fallzone.ts` (`VIOLATIONS none`) | **Done for round 0.** 1 deck fragment and 0.40 bridges per pile against DESIGN's "about one" — an open design item for the owner |
+| Village piles | `src/render/fallvillage.ts` (`fae3058`): real stepped piles per kind — piers and cores as rotated container courses on outriggers, a linear village along a silo gallery, a ring on a stack collar, boxes slung in a lattice cage, a terraced crater village in a spire — with corrugation ribs, door leaves, a stepped top, antennas, a water tank on legs and a white tarp. `lod < 2` real boxes, `lod >= 2` merged blocks | **Form only.** No faces, no windows, no stairs or ladders, no laundry, no revival kit, no ground lifelines, no wreck dressing — the implementer's own rounds 1-2 list. Judged against sheet B: **more work needed** ([`VISION_FALL_BASELINE.md`](VISION_FALL_BASELINE.md)) |
+| Pile greybox | **RETIRED.** The flat slab `fallmesh.ts` used to cap every pile at `pileTop` is gone, so the stepped crown is no longer flattened by a lid | — |
+| Columns, decks, bridges, wreck, patches | Still plain volumes in `src/render/fallmesh.ts`: concrete shafts, slab spans, catwalk boxes, tilted wreck plates, flat patch quads | Wreck dressing, the ground's working floor, and the off-limits patches' treatments (fenced boards, flood, overgrowth) are round 1-2 |
+| Faces on the village | `weatherRoom` (`citymesh.ts:618`) already dresses a room — seams, grime skirt, soot runs, framed windows with a lit side pane, railed balcony, roof tarp — and is **still called** for the old bolted-on rooms | **Not applied to the village.** The village piles are unweathered boxes; the close-focus pose 19 is the frame that cannot be judged until this lands |
+| Ground lifelines | The ground exists (`bakeGround`, `groundgrammar.ts`); the fall zone's lifelines — stair-tower feet, winch houses, salvage workshops, work lamps, D30's B kit, foot traffic on paths through the wreckage | **Not built.** The zone's ground is the ordinary city ground |
+| Flooded lows | The patch quads exist (`fallmesh.ts:118-121`, one flat quad per off-limits patch at `GROUND_Y + 0.03`); the standing-water term exists in `gbuffer.wgsl` but only inside the carriageway branch, so a patch quad never reaches it | **Not built.** The mechanism is chosen and costed in [`FLOODED_LOWS_SPIKE.md`](FLOODED_LOWS_SPIKE.md) (option A: a `flood` ground-surface class on the quads that already exist — 0 draws, 0 vertices, no vertex-layout change). **This does not close the canal-water phantom above** — that one is a *drawn water mesh the renderer drops*; this is a *ground-surface class on geometry that already exists*. Two different things |
+
+**Two rows above are `not built` and must not be read as `done`:** the village
+has no faces, and the zone's ground has no lifelines. DESIGN §8 lists both.
+
 ## Adding rows
 
 The phantoms above were all found by asking "what did the plan include,
@@ -215,7 +237,8 @@ gaps inside 5 of them. The sub-details are where the real growth is:
 - **When you retire something, delete its row** rather than marking it done. A
   map full of completed rows stops being read.
 
-*Last verified: during the audit that produced this file, against commit
-`66a65df`. Every status above was read out of the source, not out of another
-document. If a row disagrees with the code, the code is right and this file
-needs the edit.*
+*Last verified: the fall-zone section and the two phantom rows above were
+re-verified against `fae3058` on 2026-10-20; the rest is as verified during the
+audit that produced this file, against commit `66a65df`. Every status above was
+read out of the source, not out of another document. If a row disagrees with the
+code, the code is right and this file needs the edit.*

@@ -987,6 +987,59 @@ self-test's duplicate-seed check); it now mixes in sequence
 shape: 2420 of 7260 mirrored lot pairs (33%) share a hash at salt 17. Fixing it
 re-rolls every building in the city, so it is the owner's call.
 
+## 37. Every check passed and the app still died on load: a temporal-dead-zone read through an import cycle
+
+**Symptom:** the capture harness failed with *"vite dev did not answer on http://localhost:4190"*
+and then *"window.__syzygy is missing 15s after load — the app must set `window.__syzygy = {ready,
+readyPromise, ...}` before the first frame"*. The page was **blank**. No GPU error, no WGSL error, and
+every static check was green at the same time: `tsc --noEmit` clean, `vite build` clean, the fall-zone
+self-test printed `VIOLATIONS none`, the hygiene screen `ALL PASS`, and the pre-commit publish built
+and deployed the site. Nothing said "broken"; the only thing that was missing was the app.
+
+**Cause:** `src/render/fallvillage.ts` read `ROOMS` at **module scope** (the `CONTAINER` array) while
+`citymesh.ts` was still initialising. The import cycle is
+`citymesh.ts:28 → fallmesh.ts:15 → fallvillage.ts:31 → citymesh.ts`. Entering through `citymesh`
+(the app's route: `main.ts` → `renderer.ts:27` → `citymesh.ts`) starts `citymesh` first, so
+`citymesh`'s body has not yet run past its own `export const ROOMS` when `fallvillage`'s body
+evaluates `ROOMS[1]`. ES module bindings are hoisted but temporal-dead-zone checked, so the read
+throws — `ReferenceError: Cannot access 'ROOMS' before initialization` in the browser (native ES
+modules), `TypeError: Cannot read properties of undefined` under the vite-node transform. The throw
+happens during module evaluation, long before `main.ts` sets `window.__syzygy`, so the page dies
+with nothing on it.
+
+**Why no check could see it, and the part that is worth remembering:** a type checker cannot see an
+evaluation order, and a bundler resolves the cycle happily. The *probe* that exercised the same code
+**passed on the unfixed tree**, because `src/render/__probe_fallvillage.ts` enters through
+`./fallvillage` — and entering the same graph through `fallvillage` works, because then `citymesh`'s
+body runs first and `ROOMS` is initialised. Measured, same commit, same code:
+
+| first import | result |
+| --- | --- |
+| `./render/citymesh` (the app's order) | throws — `TypeError: Cannot read properties of undefined (reading '1')` |
+| `./render/fallvillage` (the probe's order) | **OK** — `pushFallVillage` is a function |
+
+**A temporal-dead-zone fault is decided by the order the entry point imports first, so a probe can
+pass on a build that the app cannot boot.** "The probe ran" is not evidence that the module graph is
+sound.
+
+**Fix:** build the palette on demand instead of at module scope — one line, and it changes no
+geometry:
+
+```ts
+const containerPalette = (): Vec3[] => [
+  ROOMS[1], ROOMS[0], ROOMS[4], ROOMS[9],
+  ROOMS[2], ROOMS[7], ROOMS[8], ROOMS[6], ROOMS[8],
+];   // used as containerPalette()[r.int(0, 8)]
+```
+
+**Catch it next time:** **a headless boot probe that asserts `window.__syzygy` answers — not a
+build.** `tools/capture.mjs` already fails on exactly this, but only when someone remembers to spend
+a capture on it, and by then it is buried in a run that looks like a GPU fault. The check belongs
+beside the other gates: start the dev server, open it with Playwright, and assert
+`window.__syzygy?.ready === true` within a timeout. A green `tsc`, a green build and a green
+self-test are three statements about the *source*; a boot probe is the only statement about the
+*product*, and this bug lived in the gap between them.
+
 ## Working norms that held up
 
 - **Measure before theorising.** Every bug above cost far less time to measure

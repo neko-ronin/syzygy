@@ -68,6 +68,13 @@ implementer's file and this review did not touch it. The AFTER frames were
 taken in that scratch worktree with only this one-line, geometry-neutral fix
 applied; nothing else differs from `fae3058`.
 
+**Provenance of the AFTER frames.** They are evidence of the village, not of a
+committed build: the worktree was scratch, it has since been removed, and the
+only difference from `fae3058` is that one line, so the frames cannot be
+re-derived from the repository as it stands. **The next capture on `main`,
+after the boot fix lands, is the control that closes this** — same poses, same
+seed, and the village's own pixels compared against these four.
+
 ---
 
 ---
