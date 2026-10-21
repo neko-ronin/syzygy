@@ -33,6 +33,17 @@
  * matching fallmesh's `lod < 2` convention. Recorded in
  * docs/FALL_VILLAGE_ROUND1.md; src/render/__probe_fallvillage.ts prints the
  * numbers.
+ *
+ * Round 3a (docs/FALL_LITROWS_ROUND3.md): the lit row at distance. Round 1 lit
+ * one small pane (0.56 x ~0.8 m) per dressed face and two to four panes of
+ * 0.6-1.1 m on the merged far mass. At pose 18 those are 2 px and sub-pixel
+ * respectively, which is the reviewer's "one warm point, about 2 px" against a
+ * sheet whose crowns carry rows of window blocks. Lit AREA was the lever, not
+ * intensity — a brighter single point is what had already failed — so the near
+ * pane is now a framed bay 0.4 of the box's length (cap 2.4 m) by 0.46 of its
+ * height, every dressed face lights one, and the merged far mass carries a row
+ * of 2-4 bays at two heights. All of it is emissive geometry: no light bins
+ * added, so delivered/starved counts are unchanged.
  */
 
 import { clamp, makeRng, type Rng, type Vec3 } from '../core/math';
@@ -317,9 +328,11 @@ function topKit(bld: MeshBuilder, c: FallColumn, yaw: number, r: Rng, tops: TopS
  * `weatherRoom`: panel seams, a grime skirt, soot runs, framed windows, a lit
  * side window, and now and then a balcony or tarp if its roll gives one. About
  * a quarter of the windows are over-painted emissive warm (D28's quarter lit
- * at night), and a pile's first window always lights, so every crown carries
- * at least one warm point at 300-1400 m. One small light per lit pile top
- * lands in the chunk's light list at lod < 1, the scaffold's convention.
+ * at night) and **every dressed face lights its first window as a bay**, so a
+ * crown carries several lit room-fronts at different heights rather than a
+ * single point. One small light per lit pile top lands in the chunk's light
+ * list at lod < 1, the scaffold's convention; the bay itself is emissive
+ * geometry and costs no light bin.
  *
  * What weatherRoom assumes about its input, and what feeding it a pile box
  * needed: it wants a frame closure Q(t, y, d) with t along the face from its
@@ -349,7 +362,7 @@ function dressFaces(bld: MeshBuilder, c: FallColumn, yaw: number, tops: TopSpot[
   const want = Math.min(cands.length, 3 + sel.int(0, 3)); // 3-5 dressed faces
   cands.sort((p, q) => q.y - p.y || Math.abs(p.a) - Math.abs(q.a) || Math.abs(p.b) - Math.abs(q.b));
   const cs = Math.cos(yaw), ss = Math.sin(yaw);
-  let dressed = 0, litSeen = false, lightDone = false;
+  let dressed = 0, lightDone = false;
   for (const t of cands) {
     if (dressed >= want) break;
     const u = t.u, y0 = t.y0;
@@ -387,13 +400,38 @@ function dressFaces(bld: MeshBuilder, c: FallColumn, yaw: number, tops: TopSpot[
     // of weatherRoom's work — frames at front + 0.022, so the pane sits at
     // + 0.03; the first window of the pile always lights, so the crown row
     // exists everywhere.
-    const ya = y0 + u.tall * 0.42, yb = y0 + u.tall * 0.74;
+    // Round 3a: a lit BAY, not a lit slit. The old pane was 0.56 x 0.32*tall
+    // (about 0.5 m2); at pose 18 it is 2 px and at 1400 m it is sub-pixel, which
+    // is the whole of the reviewer's "one warm point, about 2 px". The bay is
+    // 0.4 of the box's length (capped at 2.4 m) by 0.46 of its height — a lit
+    // room front, which is what sheet B's containers actually carry — with its
+    // own jambs, head, sill and two mullions so up close it still reads as
+    // glazing rather than a glowing slab. The bay is drawn over
+    // weatherRoom's opening, whose frame constants it mirrors (0.34/0.80 covers
+    // the 0.42/0.74 glass plus its 0.34-0.42 sill and 0.74-0.80 head), so the
+    // small frame is hidden under it and this one replaces it.
+    const ya = y0 + u.tall * 0.34, yb = y0 + u.tall * 0.80;
+    const bayHalf = clamp(u.long * 0.2, 0.55, 1.2);
     for (let wi = 0; wi < wins.length; wi++) {
-      if (!lit[wi] && litSeen) continue;
-      litSeen = true;
-      bld.pushQuad(Q(wins[wi] - 0.28, ya + 0.02, u.wide + 0.03), Q(wins[wi] + 0.28, ya + 0.02, u.wide + 0.03),
-        Q(wins[wi] + 0.28, yb - 0.02, u.wide + 0.03), Q(wins[wi] - 0.28, yb - 0.02, u.wide + 0.03),
+      // A dressed face always carries one lit bay — several per pile at
+      // different heights, which is the sheet's column (frame 2), not one dot.
+      if (wi > 0 && !lit[wi]) continue;
+      const t0 = clamp(wins[wi] - bayHalf, 0.3, u.long - 0.3);
+      const t1 = clamp(wins[wi] + bayHalf, 0.3, u.long - 0.3);
+      if (t1 - t0 < 0.7) continue;
+      bld.pushQuad(Q(t0, ya, u.wide + 0.03), Q(t1, ya, u.wide + 0.03),
+        Q(t1, yb, u.wide + 0.03), Q(t0, yb, u.wide + 0.03),
         LIT_WARM, 1, { emissive: 3.0, doubleSided: true });
+      // Its frame, proud of the pane: jambs, head, sill, two mullions.
+      const fr = tint(u.col, 0.35), fd = u.wide + 0.038;
+      bld.pushQuad(Q(t0 - 0.07, ya - 0.07, fd), Q(t0, ya - 0.07, fd), Q(t0, yb + 0.07, fd), Q(t0 - 0.07, yb + 0.07, fd), fr, 1, { doubleSided: true });
+      bld.pushQuad(Q(t1, ya - 0.07, fd), Q(t1 + 0.07, ya - 0.07, fd), Q(t1 + 0.07, yb + 0.07, fd), Q(t1, yb + 0.07, fd), fr, 1, { doubleSided: true });
+      bld.pushQuad(Q(t0 - 0.07, yb, fd), Q(t1 + 0.07, yb, fd), Q(t1 + 0.07, yb + 0.07, fd), Q(t0 - 0.07, yb + 0.07, fd), fr, 1, { doubleSided: true });
+      bld.pushQuad(Q(t0 - 0.07, ya - 0.07, fd), Q(t1 + 0.07, ya - 0.07, fd), Q(t1 + 0.07, ya, fd), Q(t0 - 0.07, ya, fd), fr, 1, { doubleSided: true });
+      for (const s of [1 / 3, 2 / 3]) {
+        const tm = t0 + (t1 - t0) * s;
+        bld.pushQuad(Q(tm - 0.035, ya, fd), Q(tm + 0.035, ya, fd), Q(tm + 0.035, yb, fd), Q(tm - 0.035, yb, fd), fr, 1, { doubleSided: true });
+      }
       if (!lightDone && dress.lights && dress.lod < 1) {
         dress.lights.push({ pos: Q(wins[wi], y0 + u.tall * 0.6, u.wide + 0.8), radius: 10, color: [1.0, 0.68, 0.34], intensity: 1.4 });
         lightDone = true;
@@ -801,17 +839,25 @@ function mergedBlocks(bld: MeshBuilder, c: FallColumn, yaw: number, r: Rng): voi
     }
   }
   // D32's far half: "far, a few merged blocks with lit windows" — the mid
-  // band's stratum of warm points must survive the merge. Emissive panes on
-  // the crown mass's ±a faces, no registered lights (far pools burn the light
-  // budget for nothing a far camera catches; the panes carry the read).
+  // band's stratum of warm points must survive the merge. Round 3a: a ROW of
+  // lit bays on two heights of the mass, not two-to-four small panes: at 300 m
+  // a 2 m bay is ~10 px and a 12 m row ~58 px, and at 1400 m the row still
+  // breaks into lit blocks where a 0.6 m pane is 0.6 px. Emissive geometry, no
+  // registered lights — a far pool burns the light budget for something a far
+  // camera cannot catch, and the panes carry the read.
   if (r.bool(0.85)) {
     const csy = Math.cos(yaw), ssy = Math.sin(yaw);
     const nP = 2 + r.int(0, 2);
-    const yLo = c.pileTop - 2.4 - r.next() * 0.6;
-    const paneRow = (aP: number, bSpan: number): void => {
+    // One row = one face plane (aP) at one height, walked along the grid's b
+    // axis. `aP` MUST be the face of the block the row sits on: the round-1
+    // panes used 0.55 of the pile's half-extent at every height, but the merged
+    // stack's faces are at 0.94, 0.78 (turned, so the b axis) and 0.55 of it —
+    // so on the wide blocks the panes were buried inside the mass and never
+    // showed. Measured by src/render/__probe_litrow.ts.
+    const paneRow = (aP: number, bSpan: number, yLo: number): void => {
       for (let j = 0; j < nP; j++) {
         const tb = nP === 1 ? r.jitter(bSpan * 0.3) : (j / (nP - 1) - 0.5) * 2 * bSpan + r.jitter(0.15);
-        const hw = r.range(0.3, 0.55), hh = r.range(0.55, 0.95);
+        const hw = r.range(0.85, 1.45), hh = r.range(0.95, 1.45);
         for (const sgn of [-1, 1]) {
           // The plane a = sgn * aP, walked along the grid's b axis.
           const px = c.x + sgn * aP * csy + tb * ssy, pz = c.z - sgn * aP * ssy + tb * csy;
@@ -821,13 +867,28 @@ function mergedBlocks(bld: MeshBuilder, c: FallColumn, yaw: number, r: Rng): voi
         }
       }
     };
+    // Rows at two heights, each on the face of the block at that height
+    // (mergedBlocks' stackBox fractions: 0.94 at 0-0.42, 0.78 TURNED at
+    // 0.42-0.74, 0.55 at 0.74-1). The turned block's a axis is the pile's z.
+    const yTop = c.pileTop - 2.4 - r.next() * 0.6;
     switch (c.kind) {
-      case 'pier': paneRow(c.pileHalfX * 0.55 + 0.04, c.pileHalfZ * 0.5); break;
-      case 'core': paneRow(c.pileHalfX * 0.57 + 0.04, c.pileHalfZ * 0.5); break;
-      case 'silo': paneRow(c.halfX * 0.95 + 0.04, c.pileHalfZ * 0.75); break;
-      case 'stack': paneRow(c.pileHalfX + 0.05, c.pileHalfZ * 0.55); break;
-      case 'lattice': paneRow(c.pileHalfX * 0.85 + 0.04, c.pileHalfZ * 0.7); break;
-      case 'spire': paneRow(c.halfX * 0.66 - 0.05, c.halfX * 0.3); break;
+      case 'pier':
+      case 'core':
+        paneRow(c.pileHalfX * 0.55 + 0.05, c.pileHalfZ * 0.42, yTop);
+        paneRow(c.pileHalfZ * 0.78 + 0.05, c.pileHalfX * 0.55, c.pileBase + band * 0.58);
+        break;
+      case 'silo':
+        paneRow(c.pileHalfX * 0.95 + 0.05, c.pileHalfZ * 0.6, c.pileBase + band * 0.3);
+        break;
+      case 'stack':
+        paneRow(c.pileHalfX + 0.05, c.pileHalfZ * 0.5, yTop);
+        break;
+      case 'lattice':
+        paneRow(c.pileHalfX * 0.85 + 0.04, c.pileHalfZ * 0.6, c.pileBase + band * 0.55);
+        break;
+      case 'spire':
+        paneRow(c.halfX * 0.66 - 0.05, c.halfX * 0.3, c.pileBase + band * 0.6);
+        break;
     }
   }
 }
