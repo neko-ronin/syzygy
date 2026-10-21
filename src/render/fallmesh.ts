@@ -89,18 +89,25 @@ function pushColumn(bld: MeshBuilder, c: FallColumn, flat: [Vec3, Vec3, Vec3]): 
   // pileTop — the stepped silhouette this round must deliver cannot sit under it.
 }
 
-/** Greybox one chunk's share of the fall zone, and register what the crowd must walk around. */
-export function pushFallChunk(bld: MeshBuilder, fall: FallChunk, lod: number, obstacles: CrowdObstacle[]): void {
+/** The baked-chunk light list's element — citymesh's `BakedChunk['lights']`
+ *  shape, declared structurally here so the fall files stay out of the bake's
+ *  import graph. */
+export type ChunkLight = { pos: Vec3; radius: number; color: Vec3; intensity: number };
+
+/** Greybox one chunk's share of the fall zone, and register what the crowd must walk around.
+ *  `lights`, when the caller passes its chunk's light list, collects the village's crown
+ *  lights (round 1, D28: one per lit pile top, lod < 1). */
+export function pushFallChunk(bld: MeshBuilder, fall: FallChunk, lod: number, obstacles: CrowdObstacle[], lights?: ChunkLight[]): void {
   const flat = yawTiltBasis(fall.yaw, 0);
   const tx = Math.cos(fall.yaw), tz = -Math.sin(fall.yaw);
   for (const c of fall.columns) {
     pushColumn(bld, c, flat);
     obstacles.push({ x: c.x, z: c.z, tx, tz, halfAlong: c.halfX, halfAcross: c.halfZ, minY: GROUND_Y, maxY: c.top, kind: `fall-${c.kind}` });
   }
-  // The village on each column (round 0, docs/FALL_VILLAGE_ROUND0.md): the
-  // piles pushColumn used to greybox. Real boxes at lod < 2, merged blocks
-  // beyond; the crowd obstacles above are placement and unchanged.
-  pushFallVillage(bld, fall, lod);
+  // The village on each column (docs/FALL_VILLAGE_ROUND1.md): the piles
+  // pushColumn used to greybox. Real boxes at lod < 2, merged blocks beyond;
+  // the crowd obstacles above are placement and unchanged.
+  pushFallVillage(bld, fall, lod, lights);
   for (const { deck, a, b } of fall.decks) {
     const pa: Vec3 = [a.x, deck.y - 1.2, a.z], pb: Vec3 = [b.x, deck.y - 1.2, b.z];
     const mid: Vec3 = [(pa[0] + pb[0]) / 2, pa[1], (pa[2] + pb[2]) / 2];

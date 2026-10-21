@@ -10,26 +10,36 @@
  * stack's collar platform; boxes slung inside a lattice cage; a terraced crater
  * village inside a spire stump. DESIGN §8's table is the spec.
  *
- * Not this round (rounds 1-2): weatherRoom faces, windows, stairs and ladders,
- * laundry, the revival kit, ground lifelines, wreck dressing.
+ * Not this round (rounds 1-2): stairs and ladders, laundry, the revival kit,
+ * ground lifelines, wreck dressing.
+ *
+ * Round 1 (material and light, docs/VISION_FALL_BASELINE.md's gap): the
+ * containers carry sheet B's cold weighting — steel blue, slate, soot on six
+ * of nine rolls, rust and the red panels as the minority accent — the crown
+ * boxes get citymesh's weatherRoom dressing with a quarter of the windows lit
+ * warm (D28), and the merged far mass carries a few lit panes so the mid band
+ * reads as a stratum of warm points at 300-1400 m at every tier. The
+ * cantilevered boxes stay inside the placement record now, with a brace each.
  *
  * Determinism: no Math.random. Every column's village rolls from
  * `makeRng(c.seed ^ VILLAGE_SALT)`, so the same seed builds the same village
  * every run, and chunking stays in step because every box stands on the one
- * column it belongs to. The palette is citymesh's ROOMS (DESIGN §8: reuse it;
- * it is already weighted to slate, soot, rust and red panels); structural
- * steel and the tarp are the only kit colours added here.
+ * column it belongs to. Face dressing and window layout roll from streams
+ * keyed to the face's own identity, not the grammar stream. The palette is
+ * citymesh's ROOMS (DESIGN §8: reuse it); structural steel, the tarp and the
+ * lit pane are the only kit colours added here.
  *
- * Cost (D32): LOD 0 real boxes; lod >= 2 merged blocks, matching fallmesh's
- * `lod < 2` convention. Recorded in docs/FALL_VILLAGE_ROUND0.md;
- * src/render/__probe_fallvillage.ts prints the numbers.
+ * Cost (D32): LOD 0 real boxes; lod >= 2 merged blocks with lit windows,
+ * matching fallmesh's `lod < 2` convention. Recorded in
+ * docs/FALL_VILLAGE_ROUND1.md; src/render/__probe_fallvillage.ts prints the
+ * numbers.
  */
 
 import { clamp, makeRng, type Rng, type Vec3 } from '../core/math';
 import { BOX_H, type FallChunk, type FallColumn } from '../world/fallzone';
 import { MeshBuilder, type MeshOpts } from '../world/geometry';
-import { ROOMS } from './citymesh';
-import { pushOrientedBox } from './fallmesh';
+import { ROOMS, weatherRoom } from './citymesh';
+import { pushOrientedBox, type ChunkLight } from './fallmesh';
 
 /** Every pile rolls its own stream off the column's seed; the salt keeps the
  *  grammar independent of every other consumer of `c.seed` (`pileOn` and the
@@ -41,24 +51,33 @@ const VILLAGE_SALT = 0x7113e55d;
 const OUTRIGGER: Vec3 = [0.14, 0.17, 0.21];
 /** The white tarp on the uneven top (DESIGN §8). */
 const TARP: Vec3 = [0.72, 0.71, 0.66];
+/** The lit pane colour weatherRoom uses for lit windows (citymesh's LIT, kept
+ *  local like OUTRIGGER above): the crown's warm points (D28). */
+const LIT_WARM: Vec3 = [1.0, 0.72, 0.4];
 
 /** Same multiply citymesh calls `tint3`. */
 const tint = (c: Vec3, k: number): Vec3 => [c[0] * k, c[1] * k, c[2] * k];
 
-/** Containers carry the cold industrial read — steel blue, slate, soot, rust
- *  and the red panels, ROOMS weighted that way, not a new palette. Built on
- *  demand, never at module scope: this file sits in the import cycle
- *  citymesh -> fallmesh -> fallvillage -> citymesh, and at the live app's entry
- *  order citymesh is still initialising when this module's top level runs, so
- *  a module-scope `const CONTAINER = [ROOMS[1], ...]` was a temporal-dead-zone
- *  read — the app showed "Cannot access 'ROOMS' before initialization" and
- *  booted nothing, while tsc and `vite build` (which never execute the graph)
- *  and the probe's own entry order were all clean. Same rule as fallzone.ts
- *  imports: read another module's bindings only inside functions. The literal
- *  `8` is the palette's last index — keep it in step with the array. */
+/**
+ * Containers carry the section's cold industrial read (DESIGN §8 palette rule;
+ * sheet B is "near-monochrome steel blue ... warmth only as emissive points"):
+ * steel blue, slate, near-black slate and soot on six of nine rolls, with rust
+ * and the red panels as the minority accent on three. ROOMS weighted that way,
+ * not a new palette — round 0 ran warm-majority and the reviewer measured the
+ * zone 78-94 % warm at dusk because of it. Built on demand, never at module
+ * scope: this file sits in the import cycle citymesh -> fallmesh ->
+ * fallvillage -> citymesh, and at the live app's entry order citymesh is still
+ * initialising when this module's top level runs, so a module-scope read of
+ * ROOMS was a temporal-dead-zone crash ("Cannot access 'ROOMS' before
+ * initialization") that tsc, `vite build` and the probe's own entry order all
+ * passed. Same rule as fallzone.ts imports: read another module's bindings
+ * only inside functions. The array stays 9 entries for the roll below.
+ */
 const containerPalette = (): Vec3[] => [
-  ROOMS[1], ROOMS[0], ROOMS[4], ROOMS[9],
-  ROOMS[2], ROOMS[7], ROOMS[8], ROOMS[6], ROOMS[8],
+  // Cold majority: steel blue x2, slate, near-black slate x2, soot.
+  ROOMS[1], ROOMS[1], ROOMS[0], ROOMS[4], ROOMS[4], ROOMS[9],
+  // Warm minority: rust-red panel, dark rust, deep red.
+  ROOMS[2], ROOMS[8], ROOMS[6],
 ];
 
 // ---------------------------------------------------------------- boxes
@@ -73,10 +92,9 @@ const rollUnit = (r: Rng): Unit => {
   if (r.bool(0.62)) {
     return box({
       long: r.bool(0.62) ? 12 : 6, wide: 2.4, tall: BOX_H * r.range(0.98, 1.02),
-      // containerPalette()[...]: the palette is built on demand (module scope
-      // would read ROOMS across the import cycle — see it above). The roll is
-      // 0..8 exactly as round 0's `CONTAINER[r.int(0, CONTAINER.length - 1)]`:
-      // same single rng draw, so every pile is byte-identical.
+      // containerPalette() keeps the roll a single draw: r.int(0, 8), nine
+      // entries, exactly the round-0 call — the palette's WEIGHTING is what
+      // changed this round, not the rng stream's shape.
       col: containerPalette()[r.int(0, 8)], kit: 1,
     });
   }
@@ -86,8 +104,15 @@ const rollUnit = (r: Rng): Unit => {
   });
 };
 
-/** Where a top-kit piece can stand, in grid coordinates. */
-interface TopSpot { a: number; b: number; turn: number; y: number }
+/** Where a top-kit piece (and, round 1, a dressed facade) can stand, in grid
+ *  coordinates. `u`/`y0` ride along when the push drew a box: the crown boxes
+ *  weatherRoom paints are exactly the top set the kit already collected. */
+interface TopSpot { a: number; b: number; turn: number; y: number; u?: Unit; y0?: number }
+
+/** Round-1 dressing context. Faces are near/mid-field work (lod < 2); the one
+ *  crown light per lit pile top at night must land in the caller's chunk light
+ *  list, the scaffold's convention (`lod < 1`, citymesh.ts pushScaffold). */
+interface Dress { lights?: ChunkLight[]; lod: number }
 
 // ---------------------------------------------------------------- placing
 
@@ -127,7 +152,13 @@ function putUnit(bld: MeshBuilder, c: FallColumn, yaw: number, u: Unit, a: numbe
     }
   }
   if (u.kit === 1) {
-    for (const s of [-0.565, 0.565]) {
+    // Round 0 hung the leaves at ±0.565 with a 1.02 half-width; on anything
+    // narrower than a panel that pair reaches 1.585 from the centreline —
+    // 0.38 OUTSIDE the box's own wide (0.385 turns into a record escape on
+    // any box whose across axis is a record axis). Hang them from the face's
+    // edges instead: the envelope stays wide/2 for every unit.
+    const leafAt = Math.max(0.02, u.wide / 2 - 0.53);
+    for (const s of [-leafAt, leafAt]) {
       const [lx, lz] = off(doorSign * (u.long / 2 + 0.032), s);
       bld.pushBox([lx, yc, lz], [0.032, (u.tall - 0.28) / 2, 1.02], tint(u.col, 0.78), opts);
     }
@@ -173,9 +204,12 @@ function outrigger(bld: MeshBuilder, c: FallColumn, yaw: number, dir: 0 | 1 | 2 
   const p = (s: number, w: number): [number, number] => onA
     ? [c.x + sgn * s * cs + w * ss, c.z - sgn * s * ss + w * cs]
     : [c.x + w * cs + sgn * s * ss, c.z - w * ss + sgn * s * cs];
-  // Beam: anchored just inside the shaft face, out past the pile edge.
+  // Beam: anchored just inside the shaft face, tip flush at the record edge
+  // (shaft + over = the registered extent). Round 0 rolled the leg 0.9 m long
+  // beyond that and the tip hung 0.45 m past the record on every pier —
+  // invisible until the sweep ran per-column.
   const [bx, bz] = p(shaft + over / 2, 0);
-  const legLen = over + 0.9;
+  const legLen = over;
   bld.pushBox([bx, by, bz], onA ? [legLen / 2, 0.14, 0.09] : [0.09, 0.14, legLen / 2], OUTRIGGER, { rotationY: yaw });
   for (const t of [0.3, 0.72]) {
     const [a0, b0] = p(shaft + over * t, 0);
@@ -185,6 +219,32 @@ function outrigger(bld: MeshBuilder, c: FallColumn, yaw: number, dir: 0 | 1 | 2 
 }
 
 // ---------------------------------------------------------------- the top kit
+
+/**
+ * A box whose long axis sits at world angle `rotW` on the grid frame of chunk
+ * yaw `gy` measures on each grid axis: `along * |cos(rotW - gy)|` plus
+ * `across * |sin(rotW - gy)|` on a, the swapped pair on b. Anything placed at
+ * an arbitrary angle — ring boxes, crater boxes — must be proven against the
+ * yawed-rectangle record with these halfs, not against the radial reach a
+ * time-aligned ring would have.
+ */
+const gridHalfs = (rotW: number, gy: number, along: number, across: number): [number, number] => {
+  const d = rotW - gy, cs = Math.abs(Math.cos(d)), sn = Math.abs(Math.sin(d));
+  return [along * cs + across * sn, along * sn + across * cs];
+};
+
+/**
+ * The longest a ring box may run. Its centre at radial offset `rr` carries
+ * |cos(phi + yaw)| on a and |sin(phi + yaw)| on b (`sC`/`sS`), its tangent run
+ * measures long/2 the swapped way, and its across-half is `hW`. Stays 0.25
+ * inside the record on both axes; an axis whose run coefficient vanishes puts
+ * no bound on the length (perpendicular case).
+ */
+const ringLongMax = (rX: number, rZ: number, rr: number, sC: number, sS: number, hW: number): number => {
+  const a = sS > 1e-4 ? 2 * (rX - 0.25 - sC * (rr + hW)) / sS : Infinity;
+  const b = sC > 1e-4 ? 2 * (rZ - 0.25 - sS * (rr + hW)) / sC : Infinity;
+  return Math.min(a, b);
+};
 
 /**
  * The uneven top's kit: 1-3 antennas, a water tank on legs, one or two white
@@ -248,6 +308,101 @@ function topKit(bld: MeshBuilder, c: FallColumn, yaw: number, r: Rng, tops: TopS
   }
 }
 
+// ---------------------------------------------------------------- faces
+
+/**
+ * Round 1 (the gap the vision reviewer named): the crown's faces and its lit
+ * row. The crown boxes the grammar already collected in `tops` — with the
+ * drawn unit and its floor riding along — are dressed with citymesh's
+ * `weatherRoom`: panel seams, a grime skirt, soot runs, framed windows, a lit
+ * side window, and now and then a balcony or tarp if its roll gives one. About
+ * a quarter of the windows are over-painted emissive warm (D28's quarter lit
+ * at night), and a pile's first window always lights, so every crown carries
+ * at least one warm point at 300-1400 m. One small light per lit pile top
+ * lands in the chunk's light list at lod < 1, the scaffold's convention.
+ *
+ * What weatherRoom assumes about its input, and what feeding it a pile box
+ * needed: it wants a frame closure Q(t, y, d) with t along the face from its
+ * left edge, y absolute, and d measured from the room's BACK plane (the outer
+ * face plane sits at d = sd, so it is called with front = the box's width),
+ * plus the room's own rng so a face's layout never re-rolls with anything
+ * else. The pile box maps onto that exactly — Q is the box's back-left-floor
+ * corner plus runAxis*t + outAxis*d — so nothing in weatherRoom changed for
+ * the village. The only pile-side rule is distance instead of a wall: a face
+ * is dressed only where a balcony's or tarp's reach, the furthest thing the
+ * rolls can put past it, stays inside the registered pile extent — which keeps
+ * round 0's cantilever question closed on faces too. Faces whose panes copy
+ * weatherRoom's window-frame constants (0.42/0.74 of the face height) sit
+ * behind the frames and re-derive them here; if the scaffold tunes its
+ * windows, the pile crown needs the same tune.
+ */
+const FACE_SALT = 0x1d299d3e;
+
+function dressFaces(bld: MeshBuilder, c: FallColumn, yaw: number, tops: TopSpot[], dress: Dress): void {
+  if (dress.lod >= 2 || tops.length === 0) return;
+  const cands = tops.filter((t): t is TopSpot & { u: Unit; y0: number } => t.u !== undefined && t.y0 !== undefined);
+  if (cands.length === 0) return;
+  // Selection (how many faces, crown-first) rolls on the pile's dress stream;
+  // each face's own layout rolls on a stream keyed to the face itself, so a
+  // face never re-rolls because of its neighbours.
+  const sel = makeRng((c.seed ^ FACE_SALT) >>> 0);
+  const want = Math.min(cands.length, 3 + sel.int(0, 3)); // 3-5 dressed faces
+  cands.sort((p, q) => q.y - p.y || Math.abs(p.a) - Math.abs(q.a) || Math.abs(p.b) - Math.abs(q.b));
+  const cs = Math.cos(yaw), ss = Math.sin(yaw);
+  let dressed = 0, litSeen = false, lightDone = false;
+  for (const t of cands) {
+    if (dressed >= want) break;
+    const u = t.u, y0 = t.y0;
+    // The run axis in grid coordinates is (cos rot, -sin rot), the outward
+    // normal (sin rot, cos rot): every point the face's run plus a balcony's
+    // reach can cover must sit inside the record the placement locked.
+    const cp = Math.cos(u.rot), sp = Math.sin(u.rot), runHalf = u.long / 2, reach = u.wide + 1.5;
+    let outside = false;
+    for (const tt of [0, u.long]) {
+      const ga = t.a - runHalf * cp + tt * cp + reach * sp;
+      const gb = t.b + runHalf * sp - tt * sp + reach * cp;
+      if (Math.abs(ga) > c.pileHalfX - 0.3 || Math.abs(gb) > c.pileHalfZ - 0.3) { outside = true; break; }
+    }
+    if (outside) continue; // an undressed face where a balcony would cross the record
+    // The box's back-left-floor corner, its run axis and its outward normal,
+    // as weatherRoom's frame: t from the face's left edge, d from the back
+    // plane, y absolute.
+    const oA = t.a - runHalf * cp - (u.wide / 2) * sp;
+    const oB = t.b + runHalf * sp - (u.wide / 2) * cp;
+    const ox = c.x + oA * cs + oB * ss, oz = c.z - oA * ss + oB * cs;
+    const ux = Math.cos(yaw + u.rot), uz = -Math.sin(yaw + u.rot);
+    const Q = (tt: number, y: number, d: number): Vec3 => [ox + ux * tt - uz * d, y, oz + uz * tt + ux * d];
+    const key = (c.seed ^ FACE_SALT
+      ^ ((Math.round(t.a * 8) & 0xffff) * 7919 | 1)
+      ^ ((Math.round(t.b * 8) & 0xffff) * 104729 | 3)
+      ^ ((Math.round((y0 - c.pileBase) * 4) & 0xffff) * 1301 | 5)) >>> 0;
+    const w = makeRng(key);
+    const wins: number[] = [];
+    for (let wi = 0, nw = u.long > 9 ? 1 + w.int(0, 1) : w.int(0, 1); wi < nw; wi++) {
+      wins.push(clamp(u.long * (0.3 + 0.4 * wi) + w.jitter(0.6), 1.1, u.long - 1.1));
+    }
+    const lit = wins.map(() => w.bool(0.25));
+    weatherRoom(bld, Q, u.long / 2, y0, u.wide, u.long, u.tall, u.wide, u.col, wins, OUTRIGGER, w);
+    // Over-paint the lit ones (the scaffold's emissive convention) just proud
+    // of weatherRoom's work — frames at front + 0.022, so the pane sits at
+    // + 0.03; the first window of the pile always lights, so the crown row
+    // exists everywhere.
+    const ya = y0 + u.tall * 0.42, yb = y0 + u.tall * 0.74;
+    for (let wi = 0; wi < wins.length; wi++) {
+      if (!lit[wi] && litSeen) continue;
+      litSeen = true;
+      bld.pushQuad(Q(wins[wi] - 0.28, ya + 0.02, u.wide + 0.03), Q(wins[wi] + 0.28, ya + 0.02, u.wide + 0.03),
+        Q(wins[wi] + 0.28, yb - 0.02, u.wide + 0.03), Q(wins[wi] - 0.28, yb - 0.02, u.wide + 0.03),
+        LIT_WARM, 1, { emissive: 3.0, doubleSided: true });
+      if (!lightDone && dress.lights && dress.lod < 1) {
+        dress.lights.push({ pos: Q(wins[wi], y0 + u.tall * 0.6, u.wide + 0.8), radius: 10, color: [1.0, 0.68, 0.34], intensity: 1.4 });
+        lightDone = true;
+      }
+    }
+    dressed++;
+  }
+}
+
 // ---------------------------------------------------------------- the piles
 
 /**
@@ -259,7 +414,7 @@ function topKit(bld: MeshBuilder, c: FallColumn, yaw: number, r: Rng, tops: TopS
  * upper boxes cantilever further out. `narrow` also drops the pile's width
  * faster so cores climb in a column.
  */
-function pileRect(bld: MeshBuilder, c: FallColumn, yaw: number, r: Rng, narrow: boolean): void {
+function pileRect(bld: MeshBuilder, c: FallColumn, yaw: number, r: Rng, narrow: boolean, dress: Dress): void {
   const n = Math.max(2, Math.floor((c.pileTop - c.pileBase) / BOX_H));
   const tops: TopSpot[] = [];
   const headHalf: [number, number] = narrow ? [r.range(1.4, 1.7), r.range(1.3, 1.6)] : [0, 0];
@@ -268,8 +423,11 @@ function pileRect(bld: MeshBuilder, c: FallColumn, yaw: number, r: Rng, narrow: 
     const t = k / Math.max(1, n - 1);
     const turn = k % 2 ? Math.PI / 2 : 0;
     const shrink = 1 - (narrow ? 0.42 : 0.3) * t;
-    const fx = Math.min(c.pileHalfX, c.pileHalfX * shrink * (0.94 + r.next() * 0.1));
-    const fz = Math.min(c.pileHalfZ, c.pileHalfZ * shrink * (0.94 + r.next() * 0.1));
+    // The layer's outer faces stop 0.25 m inside the record: 1.04x shrink at
+    // t=0 could put the layer face past the registered extent, and nothing in
+    // the village may stand outside it (the door flats add 0.032 more).
+    const fx = Math.min(c.pileHalfX - 0.25, c.pileHalfX * shrink * (0.94 + r.next() * 0.1));
+    const fz = Math.min(c.pileHalfZ - 0.25, c.pileHalfZ * shrink * (0.94 + r.next() * 0.1));
     const along = turn ? fz : fx, across = turn ? fx : fz;
     // The stair head-house: an interval on the layer's run axis the boxes avoid.
     const head = narrow ? (turn ? headHalf[1] : headHalf[0]) : 0;
@@ -288,12 +446,20 @@ function pileRect(bld: MeshBuilder, c: FallColumn, yaw: number, r: Rng, narrow: 
           if (k === n - 1 && r.bool(0.35)) { cur += 2.2 + r.next() * 1.6; continue; }  // stepped top
           if (r.bool(0.12)) { cur += r.range(0.8, 2.2); continue; }                   // gaps, not courses
           const u = rollUnit(r);
-          if (cur + u.long > s1 + 0.9) break;
+          // Break at the span, not past it: round 0 allowed a +0.9 slack and a
+          // full row could hang 0.55 m past the layer face. The cantilevers
+          // carry the protrusion reads; the courses stay inside the record.
+          if (cur + u.long > s1) break;
           const mid = cur + u.long / 2;
           const a = turn ? rc : mid, b = turn ? mid : rc;
           const y0 = c.pileBase + k * BOX_H;
-          const top = putUnit(bld, c, yaw, u, a, b, y0, r.bool() ? 1 : -1);
-          if (top > c.pileTop - BOX_H - 0.35) tops.push({ a, b, turn, y: top });
+          // Honour the docstring's "layers turn 90 deg": round 0 swapped the
+          // a/b coords but never rotated the box, so an odd layer's 12 m
+          // container still spanned the ACROSS axis from an rc centre and
+          // reached pileHalf + 0.4 (pier 106). The drawn rot and the recorded
+          // one are the same unit now.
+          const top = putUnit(bld, c, yaw, { ...u, rot: turn }, a, b, y0, r.bool() ? 1 : -1);
+          if (top > c.pileTop - BOX_H - 0.35) tops.push({ a, b, turn, y: top, u: { ...u, rot: turn }, y0 });
           cur += u.long;
         }
       }
@@ -309,29 +475,54 @@ function pileRect(bld: MeshBuilder, c: FallColumn, yaw: number, r: Rng, narrow: 
     const over = (dir < 2 ? c.pileHalfX - c.halfX : c.pileHalfZ - c.halfZ) * (narrow ? 0.7 : 1);
     outrigger(bld, c, yaw, dir, over, c.pileBase + 0.05, r);
   }
-  // 1-2 boxes cantilevered further out, on a mess of their own, never past the
-  // pile extent the placement registered (only where there IS an overhang).
+  // 1-2 boxes cantilevered out over the layers below (DESIGN §8: "a few boxes
+  // cantilevered further out"), each with a brace under it so the cantilever
+  // reads as steel, not as debris in the air — the review named that read in
+  // pose 19. Round 0 rolled the box's outer face up to 3.6 m PAST the extent
+  // the placement registered (round-0 open question 2), right where deck
+  // fragments and bridges anchor; now the outer face sits 0.3 m inside the
+  // record on the pushed axis, and the whole box stays inside it on the other
+  // axis too. A box whose proportions cannot fit is rolled and dropped.
   if (c.pileHalfX > c.halfX + 3.2) {
     for (let k = 0, nc = 1 + r.int(0, 1); k < nc; k++) {
       const u = rollUnit(r);
-      const out = r.range(2.2, 3.6);
       const dir = r.int(0, 3) as 0 | 1 | 2 | 3;
       const onA = dir < 2, sgn2 = dir % 2 ? -1 : 1;
-      const extent = onA ? c.pileHalfX : c.pileHalfZ;
-      const half = u.rot ? (onA ? u.wide / 2 : u.long / 2) : (onA ? u.long / 2 : u.wide / 2);
-      const mid = sgn2 * (extent + out - half);
-      const sideways = r.jitter(2.0);
-      const a = onA ? mid : sideways, b = onA ? sideways : mid;
+      // The box's half on the PUSHED axis and on the other one. The first
+      // cut of this clamp used "hA wherever the push goes", and a 12 m
+      // container pushed along b still ran its long axis along a, reaching
+      // ~11.5 into a 6.9 record — the tightened sweep caught it (pier 39).
+      const hLong = u.rot ? u.wide / 2 : u.long / 2, hWide = u.rot ? u.long / 2 : u.wide / 2;
+      const hPush = onA ? hLong : hWide, hSide = onA ? hWide : hLong;
+      const extPush = onA ? c.pileHalfX : c.pileHalfZ;
+      const extSide = onA ? c.pileHalfZ : c.pileHalfX;
+      if (hPush > extPush - 0.5 || hSide > extSide - 0.5) continue; // it cannot sit inside the record
+      const pushed = sgn2 * (extPush - 0.3 - hPush);
+      const side = clamp(r.jitter(2.0), -(extSide - hSide - 0.2), extSide - hSide - 0.2);
+      const a = onA ? pushed : side, b = onA ? side : pushed;
       const y0 = c.pileBase + (1 + r.int(0, Math.max(0, n - 2))) * BOX_H;
       putUnit(bld, c, yaw, { ...u, kit: 0 }, a, b, y0);
+      // A brace from under the box's inner edge, down and inward into the
+      // mass. The pair earlier fed `pushed` where the across coordinate
+      // belongs: for a b-push the brace sat at (pushed, inner) and its
+      // midpoint reached pileHalfX + 0.3 with a 0.07 section (pier 21's
+      // 11.59/11.73 band), while the box itself never left the record.
+      const inner = pushed - sgn2 * (hPush - 0.2), to = pushed - sgn2 * (hPush + 2.8);
+      const PA = (onA ? [inner, side] : [side, inner]) as [number, number];
+      const PB = (onA ? [to, side] : [side, to]) as [number, number];
+      const [bx0, bz0] = at(c, yaw, PA[0], PA[1]);
+      const [bx1, bz1] = at(c, yaw, PB[0], PB[1]);
+      member(bld, [bx0, y0, bz0], [bx1, y0 - BOX_H + 0.05, bz1], 0.07, 0.07, OUTRIGGER);
     }
   }
   topKit(bld, c, yaw, r, tops);
+  // Round 1: the crown's faces and its lit row (docs/FALL_VILLAGE_ROUND1.md).
+  dressFaces(bld, c, yaw, tops, dress);
 }
 
 /** A linear village along a silo battery's gallery: a continuous run along the
  *  cylinder caps, shack rows across it, a head-house canopy at an end. */
-function pileSilo(bld: MeshBuilder, c: FallColumn, yaw: number, r: Rng): void {
+function pileSilo(bld: MeshBuilder, c: FallColumn, yaw: number, r: Rng, dress: Dress): void {
   const rad = c.halfX / c.count;
   const tops: TopSpot[] = [];
   const rows = Math.max(1, Math.round((c.pileTop - c.pileBase) / BOX_H));
@@ -346,8 +537,12 @@ function pileSilo(bld: MeshBuilder, c: FallColumn, yaw: number, r: Rng): void {
         if (r.bool(0.16)) { cur += r.range(0.8, 2); continue; }
         const u = rollUnit(r);
         if (cur + u.long > s1) break;
-        const top = putUnit(bld, c, yaw, u, cur + u.long / 2, r.jitter(rad * 0.22), y0);
-        tops.push({ a: cur + u.long / 2, b: 0, turn: 0, y: top });
+        const aMid = cur + u.long / 2;
+        // The gallery's crosswise reach is the battery's z half: a wide box at
+        // an edge jitter could hang past it.
+        const bMid = clamp(r.jitter(rad * 0.22), -(c.pileHalfZ - u.wide / 2 - 0.2), c.pileHalfZ - u.wide / 2 - 0.2);
+        const top = putUnit(bld, c, yaw, u, aMid, bMid, y0);
+        tops.push({ a: aMid, b: bMid, turn: 0, y: top, u, y0 });
         cur += u.long;
       }
     } else {
@@ -358,7 +553,17 @@ function pileSilo(bld: MeshBuilder, c: FallColumn, yaw: number, r: Rng): void {
       const cross = (u: Unit, a: number): void => {
         const long = Math.min(u.long, c.pileHalfZ * 2 - 2.2);
         const bMax = c.pileHalfZ - long / 2 - 1.1;
-        putUnit(bld, c, yaw, { ...u, long, rot: Math.PI / 2 }, a, clamp(r.jitter(rad * 0.5), -bMax, bMax), y0);
+        const b = clamp(r.jitter(rad * 0.5), -bMax, bMax);
+        // Rotated across, the box's across-half is what the record's a axis
+        // sees; an edge cap jitted outward could sit up to ~1 m past the
+        // record (silo 21/30/55/83/98 maxA). Slide the centre back in and
+        // give up when the record cannot hold the wide at all.
+        const aMax = c.pileHalfX - 0.1 - u.wide / 2;
+        if (aMax < 0) return;
+        const a2 = clamp(a, -aMax, aMax);
+        const drawn = { ...u, long, rot: Math.PI / 2 };
+        const top = putUnit(bld, c, yaw, drawn, a2, b, y0);
+        tops.push({ a: a2, b, turn: Math.PI / 2, y: top, u: drawn, y0 });
       };
       const cy = r.int(0, c.count - 1);
       const centreA = (2 * cy - (c.count - 1)) * rad;
@@ -369,14 +574,22 @@ function pileSilo(bld: MeshBuilder, c: FallColumn, yaw: number, r: Rng): void {
   if (r.bool(0.6)) {
     const sgn = r.bool() ? 1 : -1;
     const u = rollUnit(r);
-    putUnit(bld, c, yaw, { ...u, kit: 2 }, sgn * (c.halfX - Math.min(rad, u.long / 2) - 0.1), 0, c.pileBase, 1);
+    // The end canopy is the battery's head-house. Round 0 seated it at the
+    // caps' interior edge and let a 12 m run hang ~3 m past the registered
+    // extent (the sweep flagged silo 21/30/83/98); the seat now caps the run,
+    // and a record too small to hold it drops the canopy.
+    const seat = c.pileHalfX - 0.1 - u.long / 2;
+    if (seat >= 0.4) {
+      putUnit(bld, c, yaw, { ...u, kit: 2 }, sgn * Math.min(c.halfX - Math.min(rad, u.long / 2) - 0.1, seat), 0, c.pileBase, 1);
+    }
   }
   topKit(bld, c, yaw, r, tops.filter((sp) => sp.y > c.pileBase + BOX_H * 1.5));
+  dressFaces(bld, c, yaw, tops, dress);
 }
 
 /** A ring of boxes on a stack's collar platform: a plank deck on brackets, a
  *  broken ring of boxes around, the stack's top bare for its turbine (round 2). */
-function pileStack(bld: MeshBuilder, c: FallColumn, yaw: number, r: Rng): void {
+function pileStack(bld: MeshBuilder, c: FallColumn, yaw: number, r: Rng, dress: Dress): void {
   const rows = Math.max(1, Math.round((c.pileTop - c.pileBase) / BOX_H));
   const rOut = c.pileHalfX;
   const rIn = Math.max(Math.min(rOut - 1.9, c.halfX + 0.7), c.halfX + 0.25);
@@ -387,7 +600,17 @@ function pileStack(bld: MeshBuilder, c: FallColumn, yaw: number, r: Rng): void {
   for (let i = 0; i < ns; i++) {
     if (r.bool(0.16)) continue;
     const phi = off0 + ((i + 0.5) / ns) * Math.PI * 2;
-    const len = (2 * Math.PI * rMid) / ns + 0.55;
+    // A plank at a diagonal ring angle reaches sqrt(rMid^2 + (len/2)^2) along
+    // a grid axis — up to 0.45 m past rOut on a small stack (stack 17, dY band
+    // at deckY): restate it on the yawed-rectangle record and cap each plank.
+    const sC = Math.abs(Math.cos(phi + yaw)), sS = Math.abs(Math.sin(phi + yaw));
+    const radial = rMid + depth / 2;
+    const len = Math.min(
+      (2 * Math.PI * rMid) / ns + 0.55,
+      sS > 1e-4 ? 2 * Math.max(0, rOut - 0.05 - sC * radial) / sS : Infinity,
+      sC > 1e-4 ? 2 * Math.max(0, rOut - 0.05 - sS * radial) / sC : Infinity,
+    );
+    if (len < 1.6) continue; // the collar gap shows here; keep the line honest
     bld.pushBox([c.x + Math.cos(phi) * rMid, deckY + 0.19, c.z + Math.sin(phi) * rMid],
       [len / 2, 0.19, depth / 2], tint(ROOMS[4], 0.8), { rotationY: -phi - Math.PI / 2 });
   }
@@ -402,48 +625,88 @@ function pileStack(bld: MeshBuilder, c: FallColumn, yaw: number, r: Rng): void {
   for (let i = 0; i < spots; i++) {
     if (r.bool(0.3)) continue;
     const phi = off0 + ((i + 0.5) / spots) * Math.PI * 2 + r.jitter(0.25);
-    const rr = rMid + r.jitter(0.8);
-    const [wx, wz] = [c.x + Math.cos(phi) * rr, c.z + Math.sin(phi) * rr];
+    const rr0 = rMid + r.jitter(0.8);
     const u = rollUnit(r);
-    const turnW = r.bool(0.65) ? -phi : -phi - Math.PI / 2;
+    // The collar is a thin ring (depth rOut - rIn <= 1.9 m), so every box runs
+    // TANGENT to it and short enough to keep its outer face inside rOut.
+    // Round 0 rolled 65 % of these radial, and a radial 12 m container hung
+    // ~5 m past the registered extent on both axes — the round-0 sweep's
+    // union gate masked it; the tightened sweep caught it this round.
+    const turnW = -phi - Math.PI / 2;
+    const sC = Math.abs(Math.cos(phi + yaw)), sS = Math.abs(Math.sin(phi + yaw));
+    const radHalf = Math.max(u.wide, 3.7) / 2; // conservative: the second layer's wide rolls after
+    const rr = Math.min(rr0, rOut - radHalf - 0.05);
+    // Tangent run: the box must still fit the yawed-rectangle record on both
+    // grid axes — a tangent box at a diagonal ring angle reaches half its
+    // length along a grid axis (stack 40: dA up to 4.2 before this cap).
+    const long = Math.min(u.long, ringLongMax(c.pileHalfX, c.pileHalfZ, rr, sC, sS, u.wide / 2));
+    if (long < 1.2) continue; // the spot cannot hold this box inside the record
+    const [wx, wz] = [c.x + Math.cos(phi) * rr, c.z + Math.sin(phi) * rr];
     const [a, b] = toGrid(c, yaw, wx, wz);
-    const top = putUnit(bld, c, yaw, { ...u, rot: turnW - yaw }, a, b, deckY + 0.19);
-    let yBest = top;
+    const yFloor = deckY + 0.19;
+    let yBest = putUnit(bld, c, yaw, { ...u, long, rot: turnW - yaw }, a, b, yFloor);
+    let uBest = { ...u, long }, y0Best = yFloor;
     if (rows >= 2 && r.bool(0.45)) {
       const u2 = rollUnit(r);
-      yBest = Math.max(yBest, putUnit(bld, c, yaw, { ...u2, rot: turnW - yaw }, a + r.jitter(0.4), b + r.jitter(0.4), top));
+      const long2 = Math.min(u2.long, long);
+      const [hA2, hB2] = gridHalfs(turnW, yaw, long2 / 2, u2.wide / 2);
+      // The jittered centre needs room for the second box's own halfs: a
+      // negative bound means the clamp range inverts and the box pokes out —
+      // roll and drop it instead (round 1 drew it unbounded, stack-class dA).
+      const axB = c.pileHalfX - 0.1 - hA2, bzB = c.pileHalfZ - 0.1 - hB2;
+      if (axB < 0 || bzB < 0) continue;
+      const a2 = clamp(a + r.jitter(0.4), -axB, axB);
+      const b2 = clamp(b + r.jitter(0.4), -bzB, bzB);
+      y0Best = yBest;
+      yBest = Math.max(yBest, putUnit(bld, c, yaw, { ...u2, long: long2, rot: turnW - yaw }, a2, b2, yBest));
+      uBest = { ...u2, long: long2 };
     }
-    tops.push({ a, b, turn: turnW - yaw, y: yBest });
+    tops.push({ a, b, turn: turnW - yaw, y: yBest, u: uBest, y0: y0Best });
   }
   topKit(bld, c, yaw, r, tops);
+  dressFaces(bld, c, yaw, tops, dress);
 }
 
 /** Boxes slung inside a lattice cage: one big unit per level at odd offsets,
  *  an X of bracing on one face taking the read. */
-function pileLattice(bld: MeshBuilder, c: FallColumn, yaw: number, r: Rng): void {
+function pileLattice(bld: MeshBuilder, c: FallColumn, yaw: number, r: Rng, dress: Dress): void {
   const n = Math.max(2, Math.round((c.pileTop - c.pileBase) / BOX_H));
   const inner = Math.max(c.pileHalfX - 0.6, 3.2);
   const tops: TopSpot[] = [];
   for (let k = 0; k < n; k++) {
     const u = rollUnit(r);
     const long = Math.min(u.long, inner * 2 - 1.0);
-    const top = putUnit(bld, c, yaw, { ...u, long }, r.jitter(inner * 0.16), r.jitter(inner * 0.16), c.pileBase + k * BOX_H);
-    if (k === n - 1) tops.push({ a: r.jitter(1.2), b: r.jitter(1.2), turn: (k % 2) * Math.PI / 2, y: top });
+    const drawn = { ...u, long };
+    const y0 = c.pileBase + k * BOX_H;
+    // Cage offsets stop inside the record: a slung box's outer face is its
+    // centre plus its own long/wide half, not the cage ring the jitter was
+    // scaled from — round 0 let it hang ~1 m past pileHalfX.
+    const aAmp = Math.min(inner * 0.16, c.pileHalfX - 0.2 - long / 2);
+    const bAmp = Math.min(inner * 0.16, c.pileHalfZ - 0.2 - u.wide / 2);
+    const aMid = r.jitter(Math.max(0, aAmp)), bMid = r.jitter(Math.max(0, bAmp));
+    const top = putUnit(bld, c, yaw, drawn, aMid, bMid, y0);
+    if (k === n - 1) tops.push({ a: aMid, b: bMid, turn: (k % 2) * Math.PI / 2, y: top, u: drawn, y0 });
   }
   const legAt: [number, number][] = [[0, 1], [0, 2], [2, 3], [1, 3]];
   const corner = (i: number, dy: number): Vec3 => {
-    const [u, w] = [[1, 1], [1, -1], [-1, 1], [-1, -1]][i];
-    return [c.x + u * c.halfX, c.pileBase - dy, c.z + w * c.halfZ];
+    // Grid-aligned legs: the shaft's own tubes (fallmesh pushColumn) stand at
+    // the grid frame's quadrants. Round 0 placed these at the WORLD axes, so
+    // the braces missed the legs by the yaw mixing (up to half*sqrt(2) on the
+    // diagonal) and the tightened sweep's diamond read flagged the whole cage.
+    const [u, w] = [[1, 1], [1, -1], [-1, 1], [-1, -1]][i] as [number, number];
+    const [gx, gz] = at(c, yaw, u * c.halfX, w * c.halfZ);
+    return [gx, c.pileBase - dy, gz];
   };
   const [i0, i1] = legAt[r.int(0, 3)];
   member(bld, corner(i0, 2.8), corner(i1, 0.15), 0.08, 0.08, OUTRIGGER);
   member(bld, corner(i1, 2.8), corner(i0, 0.15), 0.08, 0.08, OUTRIGGER);
   topKit(bld, c, yaw, r, tops);
+  dressFaces(bld, c, yaw, tops, dress);
 }
 
 /** A terraced crater village inside a spire stump: rings of boxes step inward
  *  as they climb the broken floors, widest down at the foot. */
-function pileSpire(bld: MeshBuilder, c: FallColumn, yaw: number, r: Rng): void {
+function pileSpire(bld: MeshBuilder, c: FallColumn, yaw: number, r: Rng, dress: Dress): void {
   const R = c.halfX;
   const L = 3 + (r.bool(0.5) ? 1 : 0) + (r.bool(0.35) ? 1 : 0);
   const tops: TopSpot[] = [];
@@ -457,13 +720,20 @@ function pileSpire(bld: MeshBuilder, c: FallColumn, yaw: number, r: Rng): void {
       const phi = off0 + (i / ns) * Math.PI * 2 + r.jitter(0.08);
       const u = rollUnit(r);
       const rr = Math.max(2.6, Math.min(rj, R - 3.2 - u.wide / 2));
+      // The crater's boxes sit at arbitrary ring angles on a yawed-rectangle
+      // record: cap the run by its grid-frame projection (stack's lesson).
+      const long = Math.min(u.long, ringLongMax(c.pileHalfX, c.pileHalfZ, rr,
+        Math.abs(Math.cos(phi + yaw)), Math.abs(Math.sin(phi + yaw)), u.wide / 2));
+      if (long < 1.2) continue;
       const turnW = -phi - Math.PI / 2;
       const [a, b] = toGrid(c, yaw, c.x + Math.cos(phi) * rr, c.z + Math.sin(phi) * rr);
-      putUnit(bld, c, yaw, { ...u, rot: turnW - yaw }, a, b, yFloor);
-      if (j === L - 1 && i % 3 === 0) tops.push({ a, b, turn: turnW - yaw, y: yFloor + u.tall });
+      const drawn = { ...u, long, rot: turnW - yaw };
+      putUnit(bld, c, yaw, drawn, a, b, yFloor);
+      if (j === L - 1 && i % 3 === 0) tops.push({ a, b, turn: turnW - yaw, y: yFloor + u.tall, u: drawn, y0: yFloor });
     }
   }
   topKit(bld, c, yaw, r, tops);
+  dressFaces(bld, c, yaw, tops, dress);
 }
 
 // ---------------------------------------------------------------- far form
@@ -530,22 +800,55 @@ function mergedBlocks(bld: MeshBuilder, c: FallColumn, yaw: number, r: Rng): voi
       break;
     }
   }
+  // D32's far half: "far, a few merged blocks with lit windows" — the mid
+  // band's stratum of warm points must survive the merge. Emissive panes on
+  // the crown mass's ±a faces, no registered lights (far pools burn the light
+  // budget for nothing a far camera catches; the panes carry the read).
+  if (r.bool(0.85)) {
+    const csy = Math.cos(yaw), ssy = Math.sin(yaw);
+    const nP = 2 + r.int(0, 2);
+    const yLo = c.pileTop - 2.4 - r.next() * 0.6;
+    const paneRow = (aP: number, bSpan: number): void => {
+      for (let j = 0; j < nP; j++) {
+        const tb = nP === 1 ? r.jitter(bSpan * 0.3) : (j / (nP - 1) - 0.5) * 2 * bSpan + r.jitter(0.15);
+        const hw = r.range(0.3, 0.55), hh = r.range(0.55, 0.95);
+        for (const sgn of [-1, 1]) {
+          // The plane a = sgn * aP, walked along the grid's b axis.
+          const px = c.x + sgn * aP * csy + tb * ssy, pz = c.z - sgn * aP * ssy + tb * csy;
+          bld.pushQuad([px - hw * ssy, yLo, pz - hw * csy], [px + hw * ssy, yLo, pz + hw * csy],
+            [px + hw * ssy, yLo + hh, pz + hw * csy], [px - hw * ssy, yLo + hh, pz - hw * csy],
+            LIT_WARM, 1, { emissive: 3.0, doubleSided: true });
+        }
+      }
+    };
+    switch (c.kind) {
+      case 'pier': paneRow(c.pileHalfX * 0.55 + 0.04, c.pileHalfZ * 0.5); break;
+      case 'core': paneRow(c.pileHalfX * 0.57 + 0.04, c.pileHalfZ * 0.5); break;
+      case 'silo': paneRow(c.halfX * 0.95 + 0.04, c.pileHalfZ * 0.75); break;
+      case 'stack': paneRow(c.pileHalfX + 0.05, c.pileHalfZ * 0.55); break;
+      case 'lattice': paneRow(c.pileHalfX * 0.85 + 0.04, c.pileHalfZ * 0.7); break;
+      case 'spire': paneRow(c.halfX * 0.66 - 0.05, c.halfX * 0.3); break;
+    }
+  }
 }
 
 // ---------------------------------------------------------------- the chunk
 
-/** The village on one chunk's columns: real piles at lod < 2, merged blocks beyond. */
-export function pushFallVillage(bld: MeshBuilder, fall: FallChunk, lod: number): void {
+/** The village on one chunk's columns: real piles at lod < 2, merged blocks
+ *  (with their lit crown panes, D32) beyond. `lights` collects one crown light
+ *  per lit pile top at night (D28, scaffold convention, lod < 1 only). */
+export function pushFallVillage(bld: MeshBuilder, fall: FallChunk, lod: number, lights?: ChunkLight[]): void {
   for (const c of fall.columns) {
     const r = makeRng((c.seed ^ VILLAGE_SALT) >>> 0);
+    const dress: Dress = { lights, lod };
     if (lod < 2) {
       switch (c.kind) {
-        case 'pier': pileRect(bld, c, fall.yaw, r, false); break;
-        case 'core': pileRect(bld, c, fall.yaw, r, true); break;
-        case 'silo': pileSilo(bld, c, fall.yaw, r); break;
-        case 'stack': pileStack(bld, c, fall.yaw, r); break;
-        case 'lattice': pileLattice(bld, c, fall.yaw, r); break;
-        case 'spire': pileSpire(bld, c, fall.yaw, r); break;
+        case 'pier': pileRect(bld, c, fall.yaw, r, false, dress); break;
+        case 'core': pileRect(bld, c, fall.yaw, r, true, dress); break;
+        case 'silo': pileSilo(bld, c, fall.yaw, r, dress); break;
+        case 'stack': pileStack(bld, c, fall.yaw, r, dress); break;
+        case 'lattice': pileLattice(bld, c, fall.yaw, r, dress); break;
+        case 'spire': pileSpire(bld, c, fall.yaw, r, dress); break;
       }
     } else {
       mergedBlocks(bld, c, fall.yaw, r);

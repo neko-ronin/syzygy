@@ -614,8 +614,14 @@ const LIT: Vec3 = [1.0, 0.72, 0.4];
  * then a cantilevered balcony or a tarp over the roof. `t`/`y0` are the room's
  * centre along the face and its floor, `front` its outer face depth. Near field
  * only; `w` is its own RNG so the room layout does not re-roll.
+ *
+ * Exported for fallvillage (round 1): the fall-zone crowns dress their boxes
+ * with it. The caller there supplies the frame Q itself — t along the face
+ * from its left edge, y absolute, d measured from the room's BACK plane, so
+ * front = the box's width — and the plane the panes over-paint copies the
+ * window-frame constants below.
  */
-function weatherRoom(
+export function weatherRoom(
   bld: MeshBuilder, Q: (t: number, y: number, d: number) => Vec3, t: number, y0: number, front: number,
   sw: number, sh: number, sd: number, c: Vec3, wins: number[], metal: Vec3, w: Rng,
 ): void {
@@ -1530,7 +1536,7 @@ export function bakeChunk(chunk: CityChunk, lod: number, seed: number): BakedChu
 
   // --- the fall zone (DESIGN §8): a greybox until the village rendering pass.
   // Before the props and ground furniture, so the far shadow cascades draw it.
-  pushFallChunk(solid, chunk.fall, lod, obstacles);
+  pushFallChunk(solid, chunk.fall, lod, obstacles, lights);
 
   // --- props
   for (const p of chunk.props) {
