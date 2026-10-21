@@ -1038,3 +1038,163 @@ stack, and the fact that the zone's *ground* is in none of the four poses. It
 also does not excuse the dusk frames: they were read as "the zone is 78-92 %
 warm", and that measurement was a measurement of the *hour*, not of the zone.
 Both of the dusk reviews should be read as measurements of a sunset.
+
+---
+
+# PART 5 — THE HOUR CONTROL (`6d5e81a`, run 22:19, `shots/2026-10-21T22-19-59`)
+
+**Scope.** This part judges **one change**: poses 16 and 18 were moved from `dusk` to the
+existing `bluehour` rig. Same camera, same lens, same geometry, same seed. It is a control
+on the hour and nothing else. Rounds 0-2's break dressing is **not** re-judged here; the
+round-2 verdict above stands as written.
+
+## Close-out (DESIGN §6) — the blue-hour control
+
+```
+VERDICT:  more work needed
+EVIDENCE: references/B-cold-industrial-sheet.jpg (read first)
+          shots/compare/2026-10-21T22-21-08.png (+ .txt)   BASELINE | CURRENT | REFERENCE
+            baseline: shots/2026-10-21T17-14-22 (round 2, dusk)
+            current:  shots/2026-10-21T22-19-59 (bluehour)
+            reference column: references/sections/B-cold-industrial/
+          full-size: shots/2026-10-21T22-19-59/{16,17,18,19}.png
+          same-build control: shots/2026-10-21T22-24-43 (identical command, same HEAD)
+          shots/2026-10-21T22-19-59/_capture.json
+JUDGED:   palette, value structure, atmospheric depth and material read at poses
+          16 and 18; control integrity at 17 and 19 by pixel diff against a
+          same-build run
+GAP:      the hour is now right and the village is still not lit. At 18 the fall
+          zone's crown carries ONE warm point, about 2 px, where every crown in
+          sheet B carries rows of window blocks; at 16 the fall zone shows no
+          lit window at all and the frame is a near-monochrome indigo wash with
+          no value structure to read material against. Warm pixels went 96.9 %
+          -> 0.0 % at 16 and 68.8 % -> 0.6 % at 18: the sunset is gone from the
+          zone entirely, and nothing warm replaced it
+NEXT:     give the fall zone's crowns and pile faces a lit row that holds at
+          18's distance — several window blocks per crown, emitted as blocks
+          rather than one small point (the day pose 19 already shows cream
+          window blocks reading clearly on a pile, so the mechanism works; the
+          blue-hour crowns get one dot). One change, then re-shoot 16 and 18
+CONFIRMED: the frame turned cold — 18's mean RGB (92,52,42) -> (18,34,79), blue-
+          dominant pixels 0.0 % -> 82.3 %, and it now reads as a hazy blue-hour
+          city with the distant warm points the sheet is built from; the shafts
+          are no longer the brightest warm thing at either blue-hour pose,
+          because at the blue hour they are not warm at all; 17 and 19 did not
+          regress (below); the app booted (frameCount=980), zero GPU/WGSL
+          errors, 1189 / 1107 / 1383 / 1107 lights delivered with 0 starved
+```
+
+## The run, and whether the control is valid
+
+`node tools/orchestrate.mjs capture -- node tools/capture.mjs --dev --sequence
+--pose=fall --timeout 900` → PASS, 5 shots, 48.4 s. Preflight OK (2248 MB unused; the
+benchmark's own gate had refused twice earlier in the session at 168 and 142 MB and passed
+on retry). Four PNGs and `_capture.json` present. `"error": null` on every shot, no GPU or
+WGSL line in the run, **app ready (frameCount=980)** — the app boots, which `tsc` and
+`vite build` do not prove.
+
+Phase, from `_capture.json`:
+
+| pose | round 2 (dusk) | this run | changed? |
+|---|---|---|---|
+| 16 | dusk, dayPhase 0.242 | **bluehour, 0.164** | yes, by design |
+| 17 | clear, 0.569 | clear, 0.564 | no |
+| 18 | dusk, 0.244 | **bluehour, 0.164** | yes, by design |
+| 19 | clear, 0.959 | clear, 0.958 | no |
+
+Only 16 and 18 changed hour, as `6d5e81a` claims. Lights are identical to round 2 —
+1189 / 1107 / 1383 / 1107 delivered, **starved 0** in all four — so the light budget did
+not move and nothing was starved by the rig change.
+
+**Control validity, measured rather than assumed.** A raw `BASE -> CURRENT` pixel diff
+cannot answer "did 17/19 regress", because this harness lets the day clock drift and the
+crowd move between runs. So the same command was run again at the same HEAD
+(`shots/2026-10-21T22-24-43`) and used as the noise floor:
+
+| pose | base → current | current → current (same build) | base → current-build control |
+|---|---|---|---|
+| 16 | 51.08 | 4.19 | 51.03 |
+| 17 | 7.02 | 6.78 | **0.96** |
+| 18 | 45.08 | 5.81 | 45.07 |
+| 19 | 2.52 | 2.48 | **0.82** |
+
+- **16 and 18:** the change is 10x the same-build noise. Real.
+- **17 and 19: no regression.** `base -> current-build control` is 0.96 and 0.82 MAE, and
+  `base -> current` matches the same-build noise (7.02 against 6.78 at 17; 2.52 against
+  2.48 at 19). The 17 frame differs run to run by as much as it differs from base — that is
+  the crowd and the 0.005 dayPhase drift, not this commit. The control is valid.
+- One pose detail: 16's camera y moved 2.00 -> 2.26 m. The pose is derived and picks up
+  ground height; the composition is unchanged between the two frames.
+
+## (a) Did the frame turn teal?
+
+**It turned cold, and it did not turn teal.** The sheet's blue is a pale, hazy
+**teal-cyan**; this is a deep saturated **indigo**.
+
+| | round 2 | this run | sheet B |
+|---|---|---|---|
+| 16 mean RGB | (100, 52, 41) | **(15, 34, 87)** | (50, 94, 109) |
+| 18 mean RGB | (92, 52, 42) | **(18, 34, 79)** | (50, 94, 109) |
+| 16 warm pixels | 96.9 % | **0.0 %** | 1.1 % |
+| 18 warm pixels | 68.8 % | **0.6 %** | 1.1 % |
+| 16 blue-dominant pixels | 0.0 % | **98.5 %** | — |
+| 18 blue-dominant pixels | 0.0 % | **82.3 %** | — |
+
+The frames are about **2.5-3x darker than the sheet** in each channel and far more
+saturated. That is a **rig** observation, not a material one, and it is written down rather
+than acted on here: the control changed the hour, and one change at a time. It is the
+second thing to fix, after the gap above.
+
+Judged by eye at 18, the frame is nevertheless a real improvement in register: it reads as
+a hazy blue-hour city seen across rooftops, with the warm distant points the sheet is built
+from, and the value structure of a skyline against a paler sky. At **16** it is worse than
+that: two piers filling the frame in one flat indigo, no haze gradation, no value structure,
+and **no village in it at all**. Whether 16's camera can show this section is now a fair
+question — it frames two bare piers, and the zone's material may simply not be in shot
+(PROCESS rule 4). **That is a hypothesis, not a finding**; it needs the pose's own
+projection to settle it, and it is not what this control was for.
+
+## (b) Do the crowns' lit windows read as warm points, or still 1-2 px?
+
+**Still dots, and at 16 there are none.** At 18, cropped at 2x around the fall-zone crown,
+the crown is a stack of blue boxes with **one** warm point on it, roughly 2 px at 1x. The
+ordinary city towers behind it carry window grids that read as points; the zone's own
+crowns do not.
+
+The mechanism is not broken — pose 19 (unchanged, still clear) shows **cream window blocks
+on a pile reading clearly**, tens of pixels across. What fails is scale and count at
+blue-hour skyline distance: one emitter per crown is one dot. Sheet B's crowns carry rows of
+lit blocks, several per face, and that density is most of what makes the section read. This
+is the gap, and it is the next change.
+
+## (c) Are the shafts still the brightest warm thing?
+
+**At the blue hour the question dissolves: the shafts are not warm.** They are blue
+ambient-lit concrete, and the warmest things left in 16 are a handful of distant tower
+windows on the left edge. So the round-2 answer ("the shafts are still the brightest warm
+thing") was a property of the **sunset**, exactly as `6d5e81a` predicted — remove the sun
+and the zone has no warm of its own to compete with them.
+
+At 19, unchanged and still daylight, the red-brown shafts **are** still the brightest warm
+thing in frame, which is consistent and expected: nothing about this control touched the
+day pose.
+
+## (d) Did 17 and 19 regress?
+
+**No.** `base -> current-build control` is 0.96 and 0.82 MAE; `base -> current` is at the
+same-build noise floor for both. See the table above. 17's camera, crown and piles are
+identical in composition and hue across all three runs, and 19's cream pile windows, pale
+sky and teal towers are unchanged.
+
+## What this control establishes, and what it does not
+
+- **Establishes:** the sunset was doing most of the colour work at 16 and 18, and blue hour
+  is the right register for the section — 18 in particular now sits in the sheet's family
+  even though it is too dark and too saturated. The hour was a real part of the problem.
+- **Establishes:** 17 and 19 are untouched by the commit, measured against a same-build run
+  rather than argued from the code.
+- **Does not establish** that material work is now sufficient. It is not: at the hour that
+  suits the section, the village has no warm inventory of its own and the fall zone is
+  legible only as silhouette.
+- **Does not re-judge** round 2. The break is still a notch rather than broken concrete on
+  the same evidence as PART 4, and the round-2 verdict stands.
