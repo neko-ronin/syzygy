@@ -10,6 +10,14 @@
  * same seed built twice must give identical counts and identical mesh bytes.
  */
 
+// Enter the graph the way the LIVE APP does — citymesh reached first, before
+// anything has fully evaluated it. Under the live app's entry the module cycle
+// citymesh -> fallmesh -> fallvillage -> citymesh made a module-scope ROOMS
+// read in fallvillage a temporal-dead-zone crash ("Cannot access 'ROOMS' before
+// initialization"), while tsc, `vite build` and this probe's own entry order all
+// passed. This line makes the probe exercise the hostile entry order, so the
+// class of bug cannot pass here again.
+import './citymesh';
 import { fallChunk, fallZone, type FallChunk, type FallColumn } from '../world/fallzone';
 import { MeshBuilder } from '../world/geometry';
 import { pushFallVillage } from './fallvillage';

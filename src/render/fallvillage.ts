@@ -46,8 +46,17 @@ const TARP: Vec3 = [0.72, 0.71, 0.66];
 const tint = (c: Vec3, k: number): Vec3 => [c[0] * k, c[1] * k, c[2] * k];
 
 /** Containers carry the cold industrial read — steel blue, slate, soot, rust
- *  and the red panels, ROOMS weighted that way, not a new palette. */
-const CONTAINER: Vec3[] = [
+ *  and the red panels, ROOMS weighted that way, not a new palette. Built on
+ *  demand, never at module scope: this file sits in the import cycle
+ *  citymesh -> fallmesh -> fallvillage -> citymesh, and at the live app's entry
+ *  order citymesh is still initialising when this module's top level runs, so
+ *  a module-scope `const CONTAINER = [ROOMS[1], ...]` was a temporal-dead-zone
+ *  read — the app showed "Cannot access 'ROOMS' before initialization" and
+ *  booted nothing, while tsc and `vite build` (which never execute the graph)
+ *  and the probe's own entry order were all clean. Same rule as fallzone.ts
+ *  imports: read another module's bindings only inside functions. The literal
+ *  `8` is the palette's last index — keep it in step with the array. */
+const containerPalette = (): Vec3[] => [
   ROOMS[1], ROOMS[0], ROOMS[4], ROOMS[9],
   ROOMS[2], ROOMS[7], ROOMS[8], ROOMS[6], ROOMS[8],
 ];
@@ -64,7 +73,11 @@ const rollUnit = (r: Rng): Unit => {
   if (r.bool(0.62)) {
     return box({
       long: r.bool(0.62) ? 12 : 6, wide: 2.4, tall: BOX_H * r.range(0.98, 1.02),
-      col: CONTAINER[r.int(0, CONTAINER.length - 1)], kit: 1,
+      // containerPalette()[...]: the palette is built on demand (module scope
+      // would read ROOMS across the import cycle — see it above). The roll is
+      // 0..8 exactly as round 0's `CONTAINER[r.int(0, CONTAINER.length - 1)]`:
+      // same single rng draw, so every pile is byte-identical.
+      col: containerPalette()[r.int(0, 8)], kit: 1,
     });
   }
   return box({
