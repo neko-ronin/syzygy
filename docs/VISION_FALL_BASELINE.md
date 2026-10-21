@@ -810,3 +810,155 @@ column shafts — are modelled and darkened.
    put a brace under each, which is right; the *read* is still a stack of
    boxes hanging in the air at 300 m, because the shaft that should carry them
    is 16 px wide against a bright city.
+
+---
+
+# PART 4 — ROUND 2: the break (`bb92f87`, run 10:14, `shots/2026-10-21T17-14-22`)
+
+## Close-out (DESIGN §6) — round 2
+
+```
+VERDICT:  more work needed
+EVIDENCE: references/B-cold-industrial-sheet.jpg
+          references/sections/B-cold-industrial/{01-monolith,02-fog-tram,03-snow-ropeway,04-tram-bridge}.jpg
+          shots/2026-10-21T17-14-22/{16-fall-wreck-up,17-fall-piles-level,18-fall-skyline,19-fall-pile-close}.png
+          shots/2026-10-21T17-14-22/_capture.json
+          shots/compare/2026-10-21T17-16-56.png (+ .txt)   BASELINE | CURRENT | REFERENCE
+          (baseline: shots/2026-10-21T03-14-12, round 1)
+JUDGED:   silhouette, mid-band height, material read, palette, value structure,
+          atmospheric depth and human scale, per pose, in sheet-B vocabulary
+GAP:      the break is a notch in the silhouette, not broken concrete — there is
+          no rebar bristling from the shear, no spalled crater, and no stain
+          running down the face from the break, so the shafts read as clean
+          prisms with a bite taken out of the top
+NEXT:     dress the break itself: rebar out of the shear, a spall crater, and a
+          stain running down from the break line (DESIGN §8's own words), on
+          the shafts that read against the sky
+CONFIRMED: the break reads as a break, at 48 m and at skyline distance, and at
+          the far LOD — the near piers' tops go from flat cuts to stepped,
+          sheared, notched tops, and the mid-distance crowns sit on ragged
+          tops (round 2's "in geometry at both LODs" is true and visible); the
+          shafts' value dropped and their shadow sides are now violet-grey
+          rather than orange; the app boots, the 212 crown lights are still
+          delivered with 0 starved, and the light counts are identical to round
+          1; the break cost ~5k triangles
+```
+
+**The run.** `node tools/orchestrate.mjs capture -- node tools/capture.mjs
+--dev --sequence --pose=fall --timeout 900` → PASS, 5 shots, 54.7 s, no GPU or
+WGSL error, **app ready (frameCount=1025)**. Preflight OK (4.2 GB free).
+
+**Artifact, against round 1.** Same seed (6191639). `dayPhase` **identical in
+all four** — 0.242 / 0.569 / 0.244 / 0.959 — so this is a phase-matched A/B.
+`lodHistogram` identical: [9,28,97,0] / [9,28,100,0] / [9,34,124,0] /
+[9,34,124,0]. **Lights delivered 1189 / 1107 / 1383 / 1107, starved 0 in all
+four, the same counts as round 1** — nothing was starved and the light budget
+did not move. G-buffer triangles rose by 4.8k / 5.0k / 6.4k / 4.5k: the break
+is cheap. Pixels changed between the two runs: **49.6 %** of 16, 49.1 % of 18,
+8.4 % of 17, 13.1 % of 19 — one localised change, in the shafts.
+
+---
+
+## (a) At dusk, are the shafts still the brightest and warmest thing, or has the warm moved onto the crowns?
+
+**No. The warm has not moved.** Measured over the whole frame:
+
+| | round 1 | round 2 | change |
+| --- | --- | --- | --- |
+| 16 warm pixels | 94 % | 92 % | −2 |
+| 16 mean RGB | (107, 54, 40) | (100, 52, 41) | luma 68 → 64 |
+| 18 warm pixels | 78 % | 78 % | 0 |
+| 18 mean RGB | (93, 52, 42) | (91, 52, 42) | luma 63 → 62 |
+
+What the frames do show is the cold soot-slate arriving on the shafts' **shadow
+sides** (violet-grey instead of orange), and the shafts dropping a little in
+value. But a grey albedo under an orange light is orange, and at dusk the light
+is a sunset: the sun is at 0.75° elevation (`dayPhase` 0.242 → elevation
+`0.242 × 1.5 − 0.35 = 0.013 rad`) and the horizon sky is salmon. So the
+sunlit faces are still terracotta and the frame is still 92 % and 78 % warm.
+
+And the crowns carry no warmth at all: their red is **material**, and the
+warm-bright population of the band is 0.21 % of the frame — the lit windows of
+round 1 are 1-2 px at 300-1400 m. The nearest crown in 18 does show a single
+cream lit window, which is the first warm point on a village crown in any
+frame of this project, but one window on one crown is not a stratum.
+
+**So the value structure is still inverted for sheet B:** the zone is a field of
+warm shafts with dark hats on them, where sheet B is a cold mass with warm
+points in it.
+
+**A caveat the owner should have, because it changes what the dusk frames can
+be used for.** *No frame in the sheet B set is a warm sunset.* Three are cold
+fog (01, 02, 04) and one is cold blue daylight (03, the snow canyon). The two
+dusk poses are therefore the two frames that **cannot be judged against sheet
+B as a palette at all** — they measure the hour, not the zone. The material
+has to be judged at 17 and 19, which are cold blue daylight, and there round
+2's soot-slate does read: at 19 the pile is rust-red, slate and near-black
+against a cold blue city. That is a decision for the owner, not for the
+renderer: either the zone gets one review pose in the section's own register
+(overcast or blue hour, no sun), or the dusk frames are accepted as a
+different hour and judged against the section's *materials* rather than its
+light.
+
+## (b) Do the breaks read as breaks at 48 m (16) and at skyline distance (18)?
+
+**Yes as silhouette, no as material.** In the A/B crop of the same band region
+(round 1 above, round 2 below) the near piers' tops go from flat cuts to
+**stepped, notched, sheared tops**, and the mid-distance crowns sit on visibly
+ragged tops. In 16 the central shaft's top is notched, the left shaft is
+sheared on a diagonal, and the right is jagged. That is a legible change of
+outline and not noise — the claim holds.
+
+**But the break is a notch, not broken concrete.** At 3× on the near pier in 18
+the new top edge is clear — a step, a shoulder, a bite out of the rim — and the
+shaft faces are still **smooth planes**: no rebar bristling from the shear, no
+spalled crater, no stain running down from the break line. DESIGN §8 asks for
+exactly those three things, and none of them is in the frame. What the eye
+reads is a clean concrete prism with a bite taken out of it.
+
+## (c) At 19, does the near pier read as broken concrete rather than a beige plane?
+
+**There is no pier in the frame at all.** The camera stands 3 m off pile a's
+corner at deck height (152 m); pier a's shaft stops at 150.4 m, *below* the
+deck slab's top (151.55 m), so the near pier is out of frame entirely and the
+close-focus pose cannot judge the break at any resolution.
+
+What fills the lower third instead is the **deck fragment's blank top face** —
+mean luma 138 against the pile stack's 73 and the sky's 173. So the largest
+surface in the frame is an untextured mid-bright card, and the *subject is the
+darkest thing in frame*, which inverts sheet B's value structure (near mass
+dark, distance light). The pile itself is good — a rust-red container with
+corrugation ribs and door leaves, a slate room with a lit cream window, a
+near-black box with a second lit window, a grey water tank on legs — and the
+cold city behind it has real depth. The floating cantilever stack is still
+there at x 310-345.
+
+## (d) Did the far LOD keep the broken silhouette?
+
+**Yes.** The mid-distance group in the A/B crop (roughly 500-900 m, LOD 2)
+shows ragged, notched tops in round 2 where round 1 showed flat cuts, so the
+break survives where the merged blocks cannot know about it, exactly as the
+round-2 note says: the break is in the shaft geometry, and the shaft is drawn
+per kind at both LODs. What survives at that distance is the **silhouette**;
+the break's material is sub-pixel there and will stay so.
+
+---
+
+## What round 2 moved, measured
+
+| | round 1 | round 2 |
+| --- | --- | --- |
+| break reads as a notch (16, 18) | no — flat cuts | **yes** |
+| break reads as broken concrete | no | **no** |
+| shaft shadow-side hue | orange-brown | **violet-grey** |
+| 16 / 18 warm pixels | 94 % / 78 % | 92 % / 78 % |
+| 18 largest crown | ~60 px | ~60 px, ragged base |
+| warm-bright points in 18 | 0.21 % | 0.21 % |
+| lights starved | 0 | 0 |
+| g-buffer triangles | — | +5k |
+
+The zone's **silhouette** is now right: broken shafts, village crowns sitting
+on the breaks, a band that reads as a stratum. Its **material** and its
+**light** are not: the break is still a clean notch, the frames are still a
+warm sunset, and the warm in them is still on the shafts rather than in the
+village's windows.
