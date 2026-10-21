@@ -962,3 +962,79 @@ on the breaks, a band that reads as a stratum. Its **material** and its
 **light** are not: the break is still a clean notch, the frames are still a
 warm sunset, and the warm in them is still on the shafts rather than in the
 village's windows.
+
+---
+
+# METHODOLOGICAL NOTE — three rounds were judged on the wrong hour
+
+**Added 2026-10-21, between rounds 2 and 3. No verdict above is changed by this
+note; it changes what the gap means, and it is a testable claim, not a
+conclusion.**
+
+**The claim.** Sheet B is a **blue-hour** section. All four frames are
+teal-blue, the light source is the sky, and the warmth is emissive — windows
+and signs (frame 2: dark teal masses, scattered warm windows, a white tarp).
+**None of it is sunlit material.** Our two dusk poses were shot at `dusk`,
+whose rig is `sunColor #ff7a2e` at 0.5° of elevation, exposure 1.14 and a
+warm colourGrade — so those frames were orange *by construction*, and this
+review's own measurement says so: 94 % → 92 % warm pixels at 16 and 78 % → 78 %
+at 18 across the material round. "A grey albedo under an orange light is
+orange" was the right diagnosis; the inference that the *material* was the
+problem was not tested, and the numbers that came back did not move, which is
+what an untested inference looks like.
+
+**What exists and has never been photographed.** `src/sim/weather.ts:233-246`
+already carries a `bluehour` phase: saturated blue ambient `#2b4a9a` at 0.8,
+sun `#5a78d8` at 0.9 with the elevation **-0.11 rad** (6.3° under the
+horizon), exposure 1.4, colourGrade `[0.94, 1.0, 1.1]`, sky `bluehour`,
+godRays 0.2 — "no direct light worth the name; the sky is the light source, so
+the windows are already coming on". It is in `PHASES`, aliased (`blue hour`,
+`blue-hour`, `twilight`), wired through `SkyState`, the agent tools and the
+local brain, and the sim self-test asserts the day cycle spends time in it.
+**No capture pose has ever used it**: `tools/capture.mjs` had 4 dusk, 2
+morning, 5 night and 4 noon, and not one bluehour. The one rig written for this
+section's light has never been photographed.
+
+**The control (round 3).** `time` on **16-fall-wreck-up** and
+**18-fall-skyline** becomes `bluehour`; the cameras, the lens, the poses and
+everything else stay exactly where rounds 0-2 put them. The next capture is
+therefore a control on the hour and on nothing else, and it is judged on three
+questions:
+
+- **(a)** does the frame turn teal — i.e. does the zone's own material read as
+  steel blue and slate once the light is the sheet's light?
+- **(b)** do the crowns' lit windows read as **warm points against** the cold
+  field, rather than as 1-2 px specks (the band is 0.21 % warm-bright pixels
+  today)?
+- **(c)** do the shafts stop being the brightest, warmest thing in frame
+  **without any further material work**?
+
+**A clean refutation is a useful result.** If the frame does not turn teal, or
+the warm points still do not read, then the hour was not the binding constraint
+and the gap reverts to the material — and the section's own register still
+needs a pose shot in it. Either answer is worth the capture; what is not worth
+it is a fourth round of judging a sunset against a blue hour.
+
+**A mechanical note, because it changes how the control reads.** A pose's
+`weather` block in `tools/capture.mjs` is **inert**. `setWeather` assigns it
+(`src/main.ts:974-976`) and the director's next `snap()` writes the *phase's*
+own values over it — `seedTargets()` copies the phase look into the base for
+every `WX_KEYS` entry, and `snap()` then sets `wx.sky = this.targetSky`. So
+the rig — sky, sun, ambient, exposure, grade, haze — comes from `time` alone,
+and the `weather` lines in the poses have never done anything. The control is
+therefore clean: `time: 'bluehour'` moves the whole rig, sky included, and
+"same weather otherwise" is satisfied by construction. The `weather` blocks
+have been left in place and are now labelled as documentation; the two blue
+hour poses' `sky` fields were changed to match, which changes nothing in the
+render.
+
+**What this note does not do.** It does not reopen the verdicts above, and it
+does not retract the findings that do not depend on the hour: the pose
+derivations and their measurements (the 819 m heart behind the band, the deck
+seen edge-on, the void at 3 m), the **break** — a notch, not broken concrete,
+which was judged on silhouette and material and not on hue — the near-black
+value of the pile against a pale sky, the blank deck, the floating cantilever
+stack, and the fact that the zone's *ground* is in none of the four poses. It
+also does not excuse the dusk frames: they were read as "the zone is 78-92 %
+warm", and that measurement was a measurement of the *hour*, not of the zone.
+Both of the dusk reviews should be read as measurements of a sunset.

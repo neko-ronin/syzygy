@@ -9,6 +9,23 @@
  * stretch of the mid band (the layer between rust-hangars 26-92 m and downtown
  * 190-570 m); 19 stands 3 m off a pile's corner (the missing close-focus pose).
  *
+ * ROUND 3 CONTROL — 16 and 18 are shot at `bluehour`, not `dusk`, and that is
+ * the point of the round. Sheet B is a blue-hour section: every frame in the
+ * sheet is lit by the sky, and its warmth is emissive windows and signs. The
+ * dusk rig (sunColor #ff7a2e at 0.5 degrees, exposure 1.14, a warm
+ * colourGrade) made those two frames orange by construction, and the material
+ * round's numbers did not move (94% -> 92% warm), so the hour is the first
+ * suspect, ahead of the material. The rig already exists — `weather.ts` has a
+ * `bluehour` phase (saturated blue ambient, the sun 6.3 degrees under the
+ * horizon, exposure 1.4, a cool colourGrade) that no capture pose has ever
+ * used.
+ *
+ * The camera stays exactly where rounds 0-2 put it, so the next capture is a
+ * control on the hour and nothing else. Note for whoever reads the harness: a
+ * pose's `weather` block is INERT — `setWeather` assigns it and the next
+ * `snap()` restores the phase's own sky, haze and cloud — so `time` alone
+ * decides the rig, and the `weather` lines in the poses are documentation.
+ *
  * Round 0 (vision review, 2026-10-20) re-derived all four. Every old rule was
  * measured against the frame it produced, and the fault is recorded at the rule
  * that caused it. The numbers in brackets are what the captured frame measured.
@@ -108,8 +125,8 @@ for (let x = -1536; x < 1792; x += 6) {
   });
   console.log(`// 16: ${best.cols.length} piles, angular mass ${r1(best.mass * 180 / Math.PI)} deg, `
     + `nearest ${r1(Math.min(...best.cols.map((c) => Math.hypot(c.x - best.x, c.z - best.z))))} m, aim ${r1(Math.hypot(ax - best.x, az - best.z))} m out`);
-  console.log(pose('16-fall-wreck-up', 'sheet B: the wreck field looking up at a knot of piles, dusk',
-    [best.x, camY, best.z], [ax, ay, az], 'dusk', 'dusk'));
+  console.log(pose('16-fall-wreck-up', 'sheet B: the wreck field looking up at a knot of piles, blue hour',
+    [best.x, camY, best.z], [ax, ay, az], 'bluehour', 'bluehour'));
 }
 
 // ---------------------------------------------------------------- 17 and 19
@@ -197,6 +214,6 @@ if (deck) {
   console.log(`// 18: cluster of ${cluster.length} band columns around anchor id${anchor.id}, clearest ${r1(ranked[0].clear)} m`);
   console.log(`// 18: ${inView.length} band columns in frame, ${r1(Math.min(...dists))}..${r1(Math.max(...dists))} m, `
     + `band tops span ${r1((Math.max(...els) - Math.min(...els)) * 180 / Math.PI)} deg, tallest old building behind ${r1(bgMax)} m`);
-  console.log(pose('18-fall-skyline', 'sheet B: the fall zone as a mid band on the skyline, dusk',
-    [camX, camY, camZ], [tx, aimY, tz], 'dusk', 'dusk', 1.12));
+  console.log(pose('18-fall-skyline', 'sheet B: the fall zone as a mid band on the skyline, blue hour',
+    [camX, camY, camZ], [tx, aimY, tz], 'bluehour', 'bluehour', 1.12));
 }

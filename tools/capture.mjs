@@ -410,11 +410,22 @@ const POSES = [
     // Derived by src/world/__probe_fallzone.ts (seed 5e7a17).
     // Round 0 re-derived: scored by the angular mass of the knot, not by the
     // count of piles in the cone, and aimed at the village instead of past it.
+    //
+    // ROUND 3 CONTROL: `time` is 'bluehour', not 'dusk'. Sheet B is a blue-hour
+    // section — every frame in the sheet is lit by the sky, with the warmth in
+    // emissive windows and signs — and the dusk rig (sunColor #ff7a2e at 0.5
+    // degrees, exposure 1.14, a warm colourGrade) made the frame orange by
+    // construction. Three rounds were judged against a warm sunset, and the
+    // material round's numbers did not move (94% -> 92% warm), so the hour is
+    // the first suspect. This pose is the control: same camera, same everything
+    // else. Note that the `weather` block below is INERT — `setWeather` assigns
+    // it and the next `snap()` restores the phase's own sky, haze and cloud
+    // (`weather.ts` `seedTargets`/`snap`), so `time` alone decides the rig.
     name: '16-fall-wreck-up',
-    label: 'sheet B: the wreck field looking up at a knot of piles, dusk',
+    label: 'sheet B: the wreck field looking up at a knot of piles, blue hour',
     position: [570, 2.1, -516], lookAt: [615.4, 122.4, -495.6], fov: 1.05, roll: 0,
-    time: 'dusk',
-    weather: { sky: 'dusk', cloudCover: 0.35, haze: 0.3 },
+    time: 'bluehour',
+    weather: { sky: 'bluehour', cloudCover: 0.35, haze: 0.3 },
     lens: { fov: 1.05 },
     settle: 30,
   },
@@ -438,11 +449,15 @@ const POSES = [
     // Round 0 re-derived: the stretch of the mid band with the lowest old city
     // behind it, 300 m off it on the downtown side, looking out over the low
     // city. The old aim put the 819 m heart towers behind the band.
+    //
+    // ROUND 3 CONTROL: `time` is 'bluehour', not 'dusk' — see the note on
+    // 16-fall-wreck-up. Same camera, same everything else; the pose's
+    // `weather` block is inert, so `time` alone decides the rig.
     name: '18-fall-skyline',
-    label: 'sheet B: the fall zone as a mid band on the skyline, dusk',
+    label: 'sheet B: the fall zone as a mid band on the skyline, blue hour',
     position: [-633.8, 123, 438.5], lookAt: [-669.5, 135.9, 736.3], fov: 1.12, roll: 0,
-    time: 'dusk',
-    weather: { sky: 'dusk', cloudCover: 0.35, haze: 0.3 },
+    time: 'bluehour',
+    weather: { sky: 'bluehour', cloudCover: 0.35, haze: 0.3 },
     lens: { fov: 1.12 },
     settle: 30,
   },
