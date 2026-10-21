@@ -746,3 +746,60 @@ every leg, so the < 30% CPU gate never opened. Read the adjacent pair, not the a
   measurable cost; the greybox is a few thousand box triangles per belt chunk.
 - **D32:** every leg on both sides is above the 30 fps floor (lowest: head hero 33.56/s, base
   hero 34.99/s, both contended). Re-run on a quiet machine before quoting an absolute.
+
+## 2026-10-21 — Fall zone, rounds 0-2 (2026-10-21)
+
+Session start `8a6258c` (base, the placement pass as published) against HEAD `6d5e81a`
+(piles/containers/tops, cold palette + lit rows + crown lights, column breaks, and the
+blue-hour pose move for 16/18). `--route=all --quality=high --gpu-passes`, headed,
+1600 x 900, 30 s per leg, 20 s warm, ABBA per route (all: base, head, head, base;
+garden: base, head, head, base). Both legs from clean worktrees
+(`syzygy-perf-base` @ `8a6258c`, `syzygy-perf-head` @ `6d5e81a`), `node_modules` symlinked,
+reports under the session temp dir, not committed.
+
+**Machine.** Preflight passed (522 MB unused at STEP 0; the benchmark's own gate then
+refused twice at 168 MB and 142 MB and passed on retry — it is a fail-closed check, not a
+reading to argue with). The < 30% CPU gate never opened: `Ghostty` (this three-pane herdr
+workspace redrawing its own panes) held 55-65% of one core on every attempt, with
+**83.9% of the machine idle** and no capture or renderer from another session. Constant
+across both sides, so it is a baseline, not a variable — but it is why the gate's literal
+condition is reported as unmet rather than met.
+
+**Battery temperature, and a unit correction.** `ioreg -rn AppleSmartBattery -l` reports
+`"Temperature"` in **hundredths of a degree** on this machine: 3229 = 32.29 °C, 4000 =
+40.00 °C. The brief's thresholds (36000 cool / 40000 throttled) are ten times too large and
+never trip; the usable thresholds are 3400 cool / 4000 throttled.
+
+| leg | temp in -> out | hero /s | span ms | skyline /s | span ms | flight /s | span ms |
+|---|---|---|---|---|---|---|---|
+| A1 base (cool) | 32.3 -> 36.1 | 52.03 | 15.553 | 59.96 | 13.192 | 57.21 | 13.274 |
+| B1 head (cool) | 34.1 -> 36.7 | 52.09 | 15.628 | 59.95 | 13.205 | 56.69 | 13.323 |
+| B2 head (**hot**) | 38.0 -> 40.0 | 49.29 | 16.634 | 55.29 | 14.251 | 55.15 | 14.168 |
+| A2 base (cool) | 34.1 -> 36.6 | 52.66 | 15.439 | 60.02 | 13.117 | 57.03 | 13.317 |
+| GA1 base | 34.8 -> 35.3 | garden 59.63 | 12.741 | | | | |
+| GB1 head | 34.9 -> 35.1 | garden 59.92 | 12.775 | | | | |
+| GB2 head | 34.8 -> 34.8 | garden 57.36 | 13.612 | | | | |
+| GA2 base | 34.8 -> 36.3 | garden 59.95 | 13.101 | | | | |
+
+- **B2 is heat, not content (PITFALLS §33).** It began at 38.0 °C and ended at 40.0 °C after
+  a cooldown loop that could not get below 35 °C in eight minutes. Every pass rose together
+  (lighting 5.42 -> 5.74, gbuffer 2.05 -> 2.21, composite 0.64 -> 0.73, TAA 0.37 -> 0.39).
+  The decisive control is **A2, the last leg, at 34.1 °C**: the same base code that ran
+  52.03/s at 32.3 °C ran 52.66/s at 34.1 °C. The box recovers; the head leg was simply hot.
+  Discard B2; it is kept above only so nobody reads the mean of B1 and B2.
+- **No measurable cost, cool legs.** Hero span base 15.553 / 15.439 (mean 15.50) against head
+  15.628; skyline 13.192 / 13.117 against 13.205; flight 13.274 / 13.317 against 13.323.
+  The head is +0.13 ms on the hero, which is the same size as the base's own run-to-run
+  spread (0.114 ms). Rounds 0-2 add nothing that shows above the noise floor.
+- **Per-pass split, hero, cool legs** (base A1 | head B1 | base A2), ms: shadow0 1.30 | 1.28 |
+  1.25, shadow1 1.27 | 1.27 | 1.23, far cascades 2+3 (they alternate frames) 3.23 | 3.26 |
+  3.10, gbuffer 2.02 | 2.05 | 1.94, lightbin 0.88 | 0.88 | 1.00, **lighting 5.43 | 5.42 |
+  5.51**, dof 0.23 | 0.23 | 0.22, taa 0.36 | 0.37 | 0.37, composite 0.64 | 0.64 | 0.64.
+  The lighting pass — where the crown lights and lit rows would show — is flat.
+- **D32:** every leg on both sides is above the 30 fps floor (lowest 49.29/s, the hot B2).
+  Nothing was cut.
+- **Not this session's work, but true and worth recording:** the hero runs at 52/s on
+  **both** sides, with 904 of 1560 submission intervals over 16.67 ms. The hero was
+  59.35-59.85/s in the 2026-10-13/15 records. That gap is present at session start, so it
+  belongs to something before `8a6258c`, not to the fall zone. It is above the floor, so it
+  does not block; it does mean the hero is not the 60 fps reference frame any more.
