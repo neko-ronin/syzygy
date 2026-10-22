@@ -228,6 +228,57 @@ function bracketHead(
   return [hx, headY, hz];
 }
 
+/**
+ * The front face of a hut, given structure so the lamp's wash reads as
+ * apertures on a cold mass instead of a lit slab (PART 18).
+ *
+ * **The work lamps cast no shadow.** The pool is a disc term in
+ * `lighting.wgsl` and the brdf has no shadow lookup, so a hood shades
+ * nothing: the wall behind it stays exactly as bright. What this geometry
+ * does instead is OCCLUDE — every piece stands proud of the cladding and
+ * covers part of the lit face from the camera — and the pieces themselves are
+ * dark (the door's near-black for the boarding, cold steel for the frame), so
+ * what is left of the wall's warm area is a set of edges and a band under the
+ * eave, not one bright field.
+ *
+ * Three pieces, all on the door face:
+ *  - a **fascia** across the face under the eave, in the door's near-black:
+ *    this is the band the lamp washes hardest (it is the closest surface to
+ *    the head), and boarding it over is what turns the slab into a mass with
+ *    a lit edge;
+ *  - a **hood** over the door, in steel, projecting past the cladding: its
+ *    top face takes the light and its underside does not, so the door's head
+ *    gets a lit line and a shadow line at once;
+ *  - two **pilasters** flanking the door, in steel: their faces along the
+ *    wall catch no light at all, so they read as two dark vertical edges
+ *    splitting the face into panels.
+ *
+ * The pieces are placed clear of every surface they touch by 0.02 m, so no
+ * two faces are coplanar, and the pilasters run past the fascia's bottom so
+ * they are not coplanar with it either.
+ */
+function frontFace(
+  f: Frame, c: FallColumn,
+  box: (x: number, y: number, z: number, hx: number, hy: number, hz: number, col: Vec3) => void,
+  faceB: number, halfWidth: number, doorA: number, doorHalf: number, doorTop: number, eave: number,
+): void {
+  // The fascia: a board across the face, under the eave, standing 0.06 m proud
+  // of the cladding. Its top runs 0.02 m into the slab, so it is not coplanar
+  // with the roof either.
+  const [fx, fz] = f.at(c.x, c.z, 0, faceB + 0.06);
+  box(fx, GROUND_Y + (doorTop + eave + 0.02) / 2, fz, halfWidth - 0.1, (eave + 0.02 - doorTop) / 2, 0.04, DOOR);
+  // The hood over the door: a slab reaching out past the fascia, its top in
+  // the light and its underside out of it.
+  const [hx, hz] = f.at(c.x, c.z, doorA, faceB + 0.26);
+  box(hx, GROUND_Y + doorTop - 0.02, hz, doorHalf + 0.55, 0.06, 0.22, STEEL);
+  // The pilasters: two uprights beside the door, from the deck to the fascia.
+  for (const side of [-1, 1]) {
+    const a = doorA + side * (doorHalf + 0.24);
+    const [px, pz] = f.at(c.x, c.z, a, faceB + 0.09);
+    box(px, GROUND_Y + (doorTop + 0.05) / 2, pz, 0.1, (doorTop + 0.05) / 2, 0.05, STEEL);
+  }
+}
+
 /** The hut where the hoist cable lands: drum, cable up to the pile, door. */
 function winchHouse(
   bld: MeshBuilder, c: FallColumn, f: Frame,
@@ -241,6 +292,7 @@ function winchHouse(
   box(hx, GROUND_Y + 2.82, hz, 2.35, 0.12, 1.95, ROOF);
   const [dx, dz] = f.at(c.x, c.z, 0, b0 + 1.72);
   box(dx, GROUND_Y + 0.95, dz, 0.5, 0.95, 0.04, DOOR);
+  frontFace(f, c, box, b0 + 1.7, 2.1, 0, 0.5, 1.9, 2.7);
   // The drum sits beside the hut, its axis along the grid, and the cable runs
   // up to the pile the winch serves.
   const [sx, sz] = f.at(c.x, c.z, 2.9, b0 - 0.4);
@@ -270,6 +322,7 @@ function workshopYard(
   box(hx, GROUND_Y + 3.5, hz, 3.5, 0.14, 2.5, ROOF);
   const [dx, dz] = f.at(c.x, c.z, 1.2, b0 + 2.22);
   box(dx, GROUND_Y + 1.0, dz, 0.6, 1.0, 0.04, DOOR);
+  frontFace(f, c, box, b0 + 2.2, 3.2, 1.2, 0.6, 2.0, 3.4);
   // Sorted heaps: steel, timber, cable — three grades, each its own pile.
   const heapCol = [STEEL, PALE_TIMBER, RUST];
   for (let k = 0; k < 3; k++) {
