@@ -1064,6 +1064,45 @@ pose alone, keeping `latest.json` before the next shot). A stamp is not a run di
 overwriting a single `latest.json`. Left as a named gap in `STATE_2026-10-22.md` rather than an
 unverified edit to the harness everything else depends on.
 
+## 39. "The probe says identical" — a number quoted from the last document instead of run
+
+**Symptom:** round 3i's implementer record
+([`FALL_LITROWS_ROUND3I.md`](FALL_LITROWS_ROUND3I.md)) says the change is "selection
+only, no new geometry", and prints "**Before (3g) and after (3i) are identical on the
+probe's counts**: 1078 lit quads at lod 0, 2872 at lod 2, 93,192 bay-free triangles".
+The reviewer of that round (PART 15) repeats the same three numbers as its own
+independent probe run. Both are wrong, and the check is one command:
+
+```
+git worktree add -d /tmp/wt 47b5c6d^        # the round's parent
+cd /tmp/wt && ln -s <repo>/node_modules . && npx vite-node@6.0.0 src/render/__probe_litrow.ts
+#   1078 lit quads, 2563 m2, bay-free 93192
+# at HEAD:
+#   1088 lit quads, 2598 m2, bay-free 93272
+```
+
+The pick moved **+10 lit quads, +35 m² of lit area and +40 non-bay quads**. That is
+not a bug in the change — the change is a *selection*, so it necessarily changes which
+boxes are dressed, and "+10 bays' worth of geometry" is exactly what a selection change
+does. The bug is the sentence. A selection-only change is not a geometry-neutral one,
+and a number carried forward from the previous document is not a measurement of this
+build.
+
+**Why it was invisible:** the numbers were plausible, the round's real evidence (the
+frame count) was correct, and the probe prints its totals among a dozen lines that
+nobody re-reads. The claim that fails is the one that says *nothing else moved* — the
+control, not the result. Every reviewer since round 3a has copied the previous round's
+"bay-free triangles" line as the cost baseline, so one stale figure would have poisoned
+the cost table for the rest of the arc.
+
+**Rule:** when a document says "unchanged" or "identical", that is a **control claim**,
+and a control claim is measured on this build, not inherited. Run the probe on the
+parent commit in a throwaway worktree (the command above is the whole procedure) and
+paste both outputs. `git worktree add -d <rev>` is cheap and leaves the working tree
+alone — the reason to skip re-measuring is usually "I would have to rebuild", and here
+you do not.
+
+
 ## Working norms that held up
 
 - **Measure before theorising.** Every bug above cost far less time to measure
