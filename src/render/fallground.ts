@@ -175,7 +175,7 @@ function winchHouse(
   bld.pushCylinder([sx, GROUND_Y + 0.55, sz], [ex, GROUND_Y + 0.55, ez], 0.42, 8, RUST, { capEnds: true });
   const [cx, cz] = f.at(c.x, c.z, 0, c.halfZ + 0.2);
   pushBeam(bld, [ex, GROUND_Y + 0.95, ez], [cx, c.pileBase + 2.5, cz], 0.025, CABLE);
-  lamp(hx, GROUND_Y + 2.55, hz);
+  lamp(dx, GROUND_Y + 2.2, dz);
   obstacles.push({ x: hx, z: hz, tx, tz, halfAlong: 2.2, halfAcross: 1.8, minY: GROUND_Y, maxY: GROUND_Y + 3, kind: 'fall-winch-house' });
 }
 
@@ -206,7 +206,7 @@ function workshopYard(
     const [lx, lz] = f.at(c.x, c.z, sx, b0 + 2.2);
     box(lx, GROUND_Y + 0.22, lz, 0.07, 0.22, 0.35, TIMBER);
   }
-  lamp(hx, GROUND_Y + 3.1, hz);
+  lamp(dx, GROUND_Y + 2.2, dz);
   obstacles.push({ x: hx, z: hz, tx, tz, halfAlong: 3.3, halfAcross: 2.3, minY: GROUND_Y, maxY: GROUND_Y + 3.6, kind: 'fall-salvage-workshop' });
 }
 
