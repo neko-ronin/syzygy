@@ -473,6 +473,24 @@ const POSES = [
     lens: { fov: 1 },
     settle: 30,
   },
+  {
+    // Derived by src/world/__probe_fallzone.ts (seed 5e7a17).
+    // Round 3d: the zone's floor. Round 3b built the lifelines, the wreck
+    // dressing and the flooded lows, and no pose pointed at any of them
+    // (VISION_FALL_BASELINE.md PART 7: 0 of 4 frames contains the floor).
+    // Eye height in the belt, a flooded low 16 m ahead with its near edge 67%
+    // down the frame and the old city behind; lifeline id54 (winch) 23.8 m
+    // away at -39.6 deg (the frame edge) whose 120.7 m pile top is 78.7 deg up,
+    // out of the 37.5 deg top edge. Blue hour, because the lamp and the water
+    // glint are the section's warmth and the shaft silhouette is the scale.
+    name: '20-fall-ground-level',
+    label: "sheet B: the zone's floor at eye height — flooded low, lifeline lamp, shaft for scale, blue hour",
+    position: [521.5, 2.1, -468.1], lookAt: [579, 8.8, -439.9], fov: 1.1, roll: 0,
+    time: 'bluehour',
+    weather: { sky: 'bluehour', cloudCover: 0.35, haze: 0.3 },
+    lens: { fov: 1.1 },
+    settle: 30,
+  },
 ];
 
 // ---------------------------------------------------------------- helpers

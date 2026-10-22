@@ -7,7 +7,9 @@
  * 16 stands in the wreck field and looks up at a knot of piles (frame 2's angle);
  * 17 stands ON the deck fragment and looks along it (frame 1); 18 frames the cleanest
  * stretch of the mid band (the layer between rust-hangars 26-92 m and downtown
- * 190-570 m); 19 stands 3 m off a pile's corner (the missing close-focus pose).
+ * 190-570 m); 19 stands 3 m off a pile's corner (the missing close-focus pose);
+ * 20 stands at eye height on the floor, a flooded low 15-30 m ahead, a lifeline
+ * at the frame edge and a shaft out of the top (the pose round 3b never had).
  *
  * ROUND 3 CONTROL — 16 and 18 are shot at `bluehour`, not `dusk`, and that is
  * the point of the round. Sheet B is a blue-hour section: every frame in the
@@ -50,7 +52,7 @@
 
 import { cityPlan, GROUND_Y, sampleStreetPlan, defaultCityConfig, City, type StreetSample } from './citygen';
 import { beltBand } from './districts';
-import { fallZone, patchAt, type FallColumn } from './fallzone';
+import { fallZone, onFrame, patchAt, type FallColumn } from './fallzone';
 
 const SEED = 0x5e7a17;
 const z = fallZone(SEED), plan = cityPlan(SEED), f = plan.districts;
@@ -216,4 +218,121 @@ if (deck) {
     + `band tops span ${r1((Math.max(...els) - Math.min(...els)) * 180 / Math.PI)} deg, tallest old building behind ${r1(bgMax)} m`);
   console.log(pose('18-fall-skyline', 'sheet B: the fall zone as a mid band on the skyline, blue hour',
     [camX, camY, camZ], [tx, aimY, tz], 'bluehour', 'bluehour', 1.12));
+}
+
+// ---------------------------------------------------------------- 20
+// The zone's floor (round 3d). Round 3b built lifelines, wreck dressing and the
+// flooded lows, and no pose pointed at any of them: 16 looks up from 2.3 m with
+// the feet below the frame, 17/19 stand 152 m above the floor, and 18's floor
+// is 32 deg below a +2 deg camera at 193 m and behind the roofline at 1185 m.
+//
+// The camera stands at eye height in the belt, 15-30 m off a flooded patch, and
+// looks UP by 6 deg: that puts the near silt edge in the lower third, the water
+// band and the old city above it, and lets a near shaft leave the top edge. A
+// lifeline column (winch or stair-tower) at the frame edge gives the lamp and
+// the human scale; the shaft behind it gives the height.
+{
+  const FOV = 1.1;                                    // 63 deg vertical, same family as 16/18
+  const HALF = FOV / 2;
+  const HALF_H = Math.atan(Math.tan(HALF) * (16 / 9));
+  const EYE = GROUND_Y + 1.7;
+  const PITCH = (6 * Math.PI) / 180;                  // up, so the floor sits low
+  const floods = z.patches.filter((p) => p.kind === 'flooded');
+  const lives = z.columns.filter((c) => c.access === 'winch' || c.access === 'stair-tower');
+
+  // Not inside a fallen slab, not inside a column's own footprint.
+  const wreckHit = (x: number, q: number): boolean => z.wreck.some((w) => {
+    const ca = Math.cos(w.yaw), sa = Math.sin(w.yaw), dx = x - w.x, dz = q - w.z;
+    const a = dx * ca - dz * sa, b = dx * sa + dz * ca;
+    return Math.abs(a) < w.halfX + 0.6 && Math.abs(b) < w.halfZ + 0.6;
+  });
+  const columnHit = (x: number, q: number): boolean => z.columns.some((c) =>
+    Math.hypot(c.x - x, c.z - q) < Math.max(c.halfX, c.halfZ, c.pileHalfX, c.pileHalfZ) + 2.5);
+
+  type Ground = {
+    score: number; x: number; z: number; px: number; pz: number; dl: number;
+    offset: number; col: FallColumn; lifeAng: number; oldN: number;
+  };
+  let best20: Ground | null = null;
+
+  for (const p of floods) {
+    for (let k = 0; k < 48; k++) {
+      const ang = (k / 48) * Math.PI * 2;
+      // Radius of the patch's own (grid-frame) rectangle along `ang`, then the
+      // camera outside it. Working on the grid frame is what makes the near
+      // edge distance exactly `offset` rather than an approximation.
+      const edge = 1 / Math.hypot(Math.cos(ang) / p.halfX, Math.sin(ang) / p.halfZ);
+      for (const offset of [15, 16, 17, 18, 21, 24, 27, 30]) {
+        const [x, q] = onFrame(p.x, p.z, z.gridYaw, Math.cos(ang) * (edge + offset), Math.sin(ang) * (edge + offset));
+        if (beltBand(f, x, q) !== 1) continue;
+        if (patchAt(z, x, q)) continue;
+        if (wreckHit(x, q) || columnHit(x, q)) continue;
+        const dx = p.x - x, dz = p.z - q;
+        const dl = Math.hypot(dx, dz);
+        const axis = Math.atan2(dz, dx);
+        const pitch = Math.atan2(EYE + Math.tan(PITCH) * dl - EYE, dl); // = PITCH, kept for clarity
+
+        // A lifeline at the frame edge, tall enough that its pile leaves the
+        // top edge, its lamp inside the vertical field.
+        let col: FallColumn | undefined, lifeAng = 0;
+        for (const c of lives) {
+          const d = Math.hypot(c.x - x, c.z - q);
+          if (d < 6 || d > 36) continue;
+          const off = Math.atan2(Math.sin(Math.atan2(c.z - q, c.x - x) - axis), Math.cos(Math.atan2(c.z - q, c.x - x) - axis));
+          if (Math.abs(off) > HALF_H * 0.95 || Math.abs(off) < HALF_H * 0.4) continue;
+          if (Math.atan2(c.pileTop - EYE, d) < pitch + HALF + 0.04) continue;
+          const lampY = GROUND_Y + 3.2;
+          const lampEl = Math.atan2(lampY - EYE, d);
+          if (lampEl < pitch - HALF || lampEl > pitch + HALF) continue;
+          col = c; lifeAng = off; break;
+        }
+        if (!col) continue;
+
+        // The pool has to be visible: no column standing in the corridor to the
+        // patch centre in the first 30 m.
+        const bad = z.columns.some((c) => {
+          if (c === col) return false;
+          const t = ((c.x - x) * dx + (c.z - q) * dz) / (dl * dl);
+          if (t < 0.08 || t > 1) return false;
+          const px = x + dx * t, pz = q + dz * t;
+          return Math.hypot(c.x - px, c.z - pz) < Math.max(c.halfX, c.pileHalfX) * 0.7;
+        });
+        if (bad) continue;
+
+        // Old city behind the water, above the horizon: the value structure and
+        // the proof that this is the city's floor, not a void.
+        let oldN = 0;
+        for (const b of old) {
+          const bd = Math.hypot(b.x - x, b.z - q);
+          if (bd < dl - 4 || b.top < GROUND_Y + 18) continue;
+          const da = Math.atan2(Math.sin(Math.atan2(b.z - q, b.x - x) - axis), Math.cos(Math.atan2(b.z - q, b.x - x) - axis));
+          if (Math.abs(da) > HALF_H * 0.8) continue;
+          oldN++;
+        }
+
+        const score = 100 + Math.min(oldN, 60) * 2
+          + (Math.abs(lifeAng) > HALF_H * 0.55 ? 12 : 0)
+          + (offset <= 18 ? 8 : 0) - Math.abs(offset - 16);
+        if (!best20 || score > best20.score) {
+          best20 = { score, x, z: q, px: p.x, pz: p.z, dl, offset, col, lifeAng, oldN };
+        }
+      }
+    }
+  }
+
+  if (!best20) {
+    console.log('// 20: no flooded patch had a lifeline and a clear shaft in frame at this seed.');
+  } else {
+    const b = best20;
+    const nearY = 0.5 + Math.tan(Math.atan2(EYE - (GROUND_Y + 0.05), b.offset) + PITCH) / (2 * Math.tan(HALF));
+    const farD = b.dl + Math.hypot((b.px - b.x), (b.pz - b.z)) - b.offset; // centre + half extent along the ray
+    const farY = 0.5 + Math.tan(Math.atan2(EYE - (GROUND_Y + 0.05), Math.max(farD, b.offset + 1)) + PITCH) / (2 * Math.tan(HALF));
+    const d = Math.hypot(b.col.x - b.x, b.col.z - b.z);
+    console.log(`// 20: flooded low ${r1(b.dl)} m to centre, near edge ${b.offset} m ahead (${r1(nearY * 100)}% down the frame); `
+      + `water band to ${r1(farY * 100)}%, ${b.oldN} old buildings behind`);
+    console.log(`// 20: lifeline id${b.col.id} (${b.col.access}) ${r1(d)} m away at ${r1((b.lifeAng * 180) / Math.PI)} deg off axis, `
+      + `pile ${r1(b.col.pileBase)}..${r1(b.col.pileTop)} m -> top ${r1((Math.atan2(b.col.pileTop - EYE, d) * 180) / Math.PI)} deg, out of the ${r1(((PITCH + HALF) * 180) / Math.PI)} deg top edge`);
+    console.log(pose('20-fall-ground-level', 'sheet B: the zone\'s floor at eye height — flooded low, lifeline lamp, shaft for scale, blue hour',
+      [b.x, EYE, b.z], [b.px, EYE + Math.tan(PITCH) * b.dl, b.pz], 'bluehour', 'bluehour', FOV));
+  }
 }
