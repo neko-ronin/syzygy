@@ -2066,3 +2066,177 @@ lands on the visible strip between hut and camera; re-shoot 20; accept on a
 source-lit ground patch below the horizon and count it. That single change
 decides whether this frame is a working floor at night, which is what PART 10's
 gate has been about all along.
+# PART 13 — ROUND 3H: the lamp on a bracket above the eave (`95bb881`, run `05-56-31`, `shots/2026-10-22T05-56-31-20-fall-ground-level.png`)
+
+**Scope.** One change judged: the work-lamp head in `winchHouse` (and `workshopYard`,
+unverified) moved from the door face to a bracket post+arm above the roof slab, 0.11 m
+outboard of the eave, at `GROUND_Y+3.4`; intensity and radius untouched. Baseline is the
+door-face frame (`shots/2026-10-22T05-05-49-20-fall-ground-level.png`, PART 12). The
+implementer's record (`docs/POSE20_LAMP_BRACKET.md`) was read for what was built; the
+frames decide. A diagnostic frame exists (`shots/2026-10-22T05-58-09-...`) and is treated
+as a control, not as evidence of the committed build (see (b)).
+
+## The ground-strip numbers, measured here
+
+Method: warm = `R > B + 15 && R > 60`, 4-connected, whole frame decoded. Floor strip =
+`x 1300-1600, y 700-760` (1-6 m in front of the door, the ground the camera can see).
+
+| | BEFORE (door face, `05-05-49`) | AFTER (bracket, `05-56-31`) |
+|---|---|---|
+| warm px below y 600 | 303 (28 components) | 248 (17 components) |
+| warm px below y 600, lamp stratum x 1250-1550 | 9,096 | 13,445 |
+| floor strip max R-B | −2 at (1465, 700) | **−4 at (1484, 716)** |
+| floor strip warm px | 0 | 0 |
+| floor strip mean luma | 83.4 (PART 12's rect: 26.1) | 86.6 (PART 12's rect: 30.5) |
+| wall warm (x 1350-1500, y 500-700) | 3,398 px | 3,829 px |
+| emitter core | x 1415-1424, y 553-559 | x 1412-1414, y 456-475 |
+
+The lamp stratum's gain (9,096 → 13,445) is the wall, not the floor: the bracket's head is
+0.5 m outboard instead of 0.02 m, so the wall sees it, and the wall lit up (3,398 → 3,829
+px, mean luma 27.2 → 29.7). The floor strip gained nothing: 0 warm px in both, max R-B
+−4 after against −2 before. The +3.2 luma on the strip is the lens/eye-height difference
+(the other floor rect moved the other way, 40.0 → 38.2), not light.
+
+## Close-out (DESIGN §6) — round 3h
+
+```
+VERDICT:  more work needed
+EVIDENCE: references/B-cold-industrial-sheet.jpg (read first; frame 3 is the ground-level reference)
+          shots/2026-10-22T05-05-49-20-fall-ground-level.png (BEFORE, door-face frame, single shot)
+          shots/2026-10-22T05-56-31-20-fall-ground-level.png (AFTER, bracket frame, single shot)
+          shots/2026-10-22T05-58-09-20-fall-ground-level.png (DIAGNOSTIC, albedo removed; a control)
+          git diff HEAD -- src/shaders/lighting.wgsl (empty) ; git log --oneline -3 (no shader change)
+          reviewer crops: head crop x 1380-1480 y 440-560 at 4x; floor strip x 1300-1600 y 700-760
+JUDGED:   the acceptance's attribution on the frame — warm components (R>B+15 && R>60,
+          4-connected) below y 600 and in the hut region, before and after, by location; what
+          the source reads as (work lamp vs lit pane on a box); whether the visible floor
+          carries the lamp's light; the frame as a place at night (stall, crowd, water,
+          rubble, lifelines); whether the frame is the fall zone or a plaza; the cost
+GAP:      the lamp still lights nothing below the horizon. The floor strip (x 1300-1600,
+          y 700-760) carries 0 warm px and max R-B -4 after against -2 before; the 72 below-
+          horizon warm px are the stall and the canopy, not the lamp. PART 12's acceptance
+          (a source-lit patch of ground below the horizon) is not met. The bracket fixed the
+          wall and the fixture; it did not fix the pool, because the pool is swallowed by the
+          floor's own dark blue albedo (see (b)).
+NEXT:     one change: remove the albedo multiply from the pool term (or raise the flood
+          water's albedo) in src/shaders/lighting.wgsl, so a lamp can warm this floor at all.
+          Re-shoot 20 and accept on a source-lit ground patch below the horizon plus a
+          specular in the water. That single change decides whether this frame is a working
+          floor at night.
+CONFIRMED: the bracket is in the frame and reads as a fixture, not a lit rectangle on a blank
+          box — the head sits at y 456-475 with a visible stem (post+arm) under it, 0.11 m
+          outboard of the eave; the wall gained 431 warm px and 2.5 luma; the stall and its
+          crowd carry over intact as the frame's human centre (same canopy, red frontage,
+          ~a dozen silhouettes, ~4 % larger from the lens); lights 1133/1133, starved 0/0,
+          no GPU/WGSL error; the diagnostic revert is verified (git diff empty, git log clean);
+          the diagnostic proves the pool lands on the right strip when the albedo factor is
+          removed (15,733 px component, x 1205-1599, y 721-786), and proves nothing about
+          the committed build.
+```
+
+## (a) The counts, by location
+
+**BEFORE (`05-05-49`, door face):** 28 loose components below y 600, 303 px, all of them
+the two groups PART 12 named — the stall (x 321-496) and the mid-right canopy row
+(x 1037-1201). Zero warm-bright below y 600. The hut wall carries max R-B 12; the lamp
+stratum (x 1250-1550, y < 600) carries 9,096 warm px, all of it the wall's own lit mass
+at y 522-595 (the door-face emitter).
+
+**AFTER (`05-56-31`, bracket):** 17 loose components below y 600, 248 px — the same two
+groups, shifted by the 0.12 % lens difference, not by the lamp. The hut wall now carries
+a new top component of 5,210 px at x 1383-1472, y 421-521 (the bracket's cone on the
+wall, 95 px higher than the door-face core) plus 2,439 px at x 1356-1485, y 523-551.
+The lamp stratum gained 4,349 warm px, all of it wall. **The lamp contributes 0 warm px
+below the horizon in this frame, as it did in 3f.** The component count went down
+(28 → 17) because the tighter lens lifted the canopy row's lower edge out of the band —
+lens and crowd drift, not the lamp.
+
+**Floor strip (`x 1300-1600, y 700-760`):** 0 warm px in both frames; max R-B −4 after
+against −2 before; mean luma 86.6 after against 83.4 before (the other floor rect moved
+the other way, 40.0 → 38.2). **No pool.** The ground 1-6 m in front of the door face is
+in frame and carries the same cold blue it carried before the change.
+
+## (b) The diagnostic frame — what it proves and what it does not
+
+The implementer's third claim was verified independently:
+
+1. **Revert verified.** `git diff HEAD -- src/shaders/lighting.wgsl` is empty, and
+   `git log --oneline -3` carries no shader change. The diagnostic frame
+   (`shots/2026-10-22T05-58-09-20-fall-ground-level.png`) was taken from a build with
+   the albedo factor removed from the pool term and then reverted. It is a **control**, not
+   evidence of the committed build.
+2. **What it proves.** With the albedo multiply gone, the pool lands where the geometry
+   says it should: one warm component of 15,733 px, bbox x 1205-1599, y 721-786 — the disc
+   under the head, clipped by the hut, spreading from the wall's base toward the camera.
+   The bracket's cone does reach the visible strip. The pool is computed and lands correctly;
+   it is invisible in the committed build because the term is multiplied by the fragment's
+   albedo, and this strip is flooded-low water with albedo (0.034, 0.049, 0.062) — dark
+   and blue-biased. A warm lamp times a blue-biased albedo adds a blue-biased lift (R
+   +0.030·disc, B +0.022·disc); it lifts luma a few points and leaves R-B negative, which
+   is exactly what the strip measures.
+3. **What it does not prove.** It does not prove the committed build has a pool (it does
+   not — 0 warm px on the strip). It does not prove the water's specular (PART 10's
+   deferred clause, untouched). It does not prove a stronger lamp would help — raising
+   intensity scales the blue-biased lift by the same factor and would brighten every frame
+   already judged. And it does not prove workshopYard's read (no frame contains one).
+
+The diagnostic is the right kind of control: it isolates one variable (the albedo multiply)
+and shows the pool exists upstream of it. But it cannot stand in for the real frame, and the
+real frame does not carry a pool.
+
+## (c) What the source reads as
+
+At 1x the lamp is a small warm rectangle above-left of the black doorway with a dim warm
+halo on the wall; at 4x it is a soft-edged cream panel with a visible stem (post + arm)
+under it, 0.11 m outboard of the eave and 0.34 m above the slab. That reads as a **fixture**,
+not a lit rectangle on a blank box — the stem is the new information, and it is the thing
+the door-face frame lacked. Against sheet B frame 3's ground-level light (lanterns and
+storefront glow that bring the ground with them, lighting the snow between figures), the
+read is closer to a work lamp than the door-face version was, but it still says "there is
+an electrical light here" rather than "work happens here": the door under it stays black,
+there is no shade or conduit, and the ~70 px halo returns to plain wall.
+
+The fixture is plausible at building scale: a 0.1 m square post, ~0.5 m tall, on a hut
+~2.7 m tall, is a lamp post, not a toy. The head keeps the existing 0.14 m emissive box,
+so the fixture's scale is set by the head, not the post.
+
+## (d) The rest of the frame
+
+- **The stall and its crowd remain the frame's best thing and its human centre.** The same
+  lit canopy, red frontage and ~a dozen silhouettes at the horizon, ~4 % larger from the
+  lens, with two new unlit crowd silhouettes at the lower-left edge (x 30-130, y 600-745;
+  crowd drift between runs, not part of the change). The stall does not pool its own light
+  either: its below-horizon warm is sign and canopy edge only, gone by y 620.
+- **The water band is unchanged** (2x crops indistinguishable): the same value step with
+  the same single-scale concentric ripple motif, no reflection of the lit towers behind it,
+  no edge treatment, no specular. As PART 10 (b) left it; the specular is this round's
+  deferred clause.
+- **Rubble, rebar, lifelines: still nothing readable.** The wreck dome still reads as a
+  smooth boulder; the crate (x 1050-1140) is still a bare silhouette with no contact
+  shadow; no cable legible anywhere on the floor.
+- **Plaza or fall zone: still a plaza.** Two pylons run out of the top, the hut is a box
+  with one lit panel, the floor is a cold blue decal board, and the container piles — the
+  village half of the zone's identity — are overhead and out of shot. The bracket did not
+  change the register a stranger would name.
+
+## (e) What this round establishes, and what it does not
+
+- **Establishes:** the bracket is in the frame and reads as a fixture; the wall gained
+  431 warm px and 2.5 luma; the emitter moved 95 px higher (y 553-559 → y 456-475); the
+  fixture is plausible at building scale.
+- **Establishes:** the diagnostic is a clean control — revert verified, pool lands on the
+  right strip when the albedo factor is removed, and the committed build does not carry it.
+- **Establishes:** the stall, crowd, water, rubble and city-wide read are untouched; no
+  leak, no flood beyond the wall, no GPU/WGSL error; lights 1133/1133, starved 0/0.
+- **Does not establish** the acceptance as met: 0 warm px on the floor strip, max R-B −4,
+  no source-lit patch below the horizon.
+- **Does not establish** the water's specular (PART 10's deferred clause), workshopYard's
+  read (no frame contains one), or the floor as a place at night.
+- **Does not re-judge** rounds 3a-3g, pose 20's role beyond the above, or the ground pass.
+
+**One next change, not three.** Remove the albedo multiply from the pool term (or raise
+the flood water's albedo) in `src/shaders/lighting.wgsl`, so a lamp can warm this floor
+at all. Re-shoot 20 and accept on a source-lit ground patch below the horizon plus a
+specular in the water. That single change decides whether this frame is a working floor
+at night, which is what PART 10's gate has been about all along. The bracket's position
+is settled; do not move it again.
