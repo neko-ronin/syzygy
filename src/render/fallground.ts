@@ -119,6 +119,9 @@ export function pushFallGround(bld: MeshBuilder, fall: FallChunk, lod: number, o
     pushBeam(bld, [qx0, GROUND_Y + 0.95, qz0], [qx1, GROUND_Y + 0.95, qz1], 0.04, STEEL);
     lamp(hx, GROUND_Y + 3.4, hz);
   }
+  // §2 of the round: the wreck's ridges, rebar and facade grid. Last, because
+  // it dresses pieces the shared greybox above already emitted.
+  dressWreck(bld, fall);
 }
 
 /** A scaffolding tower bolted up the pier's face, with its landing and rail. */
@@ -261,3 +264,108 @@ function pushBKit(
 export function pushBeam(bld: MeshBuilder, a: Vec3, b: Vec3, radius: number, col: Vec3): void {
   bld.pushCylinder(a, b, radius, 3, col);
 }
+
+// ---------------------------------------------------------------- wreck dressing
+
+/**
+ * A box on an arbitrary right-handed basis, wound outward on every face.
+ * A local copy of fallmesh's `pushOrientedBox`: fallmesh imports this file, so
+ * importing that value back would make a cycle — and a value cycle here is the
+ * TDZ shape that already crashed the village bake once (see fallvillage.ts).
+ */
+function orientedBox(bld: MeshBuilder, c: Vec3, ax: Vec3, ay: Vec3, az: Vec3, h: Vec3, col: Vec3): void {
+  const p = (x: number, y: number, z: number): Vec3 => [
+    c[0] + ax[0] * x + ay[0] * y + az[0] * z,
+    c[1] + ax[1] * x + ay[1] * y + az[1] * z,
+    c[2] + ax[2] * x + ay[2] * y + az[2] * z,
+  ];
+  const [hx, hy, hz] = h;
+  const c000 = p(-hx, -hy, -hz), c100 = p(hx, -hy, -hz), c110 = p(hx, hy, -hz), c010 = p(-hx, hy, -hz);
+  const c001 = p(-hx, -hy, hz), c101 = p(hx, -hy, hz), c111 = p(hx, hy, hz), c011 = p(-hx, hy, hz);
+  bld.pushQuad(c001, c101, c111, c011, col);
+  bld.pushQuad(c100, c000, c010, c110, col);
+  bld.pushQuad(c101, c100, c110, c111, col);
+  bld.pushQuad(c000, c001, c011, c010, col);
+  bld.pushQuad(c011, c111, c110, c010, col);
+  bld.pushQuad(c000, c100, c101, c001, col);
+}
+
+/** The basis of a frame yawed, then tilted about its own x axis. */
+function yawTilt(yaw: number, tilt: number): [Vec3, Vec3, Vec3] {
+  const c = Math.cos(yaw), s = Math.sin(yaw), ct = Math.cos(tilt), st = Math.sin(tilt);
+  return [[c, 0, -s], [s * st, ct, c * st], [s * ct, -st, c * ct]];
+}
+
+const REBAR: Vec3 = [0.29, 0.24, 0.19];
+
+/**
+ * Round 3b §2: the wreck is no longer a smooth grey lid. Each slab gets the
+ * rubble that broke off it along its long edges and both broken ends, plus a
+ * rebar fringe splayed out of those ends; each spire body gets its facade grid
+ * — the floors and columns of the tower it used to be — on both flanks.
+ *
+ * All done in the piece's own yawed/tilted basis, so the dressing follows the
+ * plate down instead of standing upright in mid-air.
+ */
+function dressWreck(bld: MeshBuilder, fall: FallChunk): void {
+  for (const w of fall.wreck) {
+    const [ax, ay, az] = yawTilt(w.yaw, w.tilt);
+    const at = (u: number, v: number, t: number): Vec3 => [
+      w.x + ax[0] * u + ay[0] * v + az[0] * t,
+      w.y + ax[1] * u + ay[1] * v + az[1] * t,
+      w.z + ax[2] * u + ay[2] * v + az[2] * t,
+    ];
+    const r = makeRng((w.x * 7919 + w.z * 104729 + w.yaw * 1e5) | 0);
+    if (w.kind === 'slab') {
+      // The ridge: lumps along both long edges and a few across the top, so the
+      // plate reads as the top of a pile of broken deck, not as a lid.
+      const n = 10 + r.int(0, 8);
+      for (let k = 0; k < n; k++) {
+        const edge = k % 3 !== 2;
+        const u = (r.next() * 2 - 1) * w.halfX * 0.94;
+        const t = edge ? (k % 2 ? 1 : -1) * w.halfZ * (0.72 + r.next() * 0.26) : (r.next() * 2 - 1) * w.halfZ * 0.5;
+        const h = 0.16 + r.next() * 0.72;
+        const tone = tintOf(CONCRETE, 0.82 + r.next() * 0.34);
+        orientedBox(bld, at(u, w.halfY + h / 2, t), ax, ay, az,
+          [0.35 + r.next() * 0.9, h / 2, 0.28 + r.next() * 0.6], tone);
+      }
+      // Rebar: the broken short ends are where the deck tore, so the rods come
+      // out splayed along the fall direction.
+      for (const end of [-1, 1]) {
+        const rods = 6 + r.int(0, 4);
+        for (let k = 0; k < rods; k++) {
+          const v = (r.next() * 2 - 1) * w.halfY * 0.7;
+          const t = (r.next() * 2 - 1) * w.halfZ * 0.62;
+          const len = 1.4 + r.next() * 2.8;
+          const u0 = end * w.halfX * 0.98, u1 = end * (w.halfX + len);
+          pushBeam(bld, at(u0, v, t), at(u1, v + (r.next() * 2 - 1) * 0.7, t + (r.next() * 2 - 1) * 0.9), 0.035, REBAR);
+        }
+      }
+    } else {
+      // A fallen tower: its floors and columns are the grid. Both flanks, at
+      // the flank plane, so the read is the building's section, not a stripe.
+      const floors = 4;
+      for (let k = 0; k < floors; k++) {
+        const v = -w.halfY + (k + 0.5) * (2 * w.halfY / floors);
+        for (const side of [-1, 1]) {
+          orientedBox(bld, at(0, v, side * (w.halfZ + 0.03)), ax, ay, az, [w.halfX * 0.94, 0.09, 0.04], CONCRETE);
+        }
+      }
+      const cols = Math.max(6, Math.round(w.halfX / 7));
+      for (let k = 0; k <= cols; k++) {
+        const u = -w.halfX + (k / cols) * 2 * w.halfX;
+        for (const side of [-1, 1]) {
+          orientedBox(bld, at(u, 0, side * (w.halfZ + 0.03)), ax, ay, az, [0.09, w.halfY * 0.9, 0.04], CONCRETE);
+        }
+      }
+      // Roof slab edge, so the top of the body is not another bare plane.
+      orientedBox(bld, at(0, w.halfY + 0.05, 0), ax, ay, az, [w.halfX * 0.96, 0.06, w.halfZ * 0.9], tintOf(CONCRETE, 0.8));
+    }
+  }
+}
+
+/** A colour scaled toward black/white without leaving the palette's hue. */
+function tintOf(c: Vec3, k: number): Vec3 {
+  return [Math.min(1, c[0] * k), Math.min(1, c[1] * k), Math.min(1, c[2] * k)];
+}
+

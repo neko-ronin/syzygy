@@ -22,6 +22,24 @@ const zone = fallZone(cityPlan(SEED).seed);
 const cols = zone.columns.map((c) => [c.x, c.z] as const);
 
 let total = 0, totalGround = 0, lamps = 0, chunks = 0, maxFull = 0, maxGround = 0, maxLamps = 0;
+let opposed = 0, tris = 0;
+/** Winding against the authored normal = the back-face cull hides the visible side. */
+const opposedIn = (m: ReturnType<MeshBuilder['build']>): number => {
+  let bad = 0;
+  for (let t = 0; t < m.indices.length; t += 3) {
+    const [a, b, c] = [0, 1, 2].map((k) => m.indices[t + k]);
+    const e1 = [0, 1, 2].map((k) => m.positions[b * 3 + k] - m.positions[a * 3 + k]);
+    const e2 = [0, 1, 2].map((k) => m.positions[c * 3 + k] - m.positions[a * 3 + k]);
+    const g = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+    const gl = Math.hypot(g[0], g[1], g[2]);
+    if (gl < 1e-4) continue;
+    const n = [0, 1, 2].map((k) => m.normals[a * 3 + k]);
+    const cos = (g[0] * n[0] + g[1] * n[1] + g[2] * n[2]) / (gl * (Math.hypot(n[0], n[1], n[2]) || 1));
+    if (cos <= -0.05) bad++;
+    tris++;
+  }
+  return bad;
+};
 const per = new Map<string, number>();
 for (const [x, z] of cols) {
   const key = `${Math.floor(x / SIZE)},${Math.floor(z / SIZE)}`;
@@ -37,6 +55,7 @@ for (const key of per.keys()) {
   const ground = new MeshBuilder();
   const groundLights: ChunkLight[] = [];
   pushFallGround(ground, fall, 0, [], groundLights);
+  opposed += opposedIn(ground.build());
   chunks++;
   total += full.triangleCount;
   totalGround += ground.triangleCount;
@@ -48,5 +67,6 @@ for (const key of per.keys()) {
 console.log(`zone columns ${zone.columns.length} across ${chunks} chunks (${(zone.columns.length / chunks).toFixed(1)} per chunk)`);
 console.log(`lod 0 chunk triangles: total ${total}, mean ${Math.round(total / chunks)}, max ${maxFull}`);
 console.log(`the ground pass alone: ${totalGround} tris citywide, mean ${Math.round(totalGround / chunks)} per chunk, max ${maxGround}`);
+console.log(`winding: ${opposed} of ${tris} ground triangles face away from their authored normal`);
 console.log(`work lamps registered at lod 0: ${lamps} (mean ${(lamps / chunks).toFixed(1)} per chunk, max ${maxLamps} — the cap is 6)`);
 console.log(`ground deck sits at y=${GROUND_Y}`);
