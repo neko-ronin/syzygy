@@ -1458,3 +1458,133 @@ the lamp.
 **NEXT:** stand 10–18 m from a winch/stair foot on its lamp side, at a pool's
 near edge, shaft out of the top; accept the pose only on a warm component below
 the horizon.
+
+---
+
+# PART 9 — ROUND 3C: the lit row on the LOD 0-1 path (`d949bf5`, run `01-23-07`, `shots/2026-10-22T01-23-07`)
+
+**Scope.** One change judged: `dressFaces` now lights a contiguous row of 2-3 bays on the
+LOD 0-1 path instead of one bay per face. Baseline is round 3a (`shots/2026-10-21T23-54-59`),
+same hour, same rig, same seed, one round between them (3b's ground pass, which changed no
+fall crown). The implementer's record (`docs/FALL_LITROWS_ROUND3C.md`) was read for what was
+built; the frames decide, and the acceptance is a **count**, not an impression: 2-3 contiguous
+lit blocks per crown at 193-410 m, at the six nearest columns.
+
+## Close-out (DESIGN §6) — round 3c
+
+```
+VERDICT:  more work needed
+EVIDENCE: references/B-cold-industrial-sheet.jpg (read first)
+          shots/compare/2026-10-22T02-25-33.png (+ .txt)   BASELINE | CURRENT | REFERENCE
+            baseline: shots/2026-10-21T23-54-59 (round 3a)
+            current:  shots/2026-10-22T01-23-07 (round 3c, shot after d949bf5)
+            reference column: references/sections/B-cold-industrial/
+          full-size: shots/2026-10-22T01-23-07/{16,17,18,19}.png, both runs; 4x-8x crops
+            of each of the six nearest crowns, both runs; _capture.json (4 shots,
+            error null on every shot, starved 0)
+JUDGED:   the acceptance as a count at 18's six nearest fall columns (193-264 m, LOD 0);
+          whether the row reads as a row and not a bar at 193 m; the near control (19);
+          17 as control; 16 as unjudgeable; warm/dark against sheet B frame 2
+GAP:      the row is drawn on faces the camera cannot see. Of the 56 lit panes that
+          turn toward 18's camera at the six nearest columns, 36 are behind the pile's
+          own boxes. Clear of the pile's geometry, per column: id109 13/22, id89 5/12,
+          id108 2/8, and id76, id124, id123 0/6, 0/4, 0/4. Counted on the frame:
+          id109 5 blocks (runs of 2 and 3), id89 2-3, id108 1 (a 4 px mark),
+          id76/id124/id123 none. TWO of the six meet the acceptance, not six.
+NEXT:     one change: select the row's face by line of sight, not by the pile's
+          crown-first 3-5 face roll — put the row on the outermost face at each level,
+          where a stepped pile cannot hide it. Re-shoot 18 and count on the frame at the
+          positions the rows are actually drawn (not the probe's; see (b)).
+CONFIRMED: the mechanism renders and reads as a row, not a bar — 5 separate blocks with
+          1-2 px panels at 193 m, where 3a had one mark; 19 improved, not regressed
+          (a 4-block band where 3a had one framed bay); 17 unchanged in composition;
+          16 still has no fall crown in frame and cannot judge this; cost inside D32
+          (lights +22..+32 delivered — 1221/1133/1405/1133 — starved 0, no GPU/WGSL
+          error); warm at 18 flat at 1.31 % (1.32 % in 3a), so no light flood.
+```
+
+## (a) The count, at the six nearest columns
+
+Method is PART 6's, unchanged: warm = `R > B + 15 && R > 60`, components at 8x, in a box round
+the row the frame actually carries. The right-hand columns are not a guess: each column's own
+lit panes were ray-cast against that column's baked mesh (`pushFallVillage`, the renderer's
+LOD), and a pane counts as **clear** only if no other box of the same pile stands between it and
+the camera.
+
+| column | dist | LOD | panes facing camera | clear of the pile | blocks counted on the frame |
+| --- | --- | --- | --- | --- | --- |
+| id109 | 193 m | 0 | 22 | 13 | 1 -> **5** (runs of 2 and 3; x 137-177, y 388-396) |
+| id76 | 198 m | 0 | 6 | 0 | 0 -> **0** |
+| id124 | 225 m | 0 | 4 | 0 | 0 -> **0** |
+| id89 | 228 m | 0 | 12 | 5 | 1 -> **2-3** (x 621-641, y 377-383) |
+| id123 | 262 m | 0 | 4 | 0 | 0 -> **0** |
+| id108 | 264 m | 0 | 8 | 2 | 0 -> **1** (4 px, x 512-513, y 478-481) |
+
+Two of six. Where the row is visible it is better than the spec asked: id109's five blocks
+resolve into a run of two and a run of three with a 12 px gap between them, so the crown carries
+two rows at one height, and at 193 m the 0.45 m panels survive as 1-2 dark columns — the row is
+**not** the 31 px bar the implementer was right to fear. The failure is elsewhere: on four of
+the six crowns the row exists only on faces the pile hides from this camera.
+
+This is not the implementer's reading. They report 3 blocks at id109, 3 at id89, **4 at id124**,
+**3 at id108**, 2 at id76 and 2 at id123. The last four are not in the frame: at id124, id123
+and id76 the pixels where the probe puts the panes are cold (max `R-B` −33, −58 and the old-city
+grid), and the probe itself says every one of those panes is occluded. id124's "4" is id109's row:
+id124's 130 px box (x 100-230) contains id109's crown.
+
+## (b) The probe's screen map is about 12 % too close to the frame centre
+
+Four independent bands agree on one factor, `800 + (predicted - 800) x ~1.1`:
+
+| what | probe predicts | drawn at |
+| --- | --- | --- |
+| id109's clear row | x 185-225, y 395-398 | x 137-177, y 388-396 |
+| id89's clear row | x 645-663, y 386-388 | x 621-641, y 377-383 |
+| column 74's row | x 1015-1028, y 477-479 | x 1039-1052, y 478-482 |
+| id108's 2 clear panes | x 543-544, y 475-476 | x 512-513, y 478-481 |
+
+The **world** positions, distances and LODs are unaffected — that part of round 3a's fix is
+sound — but `project()` is not the renderer's screen. Consequence: anything counted in a box at
+the probe's screen position is counted in the wrong place. PART 6's 90 px box at id109 read
+12-14 px while the row is 40 px wide; 3c inherited the same positions and reported four rows it
+could not see. This is PROCESS rule 4 again, in the other half of the same probe: it measured a
+projection, not the frame. The cause is not established — the recorded held fov (1.04821) and
+the fov the probe uses (1.04840) agree, so a focal/aspect convention in the capture path is the
+hypothesis, not a finding.
+
+## (c) 19 is the clearest evidence the mechanism works
+
+At 3 m the near pile's upper container carries a **4-block lit band** where 3a had one framed
+bay. It reads as a window wall with jambs and mullions, not a decal, and it is the one frame
+where the row is unambiguously on a visible face. Not a regression — an improvement on a pose
+PART 6 already called a pass.
+
+## (d) 17, 16, and the balance
+
+**17** is the same frame as 3a: same composition, no new lit geometry in the grid, no row visible.
+That is consistent, not reassuring — 17 sees the pies from the deck, and its dressed faces are
+not the ones turned to the camera either.
+
+**16** has no fall crown in frame (PART 6 (b)); it cannot judge this round and was not counted.
+
+**Against sheet B frame 2:** the sheet's tower carries eight to ten blocks at several heights;
+this frame carries five on one crown and two to three on another, and nothing on the other four
+nearest crowns. The value structure has not moved — whole-frame warm 1.32 -> 1.31 % — because
+~600 new lit pixels in a 1.44 M px frame is what two crowns look like, not what a lit zone looks
+like.
+
+## What this round establishes, and what it does not
+
+- **Establishes:** the row renders, and at 193 m it is countable blocks, not a bar. The bay
+  size, the 0.45 m panel and the per-face key are all right.
+- **Establishes:** where the row is on a visible face it beats the acceptance (19 at 3 m,
+  id109 at 193 m).
+- **Establishes:** the probe counts geometry that the frame cannot see. 36 of 56 camera-facing
+  panes at the six nearest columns are behind the pile's own boxes. A probe that admits a face
+  by the sign of `n · toCamera` will keep reporting rows that no frame contains.
+- **Does not establish** that four of the six crowns carry a row. They do not.
+- **Does not re-judge** round 2, round 3a's verdict, or pose 20 (PART 8).
+
+**One next change, not three.** Choose the face by line of sight: the row goes on the outermost
+face at each level. The count is not the lever this round thought it was — 292 bays already
+exist, and 20 of the 56 that face the camera can be seen.
