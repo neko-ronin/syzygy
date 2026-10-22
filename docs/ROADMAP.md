@@ -603,13 +603,13 @@ a *frame* better.
 
 ## R11 — Build the four sections (D24)
 
-**Status: built; §B has twelve verdicts and none passes; §A, §C and §D have no
+**Status: built; §B has fourteen verdicts and none passes; §A, §C and §D have no
 frames** · **Priority: highest** · *Vision: "large sections of the city have
 differing styles and colors like a real city"*
 
-> **2026-10-22 update — §B has frames and twelve verdicts.** The claim in the
+> **2026-10-22 update — §B has frames and fourteen verdicts.** The claim in the
 > block below ("not one section has been photographed") is no longer true for §B:
-> poses 16-20 shoot the fall zone and `VISION_FALL_BASELINE.md` PARTS 1-12 judge
+> poses 16-20 shoot the fall zone and `VISION_FALL_BASELINE.md` PARTS 1-14 judge
 > them, each by an agent that did not implement the round. §A, §C and §D still
 > have no frames.
 >
@@ -622,22 +622,29 @@ differing styles and colors like a real city"*
 >
 > Where the two most recent verdicts leave it:
 >
-> - **the lit row** renders and reads as separate blocks, not a bar, wherever it
->   faces the camera — id109 at 193 m, 19 at 3 m. Round 3e put the row on the face
->   that looks out, which gained two crowns (0 → 2 blocks) and lost the one the
->   close pose saw; the count on the frame is **3 of 6 nearest crowns with 2+
->   visible blocks, at most 4 generously, against an acceptance of 5** (PART 11).
->   Next: the row on **both** long faces, so the far one is simply hidden.
-> - **the ground pose** now has a lamp that is lit and a floor that is not.
->   Moving the head out of its own hut body (`8608fbe`) made a warm rectangle on
->   the door face with a lit wall (max R-B 12 → 97), but the floor 1-6 m in front
->   of it carries R-B −2 and every warm pixel below the horizon belongs to the
->   stall or the canopy row, both present before the change (PART 12). Next:
->   bracket the head above the eave so the cone lands on that visible strip, and
->   accept on a source-lit ground patch.
+> - **the lit row** renders and reads as separate blocks, not a bar, wherever the
+>   camera can read it — id109 at 193 m (a fourth window on the both-faces rule),
+>   pose 19 at 3 m (its 4-block band is back where 3c had it). The count on the
+>   frame is **4 of 6 nearest crowns with 2+ visible blocks, 5 if a 2-px bay
+>   counts, against an acceptance of 5** (PART 14). The two that remain are id124
+>   (a small box turned away at 225 m) and id108 (a stack seen edge-on at 264 m):
+>   both need **the pick** — choosing which box of the crown carries the row by
+>   line of sight — not another face rule, which has already taken every crown the
+>   camera meets.
+> - **the ground pose** has a lamp that is lit and a floor that is not, and the
+>   reason is now measured rather than guessed. Three rounds fixed the fixture
+>   (out of the hut, onto the door face, onto a bracket above the eave: `95bb881`,
+>   wall +431 warm px, max R-B 97), and the floor strip 1-6 m in front still
+>   carries **0 warm px and max R-B −4** (PART 13). A diagnostic with the albedo
+>   multiply removed from the pool term puts one 15,733-px pool at x 1205-1599,
+>   y 721-786 — the cone does reach the ground. The committed build hides it
+>   because the strip is flood water at albedo 0.034/0.049/0.062: warm light times
+>   a blue albedo lifts luma and leaves R-B negative. Next: **scope the fix to the
+>   flood class** — a warmer albedo and/or a specular lobe — leave the global pool
+>   term alone, and accept on a source-lit ground patch plus a control frame.
 >
-> The two next changes are independent (`fallvillage.ts` / `fallground.ts`) and can
-> run in parallel. Current state and the commands:
+> The two next changes are independent (`fallvillage.ts` / the flood material) and
+> can run in parallel; captures are serialized. Current state and the commands:
 > [`STATE_2026-10-22.md`](STATE_2026-10-22.md).
 
 > **2026-10-02: §B and §A are BUILT and §D's evidence is landed — and not one
