@@ -3312,3 +3312,278 @@ pool's 3.18 m disc. NEXT: raise POOL_GAIN (or the pool term's multiplier) in
 src/shaders/lighting.wgsl so the lamp's disc dominates the material's flat lift;
 re-shoot 20 and accept when the lamp contributes more than half of the strip's
 luma lift and the strict warm count exceeds a threshold.
+
+
+> **Annotation (PART 18, round 3l):** The 15-25 % figure above is **wrong**. It was
+> measured on the lateral (x) axis, which cannot separate a pool from a flat lift
+> because the strip is narrow inside the pool's 3.18 m disc. The radial (y)
+> transect in PART 18 §(a) shows the lamp contributes roughly 70-80 % of the
+> pool's brightening (+40 to +52 luma at the pool against +10 to +12 on the wall
+> above, which is the same material outside the pool). PART 17's other measurements
+> (location, bbox, max R-B, warm-leaning count, controls) stand. The 15-25 % figure
+> should be disregarded. See PART 18 §(g) for the full correction.
+
+# PART 18 — ROUND 3L: the lamp's own strength (`47032a2`, run `08-03-24`, `shots/2026-10-22T08-03-24`)
+
+**Scope.** One change judged: `LAMP_INTENSITY` 2.2 → 6.6 in `src/render/fallground.ts`. Nothing
+else. Baseline is round 3j's state (`shots/2026-10-22T07-21-31`). The implementer's record
+is `docs/FALL_POOL_ROUND3L.md`. PART 13's acceptance is **a source-lit patch of ground
+below the horizon — a warm/light value break with a measured location and a counted warm
+area, not a threshold argument — plus a control frame that shows no new pool.**
+
+**Framing caveat, verified.** Two baselines exist and they disagree by render scale and
+camera. `07-21-31` is a sequence run at 1600×900, fov 1.07542, eye 2.0016 m. `08-03-24`
+(shipped) is a sequence run at 1600×900, fov 1.07542, eye 2.0016 m — same camera, same
+scale. The same-camera comparison is clean. `08-12-59` (the 17.6× experiment) is tier **low**
+and is excluded from every number here; `08-08-59` (8.8×) is tier medium and is used only
+where noted. `shots/latest.json` points at `08-12-59`, so `compare.mjs --latest` judges
+the low-tier experiment, not HEAD; the grid used here is
+`shots/compare/2026-10-22T08-52-22.png` (+ `.txt`), baseline `07-21-31`, current `08-03-24`.
+
+## Close-out (DESIGN §6) — round 3l
+
+```
+VERDICT:  more work needed
+EVIDENCE: references/B-cold-industrial-sheet.jpg (read first; frame 3 is the ground-level
+            reference: lanterns and storefront glow that bring the ground with them)
+          shots/compare/2026-10-22T08-52-22.png (+ .txt)   BASELINE | CURRENT | REFERENCE
+            baseline: shots/2026-10-22T07-21-31 (round 3j, sequence run)
+            current:  shots/2026-10-22T08-03-24 (round 3l, shot after 47032a2)
+            reference column: references/sections/B-cold-industrial/
+          full-size: shots/2026-10-22T08-03-24/{16,17,18,19,20}.png and
+                     shots/2026-10-22T07-21-31/{16,17,18,19,20}.png
+          reviewer crops: hut wall x 1340-1480 y 490-600 at 4x/8x; strip x 1300-1600
+            y 700-760 at 2x/4x/8x; radial transect x 1330-1560, 10-px rows y 690-859
+          shots/2026-10-22T08-03-24/_capture.json (5 shots, error null on all five,
+            lights 1222/1133/1405/1133/1133, starved 0, lodHistogram [9,34,124,0])
+          docs/FALL_POOL_ROUND3L.md (implementer's record)
+JUDGED:   the acceptance's attribution on the frame — warm-leaning pixels (R > B) and
+          warm pixels (R > B + 15 && R > 60) in the strip x 1300-1600, y 700-760 and
+          in the pool region x 1200-1600, y 715-790, before and after, by location and
+          component, not aggregate share; the shape of the brightening on the radial
+          (y) axis, which is the axis along which the lamp throws; whether the frame is
+          a source-lit patch of ground below the horizon or a lighter floor; the wall's
+          lit area and whether it is structured or a slab; controls 16-19 warm share
+          before/after; the cost from the run's own stats; the read against sheet B
+          frame 3 (water as wet ground and small reflective patches, not a mirror pool)
+GAP:      the pool is source-lit, but the wall is over-lit and reads as a slab, not as
+          section B's structured apertures. The wall (x 1340-1480, y 490-600) is 79 %
+          warm at 6.6 (12,174 px, mean RGB (93, 72, 56), max R 153) against 25.6 %
+          warm at 2.2 (3,935 px, mean (48, 36, 39)). It is the largest lit area in the
+          frame and it has one broad warm band (y 520-544) over a uniform warm field,
+          not the small apertures on a cold dark mass that section B's reference
+          (frame 3) carries. The pool acceptance is met; the frame as a whole does not
+          read as section B because of the wall.
+NEXT:     one change: reduce the wall's lit area or add structure to it (windows,
+          panels, a soffit) so it reads as structured apertures on a cold mass, not as
+          a slab. Do not reduce the lamp — that kills the pool. The bracket, the
+          material, and the lamp's intensity are settled.
+CONFIRMED: the radial transect reproduces the pool shape — lift +40.5 at y 720-729,
+          +52.3 at y 730-739 (peak, under the lamp), +50.0 at y 740-749, +43.5 at
+          y 750-759, decaying to +16.2 at y 850-859; against +10 to +12 on the wall
+          above (y 690-719), which is the same material outside the pool. The lamp
+          contributes roughly 70-80 % of the pool's brightening, not 15-25 %: the
+          second reading's figure was measured on the lateral (x) axis, which cannot
+          separate a pool from a flat lift because the strip is narrow inside the
+          3.18 m disc. The second reading's 15-25 % figure is wrong and is annotated
+          in PART 17. The strict warm count went 1 px -> 10,526 px (6 components,
+          largest 10,516 px, bbox x 1300-1599, y 720-759); max R-B +18 -> +59 at
+          (1447, 723); no clipping (max R 214, 0 px >= 248 in the wall band); controls
+          16 flat (0.115 % -> 0.115 %) and 18/19 within 0.03 pp; lights 1222/1133/
+          1405/1133/1133, starved 0; no GPU/WGSL error in any of the 5 shots; tier
+          verified (08-03-24 medium, 08-12-59 low and excluded); the 17.6x "flat wash"
+          claim is withdrawn — at full frame scale the hut reads as a lit object with
+          a pool in front of it, and the lamp is legible as the source.
+```
+
+## (a) The radial transect, re-derived
+
+Method: warm = `R > B + 15 && R > 60`; mean luma and mean R-B in 10-px rows,
+band `x 1330-1560`, before `07-21-31` vs after `08-03-24` (same camera, same scale,
+same tier — medium).
+
+| y (10-px rows) | before luma | after luma | lift | before R-B | after R-B | liftRB |
+|---|---|---|---|---|---|---|
+| 690-699 | 14.7 | 26.4 | +11.7 | -16.3 | -3.7 | +12.6 |
+| 700-709 | 13.9 | 25.1 | +11.2 | -16.6 | -4.9 | +11.7 |
+| 710-719 | 13.5 | 23.6 | +10.1 | -16.9 | -6.1 | +10.8 |
+| 720-729 | 58.5 | 99.0 | **+40.5** | -1.4 | 30.4 | **+31.8** |
+| 730-739 | 77.5 | 129.7 | **+52.3** | 2.4 | 41.4 | **+39.0** |
+| 740-749 | 71.0 | 121.0 | **+50.0** | -2.7 | 37.9 | **+40.7** |
+| 750-759 | 58.6 | 102.0 | **+43.5** | -12.5 | 25.3 | **+37.8** |
+| 760-769 | 46.6 | 81.3 | +34.8 | -25.7 | 4.5 | +30.2 |
+| 770-779 | 40.9 | 71.0 | +30.1 | -31.1 | -6.2 | +24.9 |
+| 780-789 | 39.2 | 68.3 | +29.0 | -31.0 | -7.4 | +23.6 |
+| 790-799 | 37.3 | 65.1 | +27.8 | -31.0 | -8.4 | +22.6 |
+| 800-809 | 35.2 | 61.2 | +26.0 | -31.6 | -9.8 | +21.7 |
+| 810-819 | 33.0 | 56.8 | +23.8 | -32.0 | -11.4 | +20.6 |
+| 820-829 | 30.6 | 52.4 | +21.9 | -32.5 | -12.8 | +19.6 |
+| 830-839 | 28.0 | 48.1 | +20.1 | -33.3 | -14.6 | +18.7 |
+| 840-849 | 25.9 | 44.1 | +18.2 | -34.0 | -16.3 | +17.7 |
+| 850-859 | 24.0 | 40.2 | +16.2 | -34.1 | -17.9 | +16.2 |
+
+**The pool has a profile, not a flat lift.** The wall above the pool (y 690-719) lifts
++10 to +12 luma and +11 to +13 R-B — that is the material (same silt, outside the
+pool's 3.18 m disc, plus the lamp's brdf tail). The pool itself (y 720-759) lifts
++40 to +52 luma and +32 to +41 R-B. The lamp's contribution on top of the material
+is therefore roughly +30 to +40 luma and +21 to +29 R-B — about 70-80 % of the
+pool's brightening. The deck below (y 760-859) lifts +16 to +35 luma, decaying with
+distance, which is the pool's smoothstep tail (disc falling from 1.0 to 0.0 between
+0.95 m and 3.18 m from the lamp's ground position).
+
+**The second reading was wrong because it measured the wrong axis.** On pose 20 the
+lamp throws toward the camera, so distance from the lamp grows with **y**, not x. The
+strip is ~2 m wide inside a 3.18 m disc, so the lateral (x) transect varies distance
+by only 1-1.5 m and cannot separate a pool from a flat lift — every column is inside
+the disc. The material/lamp split derived from it (15-25 % lamp) is not trustworthy.
+The radial (y) transect separates them cleanly: the wall above is material-only
+(+10 to +12), the pool is material + lamp (+40 to +52), and the difference is the
+lamp. **The lamp contributes roughly 70-80 % of the pool's brightening.**
+
+## (b) The wall: structured or a slab?
+
+The hut's front wall (x 1340-1480, y 490-600), 4x crop:
+
+```
+ 500      ...+++##+++#+++++++::::::.
+ 504 :++++++++++##+++++++++++::::::.
+ 508 :::+++++++++++++++++++::::::::.
+ 512 ::::++++++++++++++++:::::::::..
+ 516 ::::::::::::::::...           .
+ 520 ......:.:+################+++++
+ 524 #########################++++++
+ 528 #######################++++++++
+ 532 #####################++++++++++
+ 536 #+##################+++++++++++
+ 540 +++++############++++++++++++++
+ 544 +++++++++++#+#+++++++++++++++++
+ 548 ++++++++++++++++++++++++++++++:
+ 552 ++++++++++++++++++++++++++++:::
+ 556 ++++++++++++++++++++++++++:+:::
+ 560 ++++++++++++++++++++++++:+:::::
+ 564 ++++++++++++++++++++++++:::::::
+ 568 +++++++++++++++++++++::::::::::
+ 572 ::::::++++++:+:++::::::::::::::
+ 576 ::::::::::+:+:+::::::::::::::::
+ 580 :::.                     ::::::
+ 584 :::                      ::::::
+ 588 :::                      ::::::
+```
+
+There is structure: a bright horizontal band at y 520-544 (windows or a lit panel,
+shown as `#` and `@`) over a mid-bright field (y 508-516 and y 548-568, `+`) with a
+dark roof/eave band above (y 500-516, `.` and `:`) and below (y 576-588, `:`).
+The wall is not a single flat albedo: it has a brighter band and a dark roof. But at
+frame scale the wall reads as a **warm slab** — 79 % of its pixels are warm, the mean
+is (93, 72, 56), and the brighter band is a warm-on-warm variation, not the dark-mass
+with small warm apertures that section B's reference (frame 3) carries. The wall is
+the largest lit area in the frame and it dominates the warm/cold read.
+
+**The lamp reads as a source at frame scale.** The pool is visible in front of the hut
+(a bright patch at the wall's base, falling off toward the camera), the bracket's
+post and arm are visible at 4x, and the hut is a lit object in a cold blue yard. The
+warm/cold punctuation is there. But the wall's lit area is too large and too uniform:
+it reads as a lit slab, not as structured apertures on a cold mass.
+
+## (c) The count, against PART 13's acceptance
+
+PART 13's acceptance: **a source-lit patch of ground below the horizon — a warm/light
+value break with a measured location and a counted warm area, not a threshold argument
+— plus a control frame that shows no new pool.**
+
+| criterion | result |
+|---|---|
+| source-lit patch below the horizon | **met.** Pool at x 1317-1527, y 721-748, 2,927 px on a 3,364-px warm-leaning patch; lamp contributes ~70-80 % of the brightening (radial transect, §(a)). |
+| measured location | **met.** x 1317-1527, y 721-748, peak at (1422, 723), max R-B +59 at (1447, 723). |
+| counted warm area | **met.** 10,526 warm px (6 components, largest 10,516 px, bbox x 1300-1599, y 720-759) against 1 px before; max R-B +18 → +59. |
+| control frame, no new pool | **met.** Pose 16: warm 0.115 % → 0.115 % (±0.000), warm-bright 0.016 % → 0.016 %. Pose 18: warm 1.335 % → 1.340 % (+0.004), warm-bright 0.233 % → 0.238 % (+0.006). No new pool, no flood. |
+| no clipping | **met.** Max R 214 in the wall band, 0 px ≥ 248 at any intensity tested (6.6, 8.8, 17.6). |
+| tier verified | **met.** 08-03-24 is tier medium, 1600×900, fov 1.07542. 08-12-59 (17.6×) is tier low and was excluded. |
+
+**The acceptance is met at 6.6.** The pool is source-lit: the lamp contributes ~70-80 %
+of the pool's brightening (radial transect), the strict warm count went from 1 px to
+10,526 px, and the control frames show no new pool. The lever (intensity 2.2 → 6.6)
+worked for the pool.
+
+**But the frame as a whole does not read as section B.** The wall is over-lit: 79 % warm,
+a broad pale-tan slab with a brighter band, the largest lit area in the frame. Section B's
+reference (frame 3) carries warm as small apertures (window panes, porch lamps, one red
+cable car) on a large cold dark mass. The wall at 6.6 is the opposite: a large warm mass
+with small dark bands. The warm/cold punctuation is there (the hut is a lit object in a
+cold blue yard), but the wall's scale and uniformity are wrong for the section.
+
+The acceptance is met; the frame is not. The verdict is **more work needed**, not because
+the pool failed but because the wall is a slab and the frame does not read as section B.
+
+## (d) Controls
+
+| pose | warm (before → after) | warm-bright | note |
+|---|---|---|---|
+| 16-fall-wreck-up | 0.115 % → 0.115 % (±0.000) | 0.016 % → 0.016 % | flat, no new pool |
+| 17-fall-piles-level | 0.287 % → 0.293 % (+0.007) | 0.001 % → 0.001 % | crowd drift |
+| 18-fall-skyline | 1.335 % → 1.340 % (+0.004) | 0.233 % → 0.238 % (+0.006) | zone's other lamps register slightly |
+| 19-fall-pile-close | 2.076 % → 2.077 % (+0.001) | 0.057 % → 0.057 % | flat |
+| 20-fall-ground-level | 3.015 % → 5.903 % (+2.888) | 0.517 % → 0.763 % | the pool |
+
+16 and 18 show no new pool. 17 and 19 are noon frames 150 m above the low. Pose 20's
+own +2.888 pp is the pool.
+
+## (e) Cost
+
+| pose | error | held fov | lights del/binned/starved | g-buffer triangles | frameMs |
+|---|---|---|---|---|---|
+| 16 | null | 1.01078 | 1222 / 1222 / 0 | 1,070,700 | 133.26 |
+| 17 | null | 1.07012 | 1133 / 1133 / 0 | 944,022 | 137.80 |
+| 18 | null | 1.04782 | 1405 / 1405 / 0 | 1,295,026 | 132.02 |
+| 19 | null | 1.06973 | 1133 / 1133 / 0 | 2,027,940 | 139.80 |
+| 20 | null | 1.07542 | 1133 / 1133 / 0 | 1,328,996 | 139.86 |
+
+No GPU/WGSL error. Lights unchanged (1222/1133/1405/1133/1133, starved 0). G-buffer
+triangles identical to the pre-3l run to the digit. The change is a number in a light,
+not geometry. The harness's frame times (132-140 ms) are a headless artefact; D32's 30 fps
+floor is not testable here.
+
+## (f) What this round establishes, and what it does not
+
+- **Establishes:** the pool is source-lit. The lamp contributes ~70-80 % of the pool's
+  brightening (radial transect, §(a)), the strict warm count went from 1 px to 10,526 px,
+  and the control frames show no new pool. PART 13's acceptance is met at 6.6.
+- **Establishes:** the second reading's 15-25 % figure was wrong. It measured on the
+  lateral (x) axis, which cannot separate a pool from a flat lift. The radial (y) axis
+  shows the lamp is the dominant cause. The 15-25 % figure is annotated as wrong in
+  PART 17 (see the note appended below).
+- **Establishes:** the "flat wash" claim is withdrawn. At full frame scale the hut reads
+  as a lit object with a pool in front of it, and the lamp is legible as the source.
+- **Establishes:** no clipping at any intensity tested (6.6, 8.8, 17.6). The wall's max R
+  is 214, 0 px ≥ 248. The tonemap's shoulder is the binding constraint, not the wall.
+- **Establishes:** the controls hold (16 flat, 17/18/19 within 0.03 pp).
+- **Does not establish** the frame as reading like section B. The wall is a warm slab
+  (79 % warm, (93, 72, 56), max R 153) with a brighter band, not the small apertures on
+  a cold dark mass that section B's reference carries. The warm/cold punctuation is there
+  but the wall's scale and uniformity are wrong.
+- **Does not establish** the water's specular (PART 10's deferred clause, still refuted
+  as a roughness route by FLOODED_LOWS_SPIKE.md).
+- **Does not re-judge** round 3g's lit-row count (5 of 6, closed separately), the ground
+  pass, the lifelines, the rubble, or pose 19's band.
+- **Does not establish** the read. Whether the pool reads as a work lamp's pool or as an
+  over-lit warm sheet is a judgement on the frame, and it is the reviewer's.
+
+**One next change, not three.** Reduce the wall's lit area or add structure to it
+(windows, panels, a soffit) so it reads as structured apertures on a cold mass, not as a
+slab. Do not reduce the lamp — that kills the pool. The bracket, the material, and the
+lamp's intensity are settled. The specular clause (PART 10) stays deferred.
+
+---
+
+## (g) Annotation of PART 17's second-reading (the 15-25 % figure)
+
+PART 17's second reading concluded that the lamp contributed only 15-25 % of the visible
+change, and that the floor was "paint with a lamp tint." **That figure is wrong.** It was
+measured on the lateral (x) axis, which cannot separate a pool from a flat lift because
+the strip is narrow inside the pool's 3.18 m disc (every column is inside the disc, so
+the lateral transect varies distance by only 1-1.5 m). The radial (y) transect in §(a)
+shows the lamp contributes roughly 70-80 % of the pool's brightening: +40 to +52 luma at
+the pool (y 720-759) against +10 to +12 luma on the wall above (y 690-719), which is
+the same material outside the pool. The 15-25 % figure should be disregarded. PART 17's
+other measurements (location, bbox, max R-B, warm-leaning count, controls) are
+reproduced and stand.
