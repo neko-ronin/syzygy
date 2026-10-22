@@ -1878,3 +1878,191 @@ pile carries a row on the face any camera sees and the far face's row is simply 
 box; keep the cost check (D32). Re-shoot 18 and 19, count blocks at 18 against the table
 above, and verify 19 recovers its band. id108's pick and id124's grazing angle are the same
 change's to verify, not separate items.
+
+---
+
+# PART 12 — ROUND 3F: the head on the door face (`8608fbe`, run `05-05-49`, single shot, `shots/2026-10-22T05-05-49-20-fall-ground-level.png`)
+
+**Scope.** One change judged: the work-lamp head in `winchHouse` and `workshopYard`
+moved out of its own hut body onto the door face — `lamp(hx, GROUND_Y+2.55, hz)` →
+`lamp(dx, GROUND_Y+2.2, dz)` and `lamp(hx, GROUND_Y+3.1, hz)` → `lamp(dx,
+GROUND_Y+2.2, dz)` (git show `8608fbe`: two lines in `src/render/fallground.ts`,
+nothing else). No pose change, no light-count change (1133 delivered, 0 starved,
+**both** runs). The acceptance PART 10 set is "warm below y 600 > 0 plus a specular
+in the water"; the specular was explicitly deferred by PART 10 (b) to the round
+after, so it is not judged here. The implementer's record
+(`docs/POSE20_LAMP_HEAD.md`) first claimed the gate met; it stands corrected
+(`f90961d`) to "met only nominally"; every number in it was re-measured below and
+the corrected ones all carry.
+
+**Framing caveat, verified from the capture records themselves.** The held fov
+differs: **1.07542 before** (focal ≈ 754 px → horizon y 583) against **1.03241
+after** (focal ≈ 793 px → horizon y 590) — the AFTER frame is ~4 % tighter in
+half-angle (focal +5 %), and held eye height differs 1.9652 → 2.0016 m. Under
+PART 9 (b)'s ~12 % longer-focal caveat the horizon band is 583-599 before and
+590-607 after. Sizes and the horizon line are therefore not identical between
+the frames, and no comparison here leans on fixed-size regions: the counts are
+weighted by **attribution** — the stall and the canopy row exist in both frames
+at shifted positions; the lamp exists in only one.
+
+## Close-out (DESIGN §6) — round 3f
+
+```
+VERDICT:  more work needed
+EVIDENCE: references/B-cold-industrial-sheet.jpg (read first; frame 3 is the ground-level reference)
+          shots/2026-10-22T03-11-38/20-fall-ground-level.png (BEFORE, PART 10's frame, sequence run;
+            _capture.json: error null, lights 1133, starved 0, dayPhase 0.17, held fov 1.07542, y 1.9652)
+          shots/2026-10-22T05-05-49-20-fall-ground-level.png (AFTER, single-shot run; the run dir is a
+            bare PNG + shots/latest.json, so tools/compare.mjs cannot pair it and no grid was made — both
+            frames were opened full-size and judged on my own ffmpeg crops. latest.json: error null,
+            lights 1133, starved 0, dayPhase 0.163, held fov 1.03241, y 2.0016)
+          git show 8608fbe (the two lamp lines; nothing else in src/)
+          reviewer crops, both frames: hut+floor crop=(450:460:1150:440) at 2.5x, stall
+            crop=(320:180:280:520) at 3x, water crop=(700:260:450:620) at 2x (reproducible ffmpeg)
+JUDGED:   the acceptance's attribution on the frame — warm components (R>B+15 && R>60, 4-connected)
+          below y 600 and in the hut region, before and after, by location, not aggregate share; what
+          the source reads as (work lamp vs lit pane on a box); whether the visible floor carries the
+          lamp's light; the frame as a place at night (stall, crowd, water, rubble, lifelines); whether
+          the frame is the fall zone or a plaza
+GAP:      a source now reads on the hut wall and the wall reads as lit (max R-B 12 -> 97 on the same
+          face), but the light stops at that wall: the floor 1-6 m in front of the door face IS in frame
+          (y 700-760, x 1300-1600) and carries max R-B -2 after against 0 before, mean luma 31.4 -> 26.1
+          — no pool exists anywhere below the horizon. PART 10's clause one is met only nominally: all
+          72 warm-bright px (14 components) and all 303 loose px (28 components) below y 600 sit at the
+          stall (x 321-471) and the mid-right canopy row (x 1038-1201), both present in BEFORE at 15 px;
+          the lamp's own x range (1250-1550) contributes 0 there (max R-B -4 before, 28 at y 600-619
+          after, 7 at y 620-639). At 1x the source reads as a lit rectangle on a blank box, not a work
+          lamp: the door under it stays black, there is no bracket or shade silhouette, the ~70 px halo
+          returns to plain wall.
+NEXT:     one change: put the pool inside this camera's view — bracket the head above the roof (the
+          alternative PART 10 itself named) so its cone clears the hut and lands on the visible strip
+          between hut and camera; re-shoot 20 and accept on a source-lit patch of ground below the
+          horizon (a warm/light value break on the ground caused by the lamp), then count it. The
+          water's specular stays the round after.
+CONFIRMED: the defect is fixed in the frame, not only in code — the emitter is a legible warm rectangle
+          (~30x20 px core at 1x, x 1410-1445, y 552-575) whose whole warm mass is ONE new component
+          (3334 px, x 1393-1464, y 522-595) that BEFORE does not carry; no light flood (warm-bright
+          0.511 % -> 0.508 %; loose 2.520 % -> 2.842 %, the rise being the tighter lens + crowd drift at
+          the stall/canopy); lights 1133/1133, starved 0/0, no GPU/WGSL error in either run; the
+          implementer record's own probe numbers verify against this census (footprint y bands
+          1011/596/0/0 after vs cold before, wall max R-B -4 before); the stall's canopy, red frontage
+          and crowd carry over intact as the frame's human centre and were not degraded by the change
+```
+
+## (a) The counts, by location
+
+Method as PART 11: warm = `R > B + 15 && R > 60`, warm-bright = `R > 120 && R >
+1.6*B`, 4-connected components, whole frame decoded from the PNGs. Horizon from
+geometry is per frame as in the caveat.
+
+| | BEFORE (fov 1.07542) | AFTER (fov 1.03241) |
+|---|---|---|
+| whole-frame warm-bright | 7,362 px (0.511 %) | 7,318 px (0.508 %) |
+| whole-frame loose warm | 36,288 px (2.520 %) | 40,926 px (2.842 %) |
+| rows carrying any warm pixel | 0..618 | 0..628 |
+| warm-bright below y 600 | **0 px, 0 components** | 72 px, 14 components |
+| loose below y 600 | 15 px, 8 components | 303 px, 28 components |
+| below y 600 at the lamp stratum (x 1250-1550) | **0 px, max R-B −4** | **0 px (y 600-619 max R-B 28; y 620-639 max 7)** |
+| hut wall (x 1350-1420, y 520-600) max R-B | 12 | **97** |
+
+**BEFORE — 8 loose components below y 600, all of them the stall and the near
+street's canopy row, all ≤ 4 px:** stall canopy and frontage at x 347-348 (y
+600-601, 4 px), x 435-436 (y 601), x 454-456 (y 618), x 458 (y 602-603), x 512
+(y 604); canopy row at x 1030 (y 601) and x 1182-1183 (y 600-602). Zero
+warm-bright. Zero on the hut's wall (max R-B 12 at the face). This is PART 10's
+census confirmed: every lit thing sat on the horizon; below-600 was 15 stray px
+of the same two groups.
+
+**AFTER — 28 loose components below y 600, still only those two groups,
+shifted/enlarged by the tighter lens:**
+
+- **Stall group, x 321-471** (the canopy's lower edge and the red frontage
+  sign): 56 px at x 412-421, y 601-607; 37 px at x 467-471, y 600-608; 29 px at
+  x 459-462, y 600-607; 21 px at x 438-440, y 600-606; 9+6 px at x 321-322, y
+  602-611; 8 px at x 419-420, y 609-613. Tops reach R 218. Still a lit façade
+  ~50-80 m out at the horizon line — not floor light; it dies by y 620.
+- **Canopy row, x 1038-1201** (the mid-right lit group BEFORE carried as 990 px
+  at x 1156-1205, y 564-588, moved ~15 px left and pierced below y 600 by the
+  lens): 24 px at x 1038-1043, y 600-603; 19 px at x 1196-1201, y 600-603; 17 px
+  at x 1052-1055, y 600-604; 15+15 px at x 1060-1074, y 600-608; 11 px at x
+  1061-1064, y 609-612; 7 px at x 1085-1088, y 600-602.
+- **Lamp stratum, x 1250-1550: no component below y 600 in either frame.** The
+  lamp's contribution below the horizon is zero, measured, in both.
+
+**In the hut region (x ≥ 1150, all rows)** BEFORE carries 369 components — old-city
+windows above the horizon; the top two are the right-edge sign (1,419 px at x
+1571-1599, y 510-569) and the canopy row (990 px), and nothing on the hut wall.
+AFTER carries 432, and the top component is new: **3,334 px at x 1393-1464, y
+522-595 — the emitter and the lit wall** (w 72; its bottom edge y 595, above
+even the AFTER horizon's longest-focal bound of 607, so the lamp is entirely
+at-or-above the horizon line). The only other change of note is the canopy's
+growth 990 → 1,119 px from the lens. An aggregate share (the record's 0.5 %
+whole-frame) alone would have hidden all of this; the locations carry it.
+
+## (b) What the source reads as, and why there is no pool
+
+At 1x the lamp is a small warm rectangle above-left of the black doorway with a
+dim warm halo on the wall; at 2.5× it is a soft-edged cream panel with no
+fixture: no bracket, no shade, no conduit, and the door under it stays black.
+Against sheet B frame 3's ground-level light — lanterns and storefront glow that
+**bring the ground with them**, lighting the snow between figures — the read is
+the answer to a different question: it says "there is an electrical light here",
+not "work happens here". It is closer to a lit window on a blank box than to the
+work lamp at a village door the round was named for.
+
+The pool is genuinely absent, not merely weak. The ground 1-6 m in front of the
+door face is in this frame (y 700-760, x 1300-1600 = the floor strip between the
+hut wall, ~16 m out, and the camera): max R-B −2 against 0 in BEFORE, mean luma
+31.4 clean down to 26.1, unlit in both. A 2.2 m head on that door face has its
+natural pool inside the frame and the frame does not carry it — which turns the
+record's "the pool is behind the geometry the camera can see" into a
+**hypothesis, marked as one** (DESIGN §7.6): that the light does not land on
+visible floor is a frame fact; *why* it does not (range, falloff, or occlusion
+against the hut's own boxes) is an unmeasured code question. The roof-bracket
+alternative PART 10 named would throw from above the eave, whose ground cone
+must land on this same visible strip.
+
+## (c) The rest of the frame, which this round did not touch
+
+- **The water band is unchanged** (2× crops are indistinguishable): the same
+  value step with the same single-scale concentric ripple motif across it, no
+  reflection of the lit towers behind it, no edge treatment, no specular. As
+  PART 10 (b) left it, and the specular is this round's deferred clause.
+- **The stall and its crowd remain the frame's best thing** and carry over
+  intact — the same lit canopy, red frontage and ~a dozen silhouettes at the
+  horizon, ~4 % larger from the lens, with two new unlit crowd silhouettes at
+  the frame's lower-left edge (x 30-130, y 600-745; crowd drift between runs,
+  not part of the change). The stall does not pool its own light either: its
+  below-horizon warm is sign and canopy edge only, gone by y 620.
+- **Rubble, rebar, lifelines: still nothing readable.** The wreck dome still
+  reads as a smooth boulder; the crate (x 1050-1140) is still a bare silhouette
+  with no contact shadow; no cable legible anywhere on the floor.
+- **Plaza or fall zone: still a plaza.** Two pylons run out of the top, the hut
+  is a blank box, the floor is a dark decal board, and the container piles — the
+  village half of the zone's identity — are overhead and out of shot. The one
+  lit panel does not change the register a stranger would name: a dark plaza at
+  the foot of two pylons, with one wall-mounted light.
+
+## (d) What this round establishes, and what it does not
+
+- **Establishes:** the one-line defect is fixed in the frame — an emitter
+  visible at 1x, one new warm component, a lit wall where BEFORE had max R-B 12
+  — with light counts equal, starved 0, no flood, and no other frame content
+  touched.
+- **Establishes:** the implementer record's corrected numbers (with one blemish:
+  its 1,607 "footprint after" warm px includes old-city window rows above y
+  560 that sit in that x-range in BOTH frames — my split is 1,312 warm-bright
+  before / 1,267 after above the lamp rows, flat, and only the y 560-640 wall
+  rows are the lamp's).
+- **Does not establish** the acceptance as met by the lamp: below the horizon
+  the lamp contributes zero pixels, the 72 px are the stall and the canopy, and
+  no pool exists on floor the camera can see.
+- **Does not establish** the lamp as a work-lamp read, the floor as a place at
+  night, or any verified read for `workshopYard` — no judged frame contains one;
+  that verification is owed to a future frame.
+
+**One next change, not three.** Bracket the head above the roof so its pool
+lands on the visible strip between hut and camera; re-shoot 20; accept on a
+source-lit ground patch below the horizon and count it. That single change
+decides whether this frame is a working floor at night, which is what PART 10's
+gate has been about all along.
