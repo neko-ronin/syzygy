@@ -1198,3 +1198,126 @@ sky and teal towers are unchanged.
   legible only as silhouette.
 - **Does not re-judge** round 2. The break is still a notch rather than broken concrete on
   the same evidence as PART 4, and the round-2 verdict stands.
+
+---
+
+# PART 6 — ROUND 3A: the lit row (`9b157dd`, run 23:54, `shots/2026-10-21T23-54-59`)
+
+**Scope.** This part judges **one change**: lit *area* instead of intensity — a framed bay on
+every dressed face, and a row of 1.7-2.9 m bays on two heights of the merged far mass, in
+`src/render/fallvillage.ts`. The baseline is the blue-hour control `shots/2026-10-21T22-24-43`
+(parent build `6d5e81a`; the only commits between it and `9b157dd` are docs, and `9b157dd`
+touches only `fallvillage.ts` + its own doc). Same hour, same rig, same seed. This is the A/B,
+not round 2's dusk run. Round 2's break verdict is not re-judged.
+
+## Close-out (DESIGN §6) — round 3a
+
+```
+VERDICT:  more work needed
+EVIDENCE: references/B-cold-industrial-sheet.jpg (read first)
+          shots/compare/2026-10-21T23-57-43.png (+ .txt)   BASELINE | CURRENT | REFERENCE
+            baseline: shots/2026-10-21T22-24-43 (blue-hour control, parent build)
+            current:  shots/2026-10-21T23-54-59 (round 3a, shot after 9b157dd)
+            reference column: references/sections/B-cold-industrial/
+          full-size: shots/2026-10-21T23-54-59/{16,18}.png (this round)
+                     shots/2026-10-21T23-54-59/{17,19}.png (control)
+          shots/2026-10-21T23-54-59/_capture.json
+JUDGED:   lit area vs lit points at 18 (a count, not an impression); whether 16
+          has the fall zone in shot at all; 17/19 against the same-build control;
+          warm/dark balance at 18 against sheet B frame 2
+GAP:      at 18 the lit row is still a point, not a row: ZERO window blocks on
+          any fall crown. The nearest crowns carry one mark each, and the whole
+          fall band gained 2.0 % warm pixels (8009 -> 8171). The cause is a LOD
+          mismatch, not the bay size: the merged row is drawn only at LOD 2,
+          which the renderer reaches at ~819 m (chunk 256 m, LOD = floor(chunks
+          / 1.6)), where a 2.9 m bay is 1.9-2.7 px; at 18's nearest columns
+          (193-410 m, LOD 0-1) the near path lights one bay per face, which is
+          the same single point as the control. 16 is blank for a different
+          reason: no fall crown is in the frame at all (the pose).
+NEXT:     one change: on the LOD 0-1 path, light a contiguous row of 2-3 bays
+          at one height per dressed face (not one bay), so the crowns at 18's
+          actual 193-410 m carry blocks; keep the merged row for LOD 2. Re-shoot
+          18 and count blocks. Pose 16 is a separate, already-named camera item.
+CONFIRMED: cost is inside D32 (+0.06 % G-buffer triangles; lights identical to
+          the control, 1189/1107/1383/1107 delivered, 0 starved, app ready
+          frameCount=1025); 17 did not change (0.38 -> 0.38 % warm; all diff
+          components <= 19 px); 19's near bay is larger and reads better, not a
+          regression; 16 shows no fall village, only old-city towers.
+```
+
+## (a) At 18, count the blocks on the fall crowns
+
+The fall columns are the dark, windowless stacks; the towers with dense window grids behind
+them are the old city. Six nearest fall columns were inspected at 4x, at the screen positions
+`src/render/__probe_litrow.ts` prints, in both runs:
+
+| column (screen) | distance | warm px, control | warm px, this run | blocks added |
+|---|---|---|---|---|
+| id109 (206,422) | 193 m | 12 | 14 | 0 |
+| id89 (655,426) | 228 m | 6 | 10 | 0 |
+| id108 (554,472) | 264 m | 29 | 30 | 0 |
+| id123 (328,520) | 262 m | 70 | 84 | 0 |
+
+(`warm` = R > B + 15 and R > 60, in a 90 x 90 px box centred on the column.) Each crown still
+carries **one** mark of about 2-3 px, as in PART 5. Across the whole frame, no new warm
+component larger than 16 px exists anywhere; the largest within 45 px of a fall column is
+13 px at (373,559), a point. City-wide warm pixels went **1.62 % -> 1.63 %** and strong warm
+**0.82 % -> 0.84 %**: the lit area did not arrive.
+
+Why the geometry does not show: the probe's own line `const lod = p.d > 160 ? 2 : 0`
+(`__probe_litrow.ts:106`) is an assumption about the renderer, not the renderer. The real rule
+is `floor(chunkDistance / 1.6)` with 256 m chunks (`quality.ts:56,67`): LOD 2 starts at 3.2
+chunks, about **819 m**. So at 18 the row is drawn only where it is 1.9-2.7 px, and at the
+distances where a bay would be 10 px (193-410 m) the near path is what draws — one bay per
+face. The "11.7 x 5.8 px at 193 m" in the round's account is the size of a bay that path does
+not draw there. This is PROCESS rule 4: the diagnostic measured a distance, not the code path.
+
+## (b) At 16, is there anything to read the shaft against?
+
+**No — and the cause is the pose, confirmed from the frame.** The two piers fill the frame and
+run off the top edge; neither crown is in shot. The only lit objects are the old-city towers
+at the top-left and left edge, and they are pixel-unchanged: a same-threshold difference of
+the two 16 frames finds **0** new strong-warm components >= 6 px, and the 4x crops of the
+top-left cluster are the same window grid in both runs. That cluster is the facade shader, not
+the fall village (the village's lit marks are sparse warm rooms, not a regular grid).
+
+So the implementer's account is right about 16 for the wrong reason to act on: material did
+not fail there, material was **not in the frame**. The pose is the defect (PROCESS rule 4;
+D21: a diagnostic pose derives from live state, and this one frames two bare shafts). 16
+cannot be used to judge round 3a and must be re-derived before it can judge the next round.
+
+## (c) 17 and 19 — control
+
+**17 did not regress.** Warm pixels 0.38 % -> 0.38 %; 66 diff components, all <= 19 px; the
+composition, hue and crowd are the same as the control.
+
+**19 did change, by design, and did not regress.** `9b157dd` changed the shared
+`dressFaces` bay, and 19 is drawn at lod < 2, so the near path applies there. The left face
+of the near pile now carries a framed three-pane bay where the control had one small pane;
+the two changed components are 814 px and 528 px. It is closer to sheet B's window blocks and
+is an improvement. The claim that 19 "did not change" is wrong on the frame; the claim that it
+did not regress is right.
+
+## (d) Warm/dark balance against sheet B frame 2
+
+18's mean RGB is (17.9, 33.7, 78.7) against the sheet's roughly (50, 94, 109): still 2.5-3x
+darker and more saturated, as PART 5 measured. The warm fraction is 1.63 % against the sheet's
+1.1 %, but the warm is the old city's window points, not the zone's: the crowns carry one mark
+each. The balance is **not** closer to frame 2, because the zone's own warm inventory is still
+one point per crown. The sheet's frame 2 carries blocks at several heights on one column; this
+frame carries one point.
+
+## What this round establishes, and what it does not
+
+- **Establishes:** the mechanism renders. 19's near bay is a real framed opening, and the
+  emissive geometry costs +0.06 % triangles and zero lights. The lever is right; the placement
+  of the lever at distance is not.
+- **Establishes:** 17 is untouched, and the control is valid.
+- **Does not establish** that lit area holds at 18. It does not: zero blocks, one point per
+  crown, warm pixels flat.
+- **Does not establish** anything about 16's material, because the village is not in the frame.
+- **Does not re-judge** round 2.
+
+**One next change, not three.** Put a 2-3 bay row on the LOD 0-1 dressed face, where 18's
+columns actually are, and count at 18. The merged row stays for LOD 2. The pose 16 fix is
+already named and is a separate item; it does not belong in this round's change.
