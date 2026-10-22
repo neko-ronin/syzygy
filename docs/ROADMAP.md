@@ -606,6 +606,22 @@ a *frame* better.
 **Status: built, ZERO sections visually verified** · **Priority: highest** · *Vision:
 "large sections of the city have differing styles and colors like a real city"*
 
+> **2026-10-22 update — §B now has frames and nine verdicts.** The claim in the
+> block below ("not one section has been photographed") is no longer true for §B:
+> poses 16-20 shoot the fall zone and `VISION_FALL_BASELINE.md` PARTS 1-9 judge
+> them, each by an agent that did not implement the round. §A, §C and §D still
+> have no frames.
+>
+> The one finding that outranks the round-by-round list: **the poses were shot at
+> a red sunset against a sheet that is blue hour**, and a control proved it
+> (warm pixels 96.9 % → 0.0 % at 16, 68.8 % → 0.6 % at 18). Three rounds of cold
+> material had been fighting the light. What the control also exposed is the
+> real gap: at blue hour the fall zone's crowns carry one 2 px warm point each
+> where sheet B's carry rows of window blocks. That is now two open changes —
+> lit rows on a face the camera can see (PART 9: 36 of 56 lit panes sit behind
+> the pile) and pose 20 standing on the lamp side of a winch house (PART 8).
+> Current state and the commands: [`STATE_2026-10-22.md`](STATE_2026-10-22.md).
+
 > **2026-10-02: §B and §A are BUILT and §D's evidence is landed — and not one
 > section has been photographed.** That is the state of this row, and it is worse
 > than "todo" in one specific way: there is code and no evidence it works.

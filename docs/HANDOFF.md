@@ -1,5 +1,34 @@
 # Handoff
 
+**2026-10-22, the fall zone's four rounds — read [STATE_2026-10-22](STATE_2026-10-22.md)
+first, it is one page and it is current.** The short version: the fall zone's poses
+were being shot at a red sunset while sheet B is blue hour, and that was proven by a
+control rather than argued — moving poses 16 and 18 to the existing `bluehour` rig
+took warm pixels from 96.9 % to 0.0 % at 16 and 68.8 % to 0.6 % at 18 (`6d5e81a`,
+verdict `7e53006`). Removing the sunset removed the only warmth, which is the real
+open gap: the crowns carried one 2 px point each, where sheet B's crowns carry rows
+of window blocks. Four implementation rounds followed — lit area (`9b157dd`),
+ground lifelines/wreck dressing/flooded lows (`b37d74b`), a bay row on the LOD 0-1
+path (`d949bf5`), and pose 20 for the zone's floor (`08ff863`) — and each was
+judged by an agent that did not implement it, in
+[VISION_FALL_BASELINE](VISION_FALL_BASELINE.md) PARTS 1-9:
+
+- **the row renders** and reads as separate blocks, not a bar — but 36 of 56 lit
+  panes sit behind the pile's own boxes, so only 2 of the six nearest crowns meet
+  the acceptance; the fix is to choose the row's face by line of sight, not a
+  crown-first 3-5 face roll (PART 9);
+- **the ground pass is built, compiles, and is in no frame** until pose 20 exists;
+  pose 20 now exists and lands on the wrong side of the pile — the winch houses sit
+  on the column's `+b` side and the camera was on `−b`, so the pile hides the lamp
+  (PART 8); the pose is being re-derived to stand on the lamp side at a pool's edge;
+- **D32 is not at risk**: rounds 0-2 measured hero 52.03/s base vs 52.09/s head, and
+  the ground round cost +1 % G-buffer and +26/+21/+18/+21 lights with 0 starved
+  (`85065d0`).
+
+The fall zone has **not** been closed out into the roadmap; do that after the next
+two verdicts. Owner calls still open: cause of the fall, the burnt quarter, bridge
+density.
+
 **2026-10-15, fall zone placement pass:** see item 5 below. On the way it found that every
 vehicle of a kind rode the first line of that kind, so second tram, cable car, funicular and
 zipline lines ran empty. That is fixed in `f486b57` (PITFALLS §35).
