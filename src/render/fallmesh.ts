@@ -23,7 +23,20 @@ import { pushFallVillage } from './fallvillage';
 const STEEL: Vec3 = [0.14, 0.17, 0.21];
 const SLAB: Vec3 = [0.3, 0.31, 0.32];
 const SPAN: Vec3 = [0.2, 0.18, 0.16];
-const PATCH: Record<PatchKind, Vec3> = { fenced: [0.24, 0.25, 0.26], flooded: [0.06, 0.08, 0.1], overgrown: [0.14, 0.19, 0.11] };
+const PATCH: Record<PatchKind, Vec3> = {
+  fenced: [0.24, 0.25, 0.26],
+  // A flooded low is mud and shallow water, not asphalt. Round 3j: the pool
+  // term in lighting.wgsl multiplies the lamp's colour by the fragment's
+  // albedo, so a blue-biased dark floor turns a warm lamp into a blue-biased
+  // lift — the lamp's pool was computed and invisible (PART 13 (b)). This is
+  // the SILT margin the lamp's cone actually lands on: the flooded patch's
+  // top face, which carries the `paving`/`board-formed` tag, not the flood
+  // class. `src/render/__probe_floodsurface.ts` measures it: the strip in
+  // front of the winch hut at pose 20 is this surface, 0-6 m in front of the
+  // door, and the water sheets are 4-15 m away from it.
+  flooded: [0.132, 0.126, 0.115],
+  overgrown: [0.14, 0.19, 0.11],
+};
 
 /** A box on a right-handed basis: MeshBuilder.pushBox's corners and faces, so every face winds outward.
  *  `opts` goes to every face; `topOpts` to the +y face only, which is how a
@@ -199,7 +212,13 @@ export function floodWater(p: OffLimitsPatch, yaw: number): FloodQuad[] {
  * inequality on the baked mesh.
  */
 function pushFloodWater(bld: MeshBuilder, p: OffLimitsPatch, yaw: number): void {
-  const WATER: Vec3 = [0.034, 0.049, 0.062];
+  // Round 3j: turbid shallow water over silt, near-neutral and faintly warm,
+  // instead of an asphalt-dark blue that mirrored the sky. The pool term
+  // multiplies the lamp's colour by this albedo, so a blue-biased albedo made
+  // the lamp's pool a blue-biased lift (PART 13 (b): the pool is computed and
+  // lands on the right strip, and R-B stays negative). The geometry, the
+  // +0.075 m lift and the `flood` tag are untouched; only the colour moves.
+  const WATER: Vec3 = [0.118, 0.113, 0.104];
   const UP4: [Vec3, Vec3, Vec3, Vec3] = [[0, 1, 0], [0, 1, 0], [0, 1, 0], [0, 1, 0]];
   const tag = groundSurfaceTag('flood', 'asphalt');
   for (const q of floodWater(p, yaw)) {
