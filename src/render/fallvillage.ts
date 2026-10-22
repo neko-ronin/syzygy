@@ -394,7 +394,13 @@ function dressFaces(bld: MeshBuilder, c: FallColumn, yaw: number, tops: TopSpot[
     for (let wi = 0, nw = u.long > 9 ? 1 + w.int(0, 1) : w.int(0, 1); wi < nw; wi++) {
       wins.push(clamp(u.long * (0.3 + 0.4 * wi) + w.jitter(0.6), 1.1, u.long - 1.1));
     }
-    const lit = wins.map(() => w.bool(0.25));
+    // The per-window 25 % lit roll is CONSUMED but no longer decides anything:
+    // round 3c's row is guaranteed on every dressed face. The draws stay because
+    // `w` feeds weatherRoom on the next line — one fewer draw here would re-roll
+    // every seam, grime skirt and opening on every face in the zone, and this
+    // round is one change, not a re-roll.
+    const litRoll = wins.map(() => w.bool(0.25));
+    void litRoll;
     weatherRoom(bld, Q, u.long / 2, y0, u.wide, u.long, u.tall, u.wide, u.col, wins, OUTRIGGER, w);
     // Over-paint the lit ones (the scaffold's emissive convention) just proud
     // of weatherRoom's work — frames at front + 0.022, so the pane sits at
@@ -410,15 +416,33 @@ function dressFaces(bld: MeshBuilder, c: FallColumn, yaw: number, tops: TopSpot[
     // weatherRoom's opening, whose frame constants it mirrors (0.34/0.80 covers
     // the 0.42/0.74 glass plus its 0.34-0.42 sill and 0.74-0.80 head), so the
     // small frame is hidden under it and this one replaces it.
+    //
+    // Round 3c: a contiguous ROW of 2-3 bays at one height, not one bay per
+    // window. 3a's bay was the right size and the wrong count: at the 193-264 m
+    // where pose 18's crowns actually are a bay is ~10 px wide, so one bay per
+    // face is one mark — which is what the reviewer counted on every crown. The
+    // row is anchored on the face's first window (always lit by construction)
+    // and its 2-vs-3 rolls on the face's own KEY, not on `w`, for the same
+    // stream reason as above.
     const ya = y0 + u.tall * 0.34, yb = y0 + u.tall * 0.80;
-    const bayHalf = clamp(u.long * 0.2, 0.55, 1.2);
-    for (let wi = 0; wi < wins.length; wi++) {
-      // A dressed face always carries one lit bay — several per pile at
-      // different heights, which is the sheet's column (frame 2), not one dot.
-      if (wi > 0 && !lit[wi]) continue;
-      const t0 = clamp(wins[wi] - bayHalf, 0.3, u.long - 0.3);
-      const t1 = clamp(wins[wi] + bayHalf, 0.3, u.long - 0.3);
-      if (t1 - t0 < 0.7) continue;
+    const bayW = clamp(u.long * 0.4, 1.1, 2.4);
+    // 0.45 m of panel between openings, not 0.12: at 410 m a 0.12 m gap is a
+    // third of a pixel, the bays merge, and the row is one 31 px bar — a wider
+    // point, not blocks. At 193 m this gap is 1.9 px, so the openings stay
+    // countable across the band the acceptance names.
+    const gap = 0.45;
+    const fits = Math.max(1, Math.floor((u.long - 0.6 + gap) / (bayW + gap)));
+    const n = Math.min(fits, 2 + ((key >>> 5) & 1));
+    const runW = n * bayW + (n - 1) * gap;
+    // A face can roll ZERO windows (`nw = w.int(0, 1)` on a face <= 9 m), and
+    // 3a then drew nothing there. Anchoring on undefined made every one of those
+    // rows NaN — 32 of 44 warm triangles on id109 — so the fallback is the face
+    // centre, which is also what makes 3a's "every dressed face lights" true.
+    const anchor = wins.length ? wins[0] : u.long / 2;
+    const mid = clamp(anchor, runW / 2 + 0.3, u.long - runW / 2 - 0.3);
+    for (let k = 0; k < n; k++) {
+      const t0 = mid - runW / 2 + k * (bayW + gap);
+      const t1 = t0 + bayW;
       bld.pushQuad(Q(t0, ya, u.wide + 0.03), Q(t1, ya, u.wide + 0.03),
         Q(t1, yb, u.wide + 0.03), Q(t0, yb, u.wide + 0.03),
         LIT_WARM, 1, { emissive: 3.0, doubleSided: true });
@@ -432,10 +456,10 @@ function dressFaces(bld: MeshBuilder, c: FallColumn, yaw: number, tops: TopSpot[
         const tm = t0 + (t1 - t0) * s;
         bld.pushQuad(Q(tm - 0.035, ya, fd), Q(tm + 0.035, ya, fd), Q(tm + 0.035, yb, fd), Q(tm - 0.035, yb, fd), fr, 1, { doubleSided: true });
       }
-      if (!lightDone && dress.lights && dress.lod < 1) {
-        dress.lights.push({ pos: Q(wins[wi], y0 + u.tall * 0.6, u.wide + 0.8), radius: 10, color: [1.0, 0.68, 0.34], intensity: 1.4 });
-        lightDone = true;
-      }
+    }
+    if (!lightDone && dress.lights && dress.lod < 1) {
+      dress.lights.push({ pos: Q(mid, y0 + u.tall * 0.6, u.wide + 0.8), radius: 10, color: [1.0, 0.68, 0.34], intensity: 1.4 });
+      lightDone = true;
     }
     dressed++;
   }
