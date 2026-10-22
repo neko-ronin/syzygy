@@ -456,6 +456,7 @@ fn groundSurface(world: vec3f, n: vec3f, base: vec3f, detail: f32, dist: f32, ta
   let isPaintY = surface == 5u;
   let isRaised = surface == 1u || surface == 3u;
   let isGutter = surface == 4u;
+  let isFlood = surface == 6u;
 
   // Value structure between the walking plane and the carriageway.
   //
@@ -498,7 +499,10 @@ fn groundSurface(world: vec3f, n: vec3f, base: vec3f, detail: f32, dist: f32, ta
   // --- shared grain. One octave is all that survives at street range, and it is
   //     what stops any large flat surface reading as a fill.
   let grain = fbm2(p * prm.w, oct);
-  alb *= 0.90 + 0.20 * grain;
+  // A water surface has no grain. The flood class is the only one that opts
+  // out, and it must: grain on a standing sheet reads as wet pavement under
+  // the glint, which is the decal failure this class exists to avoid.
+  if (!isFlood) { alb *= 0.90 + 0.20 * grain; }
 
   if (vertical) {
     // ---------------------------------------------------------------- kerb face
@@ -580,6 +584,24 @@ fn groundSurface(world: vec3f, n: vec3f, base: vec3f, detail: f32, dist: f32, ta
     // Grime banked against the kerb, i.e. toward the carriageway. The footway is
     // raised, so its lower edge is nearer the road: use height, not direction.
     rough = 0.70 - 0.10 * joint;
+  } else if (isFlood) {
+    // ---------------------------------------------------------------- flood
+    // Standing water in a low the fall took the drains out of. The class rides
+    // the WATER quads only; the matte silt margin around them is ordinary
+    // tagged paving, so this branch is always the water itself.
+    //
+    // Deliberately not a mirror. docs/FLOODED_LOWS_SPIKE.md's adversarial check
+    // measured why: with no SSR and no probe, a low-roughness quad reflects the
+    // SKY alone — at 1.7 m over 30 m the grazing angle is 3.2 deg, F is 0.76,
+    // and the whole pool becomes one uniform sheet of horizon. So the water is
+    // dark, matte where silt has settled, low-roughness only in the open, and
+    // the value contrast against the dry deck does most of the read.
+    let silt = fbm2(p * 0.31 + vec2f(17.3, 4.9), 2);
+    let open = smoothstep(0.38, 0.70, fbm2(p * 0.061 + vec2f(3.7, 8.1), 3));
+    alb = base * (0.70 + 0.62 * silt);
+    rough = mix(0.66, 0.10, open);
+    metal = 0.0;
+    ao *= 0.94 + 0.06 * open;
   } else {
     // ---------------------------------------------------------------- carriageway
     // Worn asphalt: grain, resurfacing patches at a scale you can read from a
@@ -643,6 +665,23 @@ fn fs(i: VSOut) -> GOut {
   var n = normalize(i.normal);
   let V = normalize(F.camPos.xyz - i.world);
   if (dot(n, V) < 0.0) { n = n; }  // keep two-sided shading honest for thin geo
+
+  // --- flooded water: the ripple has to be in the NORMAL, and it has to be
+  //     applied before this normal is written to the G-buffer, or no specular
+  //     moves. The class is decoded HERE, in `fs`, not reused from
+  //     `groundSurface` — that function has returned, and gating on
+  //     `i.groundTag < 0.0` alone would ripple every tagged paving, kerb and
+  //     gutter quad in the city. The decode mirrors groundgrammar.ts exactly;
+  //     src/render/__selftest_ground_contract.ts asserts the two agree.
+  let floodPayload = max(0.0, -i.groundTag - 1.0);
+  let floodClass = i.groundTag < 0.0 && u32(floor(floodPayload / 16.0)) == 6u;
+  if (floodClass) {
+    let t = F.time.x;
+    let rip = vec2f(
+      fbm2(i.world.xz * 2.6 + vec2f(t * 0.11, 0.0), 2),
+      fbm2(i.world.xz * 2.6 + vec2f(13.7, -t * 0.09), 2)) - vec2f(0.5);
+    n = normalize(n + vec3f(rip.x, 0.0, rip.y) * 0.14);
+  }
 
   var base = i.color;
   var rough = i.rough;
@@ -724,7 +763,7 @@ fn fs(i: VSOut) -> GOut {
   // --- wetness: everything darkens and tightens, and puddles pool in the
   //     low-frequency noise. The specular tightening is what sells rain.
   let wet = F.weather2.x;
-  if (wet > 0.001 && i.matId != MAT_FOLIAGE) {
+  if (wet > 0.001 && i.matId != MAT_FOLIAGE && !floodClass) {
     let pool = smoothstep(0.45, 0.85, fbm2(i.world.xz * 0.09, 3) + (1.0 - clamp(n.y, 0.0, 1.0)) * 0.4);
     let w = wet * mix(0.35, 1.0, pool) * clamp(1.2 - abs(n.y), 0.0, 1.0);
     base *= 1.0 - w * 0.42;

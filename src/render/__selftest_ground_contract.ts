@@ -2,9 +2,12 @@
 import { City, defaultCityConfig, GROUND_Y } from '../world/citygen';
 import { deriveHeroWalk } from '../world/diagnosticposes';
 import { groundGrammarFor, groundSurfaceTag, decodeGroundSurfaceTag, GROUND_SURFACE_CLASSES, BAND_ORDER } from '../world/groundgrammar';
+import { fallZone } from '../world/fallzone';
 import { COUNTER_TOP, marketGrammarFor } from '../world/marketgrammar';
 import { MeshBuilder, type Mesh } from '../world/geometry';
 import { makeRng } from '../core/math';
+import gbufferSrc from '../shaders/gbuffer.wgsl?raw';
+import grammarSrc from '../world/groundgrammar.ts?raw';
 import { bakeChunk } from './citymesh';
 import { bakeMarketDetail, marketBakeState } from './marketbake';
 import { bakeGroundDetail } from './groundbake';
@@ -76,6 +79,86 @@ for (const surface of GROUND_SURFACE_CLASSES) {
     const decoded = decodeGroundSurfaceTag(packed);
     requireThat(decoded.surface === surface && decoded.family === family && Math.abs(decoded.height - 0.14) < 0.00001, 'ground class/family/height must survive Float32 upload independently of colour');
   }
+}
+
+// ---------------------------------------------------------------- flood parity
+//
+// Round 3b's class is the first one added since the codec was written, and the
+// class number is written in three places: the array, the CPU decoder and the
+// shader's literals. Only two of them were tested. A regex that finds
+// `surface == 6u` proves PRESENCE, not REACHABILITY — a branch after the final
+// `else` passes it and is dead — and it cannot see the class array left
+// unappended, which decodes to a POSITIVE tag (emission, not ground) with no
+// error at all. These assertions are the three the audit asked for.
+{
+  requireThat(GROUND_SURFACE_CLASSES.indexOf('flood') === 6, 'flood must be class 6, appended: indices 0-5 keep every existing tag bit-identical');
+  requireThat(groundSurfaceTag('flood', 'asphalt') < 0, 'an unappended class list decodes to a POSITIVE tag, which the renderer reads as emission');
+
+  // The two decoders must be the same arithmetic. Re-express either side and
+  // this fails until the other matches.
+  for (const expr of ['max(0.0, -tag - 1.0)', 'u32(floor(payload / 16.0))', 'u32(floor(payload)) % 16u']) {
+    requireThat(gbufferSrc.includes(expr), `GPU ground decode changed (${expr}): groundgrammar.ts must move with it`);
+  }
+  for (const expr of ['-tag - 1', 'Math.floor(payload / 16)', 'Math.floor(payload) % 16']) {
+    requireThat(grammarSrc.includes(expr), `CPU ground decode changed (${expr}): gbuffer.wgsl must move with it`);
+  }
+  // `fs` needs its OWN decode: `isFlood` from groundSurface is out of scope
+  // there, and gating on `groundTag < 0.0` alone would ripple every tagged
+  // paving, kerb and gutter in the city.
+  requireThat(/i\.groundTag\s*<\s*0\.0\s*&&\s*u32\(floor\(floodPayload \/ 16\.0\)\)\s*==\s*6u/.test(gbufferSrc),
+    'the fragment-stage flood decode must test the class, not just the sign of the tag');
+
+  // Reachability, not presence. Isolate groundSurface by brace matching, then
+  // require that every class in the table has a test in it, that `isFlood` is
+  // defined from surface == 6u, and that its branch is an `else if` BEFORE the
+  // chain's final `else` — with no `else if` after that `else`, which would be
+  // unreachable and would silently fall a flooded quad into the carriageway.
+  const stripComments = (s: string): string => s.replace(/\/\/[^\n]*/g, '');
+  const wgsl = stripComments(gbufferSrc);
+  const fn = wgsl.indexOf('fn groundSurface(');
+  requireThat(fn >= 0, 'groundSurface must exist in gbuffer.wgsl');
+  let depth = 0, end = -1;
+  for (let i = wgsl.indexOf('{', fn); i < wgsl.length; i++) {
+    if (wgsl[i] === '{') depth++;
+    else if (wgsl[i] === '}' && --depth === 0) { end = i; break; }
+  }
+  requireThat(end > fn, 'groundSurface must have a body');
+  const body = wgsl.slice(fn, end);
+  for (let k = 0; k < GROUND_SURFACE_CLASSES.length; k++) {
+    requireThat(body.includes(`surface == ${k}u`), `class ${GROUND_SURFACE_CLASSES[k]} (${k}) has no test in groundSurface, so it falls into another material`);
+  }
+  const finalElse = body.lastIndexOf('else {');
+  requireThat(finalElse > 0, 'the carriageway catch-all must be the chain\'s final else');
+  requireThat(body.indexOf('else if', finalElse) < 0, 'a branch after the final else is unreachable and passes every presence check');
+  requireThat(/let\s+isFlood\s*=\s*surface\s*==\s*6u\s*;/.test(body), 'isFlood must be decoded from surface == 6u');
+  const branch = body.indexOf('else if (isFlood)');
+  requireThat(branch > 0 && branch < finalElse, 'the flood branch must sit before the carriageway catch-all, or it never runs');
+
+  // And the baked fixture: the audit's "most likely silent failure" is water
+  // buried inside its own patch box, where every check above still passes and
+  // the frame shows dark silt with no glint.
+  const zone = fallZone(seed);
+  const flooded = zone.patches.filter((p) => p.kind === 'flooded');
+  requireThat(flooded.length > 0, 'the live seed must place a flooded patch, or this assertion is vacuous');
+  const p0 = flooded[0];
+  // PROCESS rule 4: derive the chunk that OWNS the patch. The existing fixture
+  // chunk (0,-2) is a market chunk and has no fall zone at all.
+  const fchunk = city.getChunk(Math.floor(p0.x / 256), Math.floor(p0.z / 256));
+  requireThat(fchunk && fchunk.fall.patches.some((p) => p.kind === 'flooded'), 'the fixture chunk must own the flooded patch it is testing');
+  const fmesh = bakeChunk(fchunk, 0, seed).opaque;
+  let floodTris = 0, lowest = Infinity;
+  for (let t = 0; t < fmesh.indices.length; t += 3) {
+    const verts = Array.from(fmesh.indices.subarray(t, t + 3));
+    const tags = verts.map((i) => fmesh.colors[i * 4 + 3]);
+    if (tags[0] >= 0) continue;
+    if (decodeGroundSurfaceTag(tags[0]).surface !== 'flood') continue;
+    requireThat(tags.every((tag) => tag === tags[0]), 'a flood primitive cannot interpolate to another class');
+    floodTris++;
+    for (const i of verts) lowest = Math.min(lowest, fmesh.positions[i * 3 + 1]);
+  }
+  requireThat(floodTris > 0, 'a baked flooded patch must carry tagged flood triangles — a tag that never reaches the vertex buffer is the trap');
+  // The patch box's top face is GROUND_Y + 0.03 + 0.02. Water must be ABOVE it.
+  requireThat(lowest > GROUND_Y + 0.05 + 1e-3, `flood water at y=${lowest.toFixed(3)} is inside the patch box (top ${(GROUND_Y + 0.05).toFixed(3)}): the class can be right and the frame still shows no water`);
 }
 const groundClasses = new Set<string>();
 const kerbTris: Record<string, { keys: string[]; ys: number[] }[]> = {};

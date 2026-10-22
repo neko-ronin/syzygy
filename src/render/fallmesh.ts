@@ -10,10 +10,12 @@
  */
 
 import type { Vec3 } from '../core/math';
+import { makeRng } from '../core/math';
 import { GROUND_Y } from '../world/citygen';
 import type { CrowdObstacle } from '../world/crowdobstacles';
-import type { FallChunk, PatchKind } from '../world/fallzone';
-import type { MeshBuilder } from '../world/geometry';
+import type { FallChunk, OffLimitsPatch, PatchKind } from '../world/fallzone';
+import type { MeshBuilder, MeshOpts } from '../world/geometry';
+import { groundSurfaceTag } from '../world/groundgrammar';
 import { pushColumn } from './fallcolumn';
 import { pushFallGround } from './fallground';
 import { pushFallVillage } from './fallvillage';
@@ -23,22 +25,30 @@ const SLAB: Vec3 = [0.3, 0.31, 0.32];
 const SPAN: Vec3 = [0.2, 0.18, 0.16];
 const PATCH: Record<PatchKind, Vec3> = { fenced: [0.24, 0.25, 0.26], flooded: [0.06, 0.08, 0.1], overgrown: [0.14, 0.19, 0.11] };
 
-/** A box on a right-handed basis: MeshBuilder.pushBox's corners and faces, so every face winds outward. */
-export function pushOrientedBox(bld: MeshBuilder, c: Vec3, ax: Vec3, ay: Vec3, az: Vec3, h: Vec3, color: Vec3): void {
+/** A box on a right-handed basis: MeshBuilder.pushBox's corners and faces, so every face winds outward.
+ *  `opts` goes to every face; `topOpts` to the +y face only, which is how a
+ *  ground tag is kept off a vertical face. A tagged side face would be a
+ *  4 cm stripe of mirror around every puddle — and the wetter the material,
+ *  the more visible it is at exactly the grazing angle that matters. */
+export function pushOrientedBox(
+  bld: MeshBuilder, c: Vec3, ax: Vec3, ay: Vec3, az: Vec3, h: Vec3, color: Vec3,
+  opts: MeshOpts = {}, topOpts: MeshOpts = opts,
+): void {
   const p = (x: number, y: number, z: number): Vec3 => [
     c[0] + ax[0] * x + ay[0] * y + az[0] * z,
     c[1] + ax[1] * x + ay[1] * y + az[1] * z,
     c[2] + ax[2] * x + ay[2] * y + az[2] * z,
   ];
   const [hx, hy, hz] = h;
+  const us = opts.uvScale ?? 1;
   const c000 = p(-hx, -hy, -hz), c100 = p(hx, -hy, -hz), c110 = p(hx, hy, -hz), c010 = p(-hx, hy, -hz);
   const c001 = p(-hx, -hy, hz), c101 = p(hx, -hy, hz), c111 = p(hx, hy, hz), c011 = p(-hx, hy, hz);
-  bld.pushQuad(c001, c101, c111, c011, color);
-  bld.pushQuad(c100, c000, c010, c110, color);
-  bld.pushQuad(c101, c100, c110, c111, color);
-  bld.pushQuad(c000, c001, c011, c010, color);
-  bld.pushQuad(c011, c111, c110, c010, color);
-  bld.pushQuad(c000, c100, c101, c001, color);
+  bld.pushQuad(c001, c101, c111, c011, color, us, opts);
+  bld.pushQuad(c100, c000, c010, c110, color, us, opts);
+  bld.pushQuad(c101, c100, c110, c111, color, us, opts);
+  bld.pushQuad(c000, c001, c011, c010, color, us, opts);
+  bld.pushQuad(c011, c111, c110, c010, color, us, topOpts);
+  bld.pushQuad(c000, c100, c101, c001, color, us, opts);
 }
 
 /** The basis of a frame yawed by `yaw` (rotationY), then tilted by `tilt` about its own x axis. */
@@ -99,7 +109,19 @@ export function pushFallChunk(bld: MeshBuilder, fall: FallChunk, lod: number, ob
     });
   }
   for (const p of fall.patches) {
-    if (lod < 2) pushOrientedBox(bld, [p.x, GROUND_Y + 0.03, p.z], ...flat, [p.halfX, 0.02, p.halfZ], PATCH[p.kind]);
+    if (lod < 2) {
+      if (p.kind === 'flooded') {
+        // The patch box is the wet silt. Its TOP face carries an ordinary
+        // paving tag so it is ground — grain, joints, matte — rather than the
+        // flat MAT_DIFFUSE rectangle that never reaches groundSurface (the
+        // audit's §3). The side faces stay untagged.
+        pushOrientedBox(bld, [p.x, GROUND_Y + 0.03, p.z], ...flat, [p.halfX, 0.02, p.halfZ], PATCH[p.kind],
+          {}, { surfaceTag: groundSurfaceTag('paving', 'board-formed') });
+        pushFloodWater(bld, p, fall.yaw);
+      } else {
+        pushOrientedBox(bld, [p.x, GROUND_Y + 0.03, p.z], ...flat, [p.halfX, 0.02, p.halfZ], PATCH[p.kind]);
+      }
+    }
     obstacles.push({ x: p.x, z: p.z, tx, tz, halfAlong: p.halfX, halfAcross: p.halfZ, minY: GROUND_Y, maxY: GROUND_Y + 2.2, kind: `off-limits-${p.kind}` });
   }
   for (const s of fall.stations) {
@@ -110,4 +132,60 @@ export function pushFallChunk(bld: MeshBuilder, fall: FallChunk, lod: number, ob
   // and the ropeway huts' rails, with the zone's warm work lamps. Last, so the
   // lamps land after the village's crown lights in the same chunk list.
   pushFallGround(bld, fall, lod, obstacles, lights);
+}
+
+/**
+ * Standing water in a flooded low (round 3b §3).
+ *
+ * The class is applied to SEVERAL SMALL POOLS inside the patch, not to the
+ * patch: a flooded low is 86 m across on average, and one quad that size tagged
+ * `flood` is exactly the hard-edged sheet of horizon sky the spike warned
+ * about. The pools are irregular quads at two jittered radii, and two long
+ * runnels along the grid, so the waterline is ragged and the matte silt margin
+ * around it carries the edge.
+ *
+ * Their y is GROUND_Y + 0.075 and up — ABOVE the patch box's top face at
+ * GROUND_Y + 0.05. That is not cosmetic: the audit's "single most-likely silent
+ * failure" is water placed inside or coplanar with its own patch box, where the
+ * class, the tag, the branch, the ripple and every test can be right and the
+ * frame shows no glint at all. __selftest_ground_contract.ts asserts the
+ * inequality on the baked mesh.
+ */
+function pushFloodWater(bld: MeshBuilder, p: OffLimitsPatch, yaw: number): void {
+  const WATER: Vec3 = [0.034, 0.049, 0.062];
+  const UP4: [Vec3, Vec3, Vec3, Vec3] = [[0, 1, 0], [0, 1, 0], [0, 1, 0], [0, 1, 0]];
+  const tag = groundSurfaceTag('flood', 'asphalt');
+  // Derived from the patch's own position, so the water is part of the zone's
+  // deterministic bake and identical on every replay.
+  const r = makeRng((Math.round(p.x * 32) * 73856093) ^ (Math.round(p.z * 32) * 19349663) ^ 0x5eed);
+  const ca = Math.cos(yaw), sa = Math.sin(yaw);
+  const at = (a: number, b: number): [number, number] => [p.x + ca * a + sa * b, p.z - sa * a + ca * b];
+  const quad = (pts: [number, number][], y: number): void => {
+    bld.pushQuad([pts[0][0], y, pts[0][1]], [pts[1][0], y, pts[1][1]],
+      [pts[2][0], y, pts[2][1]], [pts[3][0], y, pts[3][1]], WATER, 1, { surfaceTag: tag, normals: UP4 });
+  };
+  const pools = 6 + r.int(0, 3);
+  for (let k = 0; k < pools; k++) {
+    const a0 = r.range(-0.72, 0.72) * p.halfX, b0 = r.range(-0.72, 0.72) * p.halfZ;
+    const rad = Math.min(4 + r.next() * 7, Math.max(2.5, Math.min(p.halfX, p.halfZ) * 0.24));
+    const pts: [number, number][] = [];
+    for (let i = 0; i < 4; i++) {
+      const ang = (i * Math.PI) / 2 + r.jitter(0.26);
+      const rr = rad * (0.62 + r.next() * 0.55);
+      pts.push(at(a0 + Math.cos(ang) * rr * 1.35, b0 + Math.sin(ang) * rr));
+    }
+    quad(pts, GROUND_Y + 0.075 + (k % 3) * 0.004);
+  }
+  // Runnels: the water follows the low between wreck plates, so two long thin
+  // sheets lie along the grid instead of every pool being a puddle.
+  for (let k = 0; k < 2; k++) {
+    const a0 = r.range(-0.5, 0.5) * p.halfX, b0 = r.range(-0.62, 0.62) * p.halfZ;
+    const len = Math.min(p.halfX * 0.7, 14 + r.next() * 18);
+    const wid = 2.2 + r.next() * 2.6;
+    const pts: [number, number][] = [
+      at(a0 - len, b0 - wid), at(a0 + len, b0 - wid * (0.7 + r.next() * 0.5)),
+      at(a0 + len * (0.9 + r.next() * 0.1), b0 + wid), at(a0 - len * (0.9 + r.next() * 0.1), b0 + wid * (0.7 + r.next() * 0.5)),
+    ];
+    quad(pts, GROUND_Y + 0.079 + k * 0.004);
+  }
 }

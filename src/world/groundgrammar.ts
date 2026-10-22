@@ -712,8 +712,8 @@ export const BAND_ORDER: readonly (PavementFamily | 'paint')[] = [
  * Integer payload is class*16+family; fractional payload is the authored kerb height.
  * Flat interpolation in WGSL preserves this exact per-primitive contract without a new ABI.
  */
-export type GroundSurfaceClass = 'carriageway' | 'paving' | 'kerb-face' | 'kerb-top' | 'gutter' | 'paint';
-export const GROUND_SURFACE_CLASSES: readonly GroundSurfaceClass[] = ['carriageway', 'paving', 'kerb-face', 'kerb-top', 'gutter', 'paint'];
+export type GroundSurfaceClass = 'carriageway' | 'paving' | 'kerb-face' | 'kerb-top' | 'gutter' | 'paint' | 'flood';
+export const GROUND_SURFACE_CLASSES: readonly GroundSurfaceClass[] = ['carriageway', 'paving', 'kerb-face', 'kerb-top', 'gutter', 'paint', 'flood'];
 export function groundSurfaceTag(surface: GroundSurfaceClass, family: PavementFamily | 'paint', height = 0): number {
   return -(1 + GROUND_SURFACE_CLASSES.indexOf(surface) * 16 + BAND_ORDER.indexOf(family) + clamp(height, 0, 0.99));
 }
