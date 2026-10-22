@@ -36,6 +36,11 @@ const RUST: Vec3 = [0.34, 0.22, 0.16];
 const CABLE: Vec3 = [0.15, 0.15, 0.16];
 const CONCRETE: Vec3 = [0.33, 0.32, 0.31];
 const DOOR: Vec3 = [0.09, 0.09, 0.1];
+// Painted sheet, the cold near-black a boarded-up front is made of. It is the
+// darkest tone in the palette and the only one that is blue-biased, so a wall
+// faced with it reads as a cold mass under a warm lamp instead of a dim warm
+// slab: the lamp's wash lands on it, but at a value and a hue that stay cold.
+const SHEET: Vec3 = [0.06, 0.07, 0.095];
 /** D28's warm amber. The only colour in the zone that is not cold by design. */
 const LAMP: Vec3 = [1.0, 0.72, 0.4];
 
@@ -241,17 +246,21 @@ function bracketHead(
  * what is left of the wall's warm area is a set of edges and a band under the
  * eave, not one bright field.
  *
- * Three pieces, all on the door face:
- *  - a **fascia** across the face under the eave, in the door's near-black:
- *    this is the band the lamp washes hardest (it is the closest surface to
- *    the head), and boarding it over is what turns the slab into a mass with
- *    a lit edge;
+ * Three kinds of piece, all on the door face:
+ *  - a **fascia** across the face under the eave, in the cold near-black of a
+ *    painted sheet, split into three boards by two narrow reveals. This is the
+ *    band the lamp washes hardest (it is the closest surface to the head), so
+ *    boarding it over is what stops it being a slab; the reveals let the lit
+ *    cladding behind show through as two warm lines, which is section B's
+ *    grammar (small warm apertures on a cold mass) and cuts the fascia into
+ *    three countable panels;
  *  - a **hood** over the door, in steel, projecting past the cladding: its
  *    top face takes the light and its underside does not, so the door's head
  *    gets a lit line and a shadow line at once;
- *  - two **pilasters** flanking the door, in steel: their faces along the
- *    wall catch no light at all, so they read as two dark vertical edges
- *    splitting the face into panels.
+ *  - two **pilasters** flanking the door, in steel: standing proud of the
+ *    cold boards they catch the lamp on their front faces and read as two lit
+ *    verticals, while their faces along the wall catch none and read as dark
+ *    edges.
  *
  * The pieces are placed clear of every surface they touch by 0.02 m, so no
  * two faces are coplanar, and the pilasters run past the fascia's bottom so
@@ -262,18 +271,32 @@ function frontFace(
   box: (x: number, y: number, z: number, hx: number, hy: number, hz: number, col: Vec3) => void,
   faceB: number, halfWidth: number, doorA: number, doorHalf: number, doorTop: number, eave: number,
 ): void {
-  // The fascia: a board across the face, under the eave, standing 0.06 m proud
-  // of the cladding. Its top runs 0.02 m into the slab, so it is not coplanar
-  // with the roof either.
-  const [fx, fz] = f.at(c.x, c.z, 0, faceB + 0.06);
-  box(fx, GROUND_Y + (doorTop + eave + 0.02) / 2, fz, halfWidth - 0.1, (eave + 0.02 - doorTop) / 2, 0.04, DOOR);
+  // The fascia: three boards stacked across the face under the eave, in the
+  // cold near-black of a boarded sheet, separated by two horizontal reveals.
+  //
+  // The reveals are the point. A single board across the whole face is a slab
+  // — a dark slab instead of a lit one, which is the same failure the reviewer
+  // named. Two 0.08 m gaps let the lamp-lit cladding behind show through as
+  // two narrow warm lines, which is section B's grammar (small warm apertures
+  // on a cold mass) and, because the lines are lit, they cut the fascia into
+  // three separate boards that can be counted on the frame.
+  const H = eave + 0.02 - doorTop;  // the fascia's height
+  const gapH = 0.04;                 // half a reveal's height
+  const bH = (H - 2 * gapH) / 3;     // one board's height
+  const W = halfWidth - 0.1;
+  for (let i = 0; i < 3; i++) {
+    const [bx, bz] = f.at(c.x, c.z, 0, faceB + 0.06);
+    box(bx, GROUND_Y + doorTop + i * (bH + gapH) + bH / 2, bz, W, bH / 2, 0.04, SHEET);
+  }
   // The hood over the door: a slab reaching out past the fascia, its top in
   // the light and its underside out of it.
   const [hx, hz] = f.at(c.x, c.z, doorA, faceB + 0.26);
   box(hx, GROUND_Y + doorTop - 0.02, hz, doorHalf + 0.55, 0.06, 0.22, STEEL);
-  // The pilasters: two uprights beside the door, from the deck to the fascia.
+  // The pilasters: two uprights framing the door, from the deck to the fascia.
+  // They stand close to the jambs so their lit faces land beside the door,
+  // where the frame is read.
   for (const side of [-1, 1]) {
-    const a = doorA + side * (doorHalf + 0.24);
+    const a = doorA + side * (doorHalf + 0.12);
     const [px, pz] = f.at(c.x, c.z, a, faceB + 0.09);
     box(px, GROUND_Y + (doorTop + 0.05) / 2, pz, 0.1, (doorTop + 0.05) / 2, 0.05, STEEL);
   }
