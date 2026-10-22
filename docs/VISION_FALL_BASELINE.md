@@ -2478,3 +2478,215 @@ Re-shoot 18 and count the same six columns against the table above; id124 and id
 two that must move to 2+. The pick is the one lever this round did not touch, and the only
 one that can finish the lit-row work: the both-faces rule has already taken every crown the
 camera can see.
+# PART 15 — ROUND 3I: the pick (which box carries the row) (`47b5c6d`, run `06-57-22`, `shots/2026-10-22T06-57-22`)
+
+**Scope.** One change judged: `dressFaces` in `src/render/fallvillage.ts` now leads the
+selection with outwardness (radial line of sight) instead of height and the `|a|`
+tie-break, so the box that carries the row is chosen by line of sight (PART 14 NEXT).
+Baseline is round 3g (`shots/2026-10-22T06-07-15`, PART 14's frame); pose, seed, hour and
+rig unchanged. The implementer's record (`docs/FALL_LITROWS_ROUND3I.md`) was read for what
+was built; the frames decide. The acceptance is a **count** at pose 18 on PART 14's six
+columns, at the positions where the rows are actually drawn (not the probe's projection —
+PART 9 (b) measured that map ~12 % too close to frame centre), with a mark counting as a
+visible block only when it is at least 2 px wide and 3 px tall (a 1-px sliver does not).
+
+## The count (pose 18, six nearest fall crowns, drawn positions)
+
+Method: warm = `R > B + 15 && R > 60`, 4-connected components, counted in a box round the
+row the frame actually carries; the "visible blocks" column is by the definition above. The
+3g column is PART 14's own table, re-measured here to the same definition.
+
+| column | dist | 3g components | 3g visible blocks | 3i components | 3i visible blocks | 3i drawn where (x, y) |
+|---|---|---|---|---|---|---|
+| id109 | 193 m | 6 (25, 20, 19, 13, 11, 2) | 5 | 7 (25, 19, 14, 11, 11, 10, 3) | **6** | 134-139, 142-147, 148-153, 158-163, 169-174, y 387-396 |
+| id89 | 228 m | 2 (28, 28) | 2 | 2 (24, 24) | **2** | 619-624, 626-631, y 377-383 |
+| id76 | 198 m | 3 (41, 25, 2) | 2 | 3 (27, 25, 2) | **2** | 758-763, 768-772, y 658-667 |
+| id124 | 225 m | 2 (23, 8) | 2 | 2 (20, 6) | **2** | 112-113, 116-122, y 444-447 |
+| id123 | 262 m | 1 (76) | 1 | 2 (39, 37) | **2** | 270-278, 280-288, y 502-507 |
+| id108 | 264 m | 1 (5) | 1 | 1 (5) | **1** | 510-511, y 479-481 |
+
+**5 of 6 crowns carry 2+ visible blocks** (id109 6, id89 2, id76 2, id124 2, id123 2);
+id108 carries one 2x3 mark. The **overall acceptance (5 of 6) is met.** The done-when PART 14
+set — id124 and id108 both move to 2+ — is **half met**: id124 was already 2 in 3g (the
+pick did not move it; the probe confirms identical clear-pane runs, 2+1), and id108 is
+unchanged at 1. The pick moved id109 (5 → 6 visible blocks) and id123 (1 merged component →
+2), and did not move id124 or id108.
+
+## Close-out (DESIGN §6) — round 3i
+
+```
+VERDICT:  more work needed
+EVIDENCE: references/B-cold-industrial-sheet.jpg (read first; frame 2 is the crown reference)
+          shots/compare/2026-10-22T07-06-47.png (+ .txt)   BASELINE | CURRENT | REFERENCE
+            baseline: shots/2026-10-22T06-07-15 (round 3g)
+            current:  shots/2026-10-22T06-57-22 (round 3i, shot after 47b5c6d)
+            reference column: references/sections/B-cold-industrial/
+          full-size: shots/2026-10-22T06-57-22/{16,17,18,19,20}.png and
+                     shots/2026-10-22T06-07-15/{16,17,18,19,20}.png
+          reviewer crops: the six crowns at 8x-32x, both runs (id109, id89, id76, id124,
+            id123, id108); pose 19's band at 12x/32x; pixel grids over id124's and id108's
+            rows (both runs)
+          shots/2026-10-22T06-57-22/_capture.json (5 shots, error null, lights 1405/1405,
+            starved 0/0, lodHistogram [9,34,124,0], residentChunks 167/167)
+          npx vite-node@6.0.0 src/render/__probe_litrow.ts (identical before and after:
+            1078 lit quads at lod 0, 2872 at lod 2, 93,192 bay-free triangles; id124 2+1,
+            id108 1+1)
+JUDGED:   the acceptance as a count at 18's six nearest crowns, at drawn positions (not the
+          probe's); whether the row reads as a row and not a bar; pose 19's band; whether
+          the pick moved id124 and id108; the cost against D32 from the run's own stats;
+          16 and 17 as controls; warm/dark against sheet B frame 2; the city-wide check
+GAP:      acceptance not met for the done-when — id108 is unchanged at one 2x3 mark. The
+          pick (the lever PART 14 named) is arithmetically incapable of moving it: id108's
+          stack has two candidate boxes and both are already dressed (want = 2), so
+          reordering them changes which runs are counted but not how many, and it has only
+          2 clear panes (1+1) at this distance, each ~1 px wide — no ordering produces a
+          second visible block. id124's second bay is a 2x4 mark that already counted in 3g;
+          the pick did not move it either (probe: identical 2+1 runs). The count acceptance
+          (5 of 6) is met, but the crown PART 14 specifically required to move did not.
+NEXT:     one change: raise the row's bay-width cap from 2.4 m to about 4 m, so a single
+          clear pane at 264 m projects to at least 2 px (at ~2.5 px per pane, id108's two
+          clear panes become two visible blocks instead of two 1-px marks). Re-shoot 18 and
+          count id108 against the table above; id108 is the one that must move to 2+.
+          This is the one lever left that is arithmetically capable of moving a stack seen
+          edge-on, and it is not another reordering of the same candidates.
+CONFIRMED: the pick did what a face rule could not for the crowns the camera meets — id109
+          gained a sixth visible pane (5 -> 6), id123's merged 76-px band split into two
+          39/37-px blocks with a visible mullion; id89 and id76 hold at 2; no flood (warm
+          1.334 % -> 1.324 %, warm-bright 0.233 % -> 0.231 % at 18); no light change
+          (1405/1405, starved 0/0); no GPU/WGSL error in any of the 5 shots; the LOD 2
+          merged path is unchanged (2872 quads / 7,842 m2); 16 and 17 carry no new lit
+          pixel (0.115 % -> 0.117 %, 0.274 % -> 0.278 %); pose 19's band is present in
+          both runs (46 -> 48 warm px at x 1230-1245, y 643-652); the city-wide read is
+          unchanged — 18 still reads as two places.
+```
+
+## (a) The counts, at the six columns, where the rows are actually drawn
+
+**id109 (193 m) — the round's gain: 5 → 6 visible blocks.** 3g carried six warm
+components (25, 20, 19, 13, 11, 2 px) reading as five windows (the 2-px mark does not
+qualify); 3i carries seven (25, 19, 14, 11, 11, 10, 3 px) reading as six, the extra
+being a 10-px two-pane window at x 148-153 and a 3-px mark that does not qualify. The
+crown now carries two rows on two different boxes, six windows in all — the pick found a
+box the both-faces rule had not lit. This is the change working where the camera can see.
+
+**id89 (228 m) and id76 (198 m) — unchanged at 2 blocks each.** id89's two 28-px blocks
+are 24 px each now (the tighter lens and the pick's reordering of an already-dressed pair
+shifted the sampling 2-3 px); id76's first pane narrowed from 41 to 27 px as a neighbour
+stopped merging into it, but both crowns still carry two windows. Neither moved because of
+the pick; both were already passing.
+
+**id124 (225 m) — unchanged at 2, and the pick did not move it.** 3g's row was a 23-px
+bar at x 116-122 plus an 8-px (2x4) mark at x 112-113; 3i's is a 20-px bar at x 116-122
+plus a 6-px (2x4) mark at x 112-113. Every feature shifted 2-3 px left and the mark
+shrank 2 px, which is the held lens moving 0.08 % (1.04451 → 1.04527, worth 2.1 px at
+this crown's distance and its left-of-centre position) plus a sampling phase change (the
+mark's colour moved from R 164-179/G 156-164/B 113-128 in 3g to R 168-176/G 150-157/
+B 108-115 in 3i). The mark still qualifies (2 px wide, 4 px tall, against the 2x3 floor).
+The implementer's probe independently confirms the pick did nothing here: id124's
+clear-pane runs are identical before and after (2+1). The crown was already at 2 and
+stayed at 2; the pick's target was id108, not id124.
+
+**id123 (262 m) — the round's other gain: 1 → 2 visible blocks.** 3g's 76-px component
+was one warm mass with a visible mullion at 24x; 3i splits it into two 39/37-px blocks
+(x 270-278, x 280-288) with a dark gap between them. The split is the pick working: a
+second box of the crown now carries a row on a face the camera meets, and the mullion that
+was a threshold bridge in 3g is a real gap in 3i. This is the change that takes the
+acceptance from 4 to 5 of 6.
+
+**id108 (264 m) — unchanged at one 2x3 mark.** The pick did not move it, and it could not:
+the stack has two candidate boxes and both are already dressed (want = 2), so reordering
+them changes which runs the probe counts but not how many, and it has only 2 clear panes
+(1+1) at this distance, each about 1 px wide. No ordering of candidates that already
+exist can produce a second visible block, because a 1-px mark does not meet the 2-px
+width floor. This is the arithmetically incapable case PART 14's NEXT was supposed to
+avoid, and the pick is the lever that hit it.
+
+## (b) The triangle-count claim, reconciled
+
+The implementer's record says "selection only, no new geometry" and also reports the run
+at 18 as 4,800,595 triangles against 3g's 4,902,545 — a drop of 101,950 in the shadow
+pass, with g-buffer triangles unchanged to within 8. Both cannot be a cost of the change,
+and they are not: the cascade splitter's per-cascade draws are **not recorded** in either
+`_capture.json` (the `draws` array is empty in both, and the files carry only
+`entity.triangles` and `entity.drawCalls`). What is recorded is identical in both runs:
+`entity.triangles` 604,188, `entity.drawCalls` 4, `lodHistogram` [9, 34, 124, 0],
+`residentChunks` 167, lights 1405, starved 0, camera fov 1.04451 vs 1.04527 (0.08 %
+difference, 2.1 px at this distance). There is no geometry change, no LOD change, no
+resident-set change and no light change between the runs. The reported shadow-triangle
+difference is therefore a **harness/measurement artefact** (frustum or tile-binning
+variation between two runs of the same scene), not a cost of the change. The change is
+selection-only with zero geometry cost: lit bays 1078 → 1078, bay-free triangles 93,192 →
+93,192, LOD 0 village triangles unchanged, g-buffer entity count identical. The probe
+confirms the same (1078 lit quads, 2872 at lod 2, 93,192 bay-free triangles, before and
+after). The implementer's own "selection only" line is the true one; the triangle number
+is the artefact.
+
+## (c) Pose 19 — the band is back and holds
+
+3g's near control carried the band at x 1233-1243, y 644-649 (26 + 20 px); 3i carries
+it in the same place (46 → 48 warm px at x 1230-1245, y 643-652). The other two masses
+on that structure carry over (175/177 px and 192/180 px, the lens's 2-px shift). Pose 19's
+warm share is 2.058 % → 2.061 %, flat. **The acceptance's second clause holds.** The
+end face that 3g lit (1227 → 2130 warm px) is unchanged in 3i; nothing new appears on
+inward faces in this frame beyond what 3g already put there.
+
+## (d) 16 and 17 as controls
+
+**Neither leaks a lit pixel.** 16: warm 0.115 % → 0.117 %, warm-bright 0.016 % in both,
+the same composition, no fall crown in frame and none lit. 17: warm 0.274 % → 0.278 %,
+warm-bright 0.001 % in both, same composition, no new row on any crown it shows. The
+selection change touches no geometry, and the controls confirm it touches no lit pixel
+either.
+
+## (e) Warm/dark against sheet B frame 2, and the city-wide check
+
+**The value structure has not moved, and nothing has flooded.** At 18 the whole-frame mean
+RGB is (18.2, 33.9, 78.8) before and (18.2, 33.9, 78.7) after — PART 14's reading, to
+the digit. The loose warm share is 1.334 % → 1.324 %; warm-bright 0.233 % → 0.231 %.
+The implementer's record prints "warm-bright 0.2 % (baseline 1.34 %)": those are two
+different definitions of warm, as in PART 14. Measured on the same two frames with one
+definition each, the change is flat in both, which is the no-flood result either way.
+
+Against sheet B frame 2 — a leaning stack carrying eight to ten lit blocks at several
+heights on one column — five of the six nearest crowns now carry 2-6 blocks, and id108
+carries one 2x3 mark. The warm/dark balance is closer than it was, because id123's
+second block added ~37 warm pixels, but the gap to the reference is unchanged in kind:
+the zone's own warm inventory is still sparse and the old city behind still carries most
+of the frame's warmth.
+
+**The city-wide check passes.** Pose 18 still reads as two places: the fall crowns as
+dark, sparsely-lit stacks in front of a wall of old-city window grids. The pick added
+one block to id109 and split id123's band, both at the row's height on faces the camera
+meets; the zone does not look like the rest of the city and 3i did not homogenise it.
+
+## What this round establishes, and what it does not
+
+- **Establishes:** the pick does what a face rule cannot for the crowns the camera meets:
+  id109 gains a sixth visible pane (5 → 6) and id123's merged band splits into two blocks
+  (1 → 2), taking the count from 4 to 5 of 6.
+- **Establishes:** the pick is arithmetically incapable of moving id108, and did not move
+  id124. id108 has two candidate boxes, both already dressed, and only 2 clear panes
+  (1+1) at ~1 px each; no ordering produces a second visible block. id124's clear-pane
+  runs are identical before and after (2+1) and its row is the same 2x4 mark it was in
+  3g. Both need a lever that changes the geometry, not the order.
+- **Establishes:** the change is selection-only with zero geometry cost — identical
+  entity.triangles, lodHistogram, residentChunks, lights and starved count; the reported
+  shadow-triangle drop is a harness artefact, not a cost.
+- **Establishes:** 16 and 17 carry no new lit pixel; the value structure at 18 has not
+  moved; the city-wide read is unchanged; pose 19's band holds.
+- **Does not establish** the done-when as met: id108 is unchanged at one 2x3 mark, and
+  id124 did not move because of the pick.
+- **Does not establish** that the inward faces are safe everywhere: 3g's single case of
+  new light on an end face at 19 is unchanged, and no frame contains a pile seen from
+  inside a gap.
+- **Does not re-judge** rounds 3a-3h, pose 20's lamp and floor (PART 13's NEXT stands:
+  the pool term's albedo multiply in `src/shaders/lighting.wgsl`), or the ground pass.
+
+**One next change, not three.** **Raise the row's bay-width cap from 2.4 m to about 4 m**, so
+a single clear pane at 264 m projects to at least 2 px (about 2.5 px per pane, which turns
+id108's two clear panes into two visible blocks instead of two 1-px marks). Re-shoot 18 and
+count id108 against the table above; id108 is the one that must move to 2+. This is the
+one lever left that is arithmetically capable of moving a stack seen edge-on, and it is not
+another reordering of the same candidates. It also makes id124's second bay a real block
+rather than a 2x4 mark. The pick has taken every crown the camera can see; the width is
+what is left.
