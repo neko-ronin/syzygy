@@ -475,17 +475,18 @@ const POSES = [
   },
   {
     // Derived by src/world/__probe_fallzone.ts (seed 5e7a17).
-    // Round 3d: the zone's floor. Round 3b built the lifelines, the wreck
-    // dressing and the flooded lows, and no pose pointed at any of them
-    // (VISION_FALL_BASELINE.md PART 7: 0 of 4 frames contains the floor).
-    // Eye height in the belt, a flooded low 16 m ahead with its near edge 67%
-    // down the frame and the old city behind; lifeline id54 (winch) 23.8 m
-    // away at -39.6 deg (the frame edge) whose 120.7 m pile top is 78.7 deg up,
-    // out of the 37.5 deg top edge. Blue hour, because the lamp and the water
-    // glint are the section's warmth and the shaft silhouette is the scale.
+    // Round 3d, re-derived (docs/POSE20_FIX.md): the zone's floor. Round 3b
+    // built the lifelines, the wreck dressing and the flooded lows, and the 3d
+    // camera stood on the pile's far side from its lamp (PART 8), so the frame
+    // was a dark plaza. This one stands 15 m from lifeline id54's winch foot on
+    // the LAMP side (camera local b 24.8 vs foot b 11.2), at a real pool's near
+    // edge 6.6 m out (water 70-92% of the frame), with the 120.7 m pile top at
+    // 78 deg out of the 41.5 deg top edge and the old city on the pile's open
+    // side. BLUE HOUR. The lamp head still does not show: it is inside the hut
+    // (see POSE20_FIX.md), so this pose is judged on the water, not the warm.
     name: '20-fall-ground-level',
-    label: "sheet B: the zone's floor at eye height — flooded low, lifeline lamp, shaft for scale, blue hour",
-    position: [521.5, 2.1, -468.1], lookAt: [579, 8.8, -439.9], fov: 1.1, roll: 0,
+    label: "sheet B: the zone's floor — a flooded low's near edge, a winch lamp on the pile's open side, the shaft out of the top, blue hour",
+    position: [558.1, 2.1, -452.4], lookAt: [471.1, 19.7, -501.8], fov: 1.1, roll: 0,
     time: 'bluehour',
     weather: { sky: 'bluehour', cloudCover: 0.35, haze: 0.3 },
     lens: { fov: 1.1 },

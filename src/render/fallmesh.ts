@@ -134,6 +134,53 @@ export function pushFallChunk(bld: MeshBuilder, fall: FallChunk, lod: number, ob
   pushFallGround(bld, fall, lod, obstacles, lights);
 }
 
+export interface FloodQuad {
+  /** The four corners, world (x, z). */
+  pts: [number, number][];
+  /** World y of the sheet. */
+  y: number;
+}
+
+/**
+ * The water's geometry: the pools then the runnels, in the order the RNG is
+ * drawn. Exported because a capture pose has to stand at a pool's near edge,
+ * and a copy of this stream in the probe would drift from the bake the moment
+ * either changed (PROCESS: a derived number must come from the source).
+ */
+export function floodWater(p: OffLimitsPatch, yaw: number): FloodQuad[] {
+  // Derived from the patch's own position, so the water is part of the zone's
+  // deterministic bake and identical on every replay.
+  const r = makeRng((Math.round(p.x * 32) * 73856093) ^ (Math.round(p.z * 32) * 19349663) ^ 0x5eed);
+  const ca = Math.cos(yaw), sa = Math.sin(yaw);
+  const at = (a: number, b: number): [number, number] => [p.x + ca * a + sa * b, p.z - sa * a + ca * b];
+  const out: FloodQuad[] = [];
+  const pools = 6 + r.int(0, 3);
+  for (let k = 0; k < pools; k++) {
+    const a0 = r.range(-0.72, 0.72) * p.halfX, b0 = r.range(-0.72, 0.72) * p.halfZ;
+    const rad = Math.min(4 + r.next() * 7, Math.max(2.5, Math.min(p.halfX, p.halfZ) * 0.24));
+    const pts: [number, number][] = [];
+    for (let i = 0; i < 4; i++) {
+      const ang = (i * Math.PI) / 2 + r.jitter(0.26);
+      const rr = rad * (0.62 + r.next() * 0.55);
+      pts.push(at(a0 + Math.cos(ang) * rr * 1.35, b0 + Math.sin(ang) * rr));
+    }
+    out.push({ pts, y: GROUND_Y + 0.075 + (k % 3) * 0.004 });
+  }
+  // Runnels: the water follows the low between wreck plates, so two long thin
+  // sheets lie along the grid instead of every pool being a puddle.
+  for (let k = 0; k < 2; k++) {
+    const a0 = r.range(-0.5, 0.5) * p.halfX, b0 = r.range(-0.62, 0.62) * p.halfZ;
+    const len = Math.min(p.halfX * 0.7, 14 + r.next() * 18);
+    const wid = 2.2 + r.next() * 2.6;
+    const pts: [number, number][] = [
+      at(a0 - len, b0 - wid), at(a0 + len, b0 - wid * (0.7 + r.next() * 0.5)),
+      at(a0 + len * (0.9 + r.next() * 0.1), b0 + wid), at(a0 - len * (0.9 + r.next() * 0.1), b0 + wid * (0.7 + r.next() * 0.5)),
+    ];
+    out.push({ pts, y: GROUND_Y + 0.079 + k * 0.004 });
+  }
+  return out;
+}
+
 /**
  * Standing water in a flooded low (round 3b §3).
  *
@@ -155,37 +202,9 @@ function pushFloodWater(bld: MeshBuilder, p: OffLimitsPatch, yaw: number): void 
   const WATER: Vec3 = [0.034, 0.049, 0.062];
   const UP4: [Vec3, Vec3, Vec3, Vec3] = [[0, 1, 0], [0, 1, 0], [0, 1, 0], [0, 1, 0]];
   const tag = groundSurfaceTag('flood', 'asphalt');
-  // Derived from the patch's own position, so the water is part of the zone's
-  // deterministic bake and identical on every replay.
-  const r = makeRng((Math.round(p.x * 32) * 73856093) ^ (Math.round(p.z * 32) * 19349663) ^ 0x5eed);
-  const ca = Math.cos(yaw), sa = Math.sin(yaw);
-  const at = (a: number, b: number): [number, number] => [p.x + ca * a + sa * b, p.z - sa * a + ca * b];
-  const quad = (pts: [number, number][], y: number): void => {
-    bld.pushQuad([pts[0][0], y, pts[0][1]], [pts[1][0], y, pts[1][1]],
-      [pts[2][0], y, pts[2][1]], [pts[3][0], y, pts[3][1]], WATER, 1, { surfaceTag: tag, normals: UP4 });
-  };
-  const pools = 6 + r.int(0, 3);
-  for (let k = 0; k < pools; k++) {
-    const a0 = r.range(-0.72, 0.72) * p.halfX, b0 = r.range(-0.72, 0.72) * p.halfZ;
-    const rad = Math.min(4 + r.next() * 7, Math.max(2.5, Math.min(p.halfX, p.halfZ) * 0.24));
-    const pts: [number, number][] = [];
-    for (let i = 0; i < 4; i++) {
-      const ang = (i * Math.PI) / 2 + r.jitter(0.26);
-      const rr = rad * (0.62 + r.next() * 0.55);
-      pts.push(at(a0 + Math.cos(ang) * rr * 1.35, b0 + Math.sin(ang) * rr));
-    }
-    quad(pts, GROUND_Y + 0.075 + (k % 3) * 0.004);
-  }
-  // Runnels: the water follows the low between wreck plates, so two long thin
-  // sheets lie along the grid instead of every pool being a puddle.
-  for (let k = 0; k < 2; k++) {
-    const a0 = r.range(-0.5, 0.5) * p.halfX, b0 = r.range(-0.62, 0.62) * p.halfZ;
-    const len = Math.min(p.halfX * 0.7, 14 + r.next() * 18);
-    const wid = 2.2 + r.next() * 2.6;
-    const pts: [number, number][] = [
-      at(a0 - len, b0 - wid), at(a0 + len, b0 - wid * (0.7 + r.next() * 0.5)),
-      at(a0 + len * (0.9 + r.next() * 0.1), b0 + wid), at(a0 - len * (0.9 + r.next() * 0.1), b0 + wid * (0.7 + r.next() * 0.5)),
-    ];
-    quad(pts, GROUND_Y + 0.079 + k * 0.004);
+  for (const q of floodWater(p, yaw)) {
+    const [a, b, c, d] = q.pts;
+    bld.pushQuad([a[0], q.y, a[1]], [b[0], q.y, b[1]], [c[0], q.y, c[1]], [d[0], q.y, d[1]],
+      WATER, 1, { surfaceTag: tag, normals: UP4 });
   }
 }
