@@ -60,28 +60,51 @@ merged path, and the pose were not touched. `workshopYard`'s door face is at
 - camera held: position [558.1, 2.0016, -452.4] (requested [558.1, 2.1, -452.4],
   0.10 m off), fov 1.0324 (requested 1.1)
 
-## Probe counts (PART 10 gate)
+## Probe counts (PART 10 gate) — corrected
 
-Warm-bright = `R > 120 && R > 1.6 * B`.
+Warm-bright = `R > 120 && R > 1.6 * B`. Measured on
+`shots/2026-10-22T05-05-49-20-fall-ground-level.png`; the before frame is
+`shots/2026-10-22T03-11-38` (PART 10's second-pass pose, same seed, same hour).
 
-- **Below y = 600** (`--rect=0,600,1600,300`, the bottom 300 px): **72 px**
-  (0.015 %, rounds to 0.0 % in `pixel_share.py`). PART 10 gate required `> 0`:
-  met (baseline PART 10 frame had 0 px).
-- **Whole frame**: 7318 px = **0.5 %** warm-bright (baseline 1.34 %). No flood:
-  below the 1.34 % baseline, so the change did not light up the frame.
+**What changed is real and visible.** The lamp's footprint is at x 1250-1550:
+0 warm px before, 1607 after, max R-B 97 at (1416, 571). Per 20 px band:
+y 560-579 = 1011 warm, y 580-599 = 596, y 600-619 = 0 (max R-B 28),
+y 620-639 = 0 (max R-B 7), then negative. The emitter and the wall it is
+mounted on are lit; before, that wall had max R-B -4. So the head is no longer
+buried and the change reads as a source plus a lit wall.
 
-Warm pixels span y `0..606` (max y 606), i.e. the new source's glow reaches
-just below the horizon line (y 583-596) but not deep into the bottom third.
+**PART 10 NEXT clause one ("warm below y 600 > 0") is met only nominally, and
+not by the lamp.** The 72 warm-bright px below y 600 are the stall and the
+old-city window row at the horizon: components at x 412-421 (56 px),
+x 467-471 (37), x 459-462 (29), x 1038-1043, x 1196-1201, x 1052-1075.
+The before frame already carries 15 warm px at y 600-618 in the same places
+(x 347-1183). Those are not the lamp. The lamp contributes 0 warm-bright px
+below y 600.
+
+**PART 10 NEXT clause two (specular in the water) was deferred**, as PART 10
+(b) named; no reflection was attempted this round.
+
+**Why the pool is absent.** The lamp sits 2.2 m above ground on the hut wall and
+the camera is ~15 m out looking at that face, so the pool at the hut foot is
+behind the geometry the camera can see; the visible ground at 10 m+ gets R-B 28
+at most. The light stops at the wall: no pool, nothing below the horizon that is
+the lamp.
+
+**Whole frame:** 7318 px = 0.5 % warm-bright (baseline 1.34 %). No flood.
+
+**Lens caveat.** Held fov 1.0324 here against 1.0754 in the 03-11-38 baseline
+(~5 % tighter), so before/after sizes are not exact.
 
 ## What this does NOT establish
 
 - It does not judge the frame. fall-review does that against
   `references/B-cold-industrial-sheet.jpg` (frame 3, ground level) and returns
   `done` or `more work needed`. This doc records the measurement only.
-- A count of 72 px below y 600 is `> 0` and meets the gate, but it does not
-  establish that the lamp reads as a distinct source, pool, or reflection in the
-  water; the water's reflection was explicitly deferred to the round after
-  (PART 10 (b)).
+- It does not establish PART 10's gate as met by the lamp. The `> 0` count
+  below y 600 is the stall and the old-city window row, present in the before
+  frame; the lamp adds 0 px there. The gate is met only nominally.
+- It does not establish a pool, a specular, or reflection in the water; the
+  lamp's glow stops at its own wall.
 - It does not establish that rubble, rebar, lifelines, or the floor "read" —
   those were PART 10 (c)/(d) open items and are untouched here.
 - It does not establish that workshopYard (every third winch) behaves identically
@@ -90,3 +113,7 @@ just below the horizon line (y 583-596) but not deep into the bottom third.
   left to a frame that contains one.
 - It does not re-judge rounds 3a/3b/3c or the break, and it does not change the
   pose.
+
+Bottom line: the head is no longer buried and the lamp reads as a source on its
+own wall, but it lights nothing below the horizon and there is no pool; PART 10's
+"warm below y 600" gate is met only by the stall, so the floor is still dark.
