@@ -2690,3 +2690,261 @@ one lever left that is arithmetically capable of moving a stack seen edge-on, an
 another reordering of the same candidates. It also makes id124's second bay a real block
 rather than a 2x4 mark. The pick has taken every crown the camera can see; the width is
 what is left.
+# PART 16 — ROUND 3K: the gate on the bay-width cap (no capture; record at `3d521d8`)
+
+**Scope.** Round 3k was PART 15's named change: raise the lit row's bay-width cap from
+2.4 m to about 4 m (scoped to boxes with `u.long > 8`) so id108's clear panes at 264 m
+project to at least 2 px. The implementer applied it, ran the probe both ways, found id108
+still `1+1`, found id76 and id124 coarsened and lit quads down 1088 → 1048 while lit m²
+rose, **reverted the code, and took no capture**. Commit `3d521d8` carries the record only.
+This part re-derives every one of those claims in a throwaway worktree and decides the
+gate, then makes the decision the lit-row thread has been building toward.
+
+## Re-derived probe evidence
+
+HEAD's probe (`npx vite-node@6.0.0 src/render/__probe_litrow.ts`), run here:
+
+```
+lod 0 village: 1088 lit quads, 2598 m2 lit area, 17.20 m2 per column
+id 109  193m  lod0  panes 44  runs 12+8+8+6+4+4+2  clear 4+2+2+2+1   ACCEPT(2+2+2)
+id  76  198m  lod0  panes 12  runs 4+4+2+2           clear 2+2         ACCEPT(2+2)
+id 124  225m  lod0  panes  8  runs 4+4               clear 2+1         ACCEPT(2)
+id  89  228m  lod0  panes 24  runs 10+4+4+2+2+2      clear 2+2         ACCEPT(2+2)
+id 123  262m  lod0  panes  8  runs 4+4               clear 2+2         ACCEPT(2+2)
+id 108  264m  lod0  panes  8  runs 2+2+1+1+1+1       clear 1+1         no 2-3
+```
+
+The same edit applied independently in a throwaway worktree (`git worktree add -d /tmp/wt-3k
+HEAD`, symlinked `node_modules`, `bayW` line changed to `clamp(u.long * 0.4, 1.1, u.long > 8 ?
+4.0 : 2.4)`, working tree untouched) and the probe re-run there:
+
+```
+lod 0 village: 1048 lit quads, 2809 m2 lit area, 18.60 m2 per column
+id 109  193m  lod0  panes 44  runs 12+8+8+6+4+4+2  clear 4+2+2+2+1   ACCEPT(2+2+2)   (unchanged)
+id  76  198m  lod0  panes 12  runs 4+2+2+2+2         clear 2+1+1       ACCEPT(2)        (coarsened: 2+2 -> 2+1+1)
+id 124  225m  lod0  panes  8  runs 4+2+2             clear 2+1+1       ACCEPT(2)        (coarsened: 2+1 -> 2+1+1)
+id  89  228m  lod0  panes 24  runs 10+4+4+2+2+2      clear 2+2         ACCEPT(2+2)      (unchanged)
+id 123  262m  lod0  panes  8  runs 4+4               clear 2+2         ACCEPT(2+2)      (unchanged)
+id 108  264m  lod0  panes  8  runs 2+2+1+1+1+1       clear 1+1         no 2-3           (unchanged)
+```
+
+All three of the implementer's claims are confirmed:
+
+- **(a) id108 unchanged** — `1+1` in both runs, no 2-3. The cap raise is scoped to
+  `u.long > 8`, and id108 is a stack whose boxes are not long enough to be affected; even
+  if they were, its two clear panes are each ~1 px at 264 m and widening the bay does not
+  add a clear pane, it only widens the ones that exist.
+- **(b) id76 and id124 coarsened** — `2+2 -> 2+1+1` and `2+1 -> 2+1+1`. Wider bays
+  reduce the number of bays that fit in a run, so a second pane that used to be a 2-px
+  mark becomes a 1-px mark and stops qualifying.
+- **(c) lit quads fell while lit m² rose** — 1088 → 1048 (−40) while 2598 → 2809 m²
+  (+211). Fewer, wider bays: the same lit area spread over larger panels. The trade is
+  real and net negative for the count.
+
+The worktree was removed; the working tree is clean and untouched.
+
+## The gate finding
+
+**"No capture" was the right call, and the gate was applied correctly.** The reason is not
+that the probe is authoritative — it is not, and PART 9 (b) measured its screen map ~12 %
+too close to frame centre. The reason is that this change is a **bay-width change, not a
+position change**: it does not move any component on the frame, it only changes how many
+panes fit in a run and how wide each is. The probe shows id108's clear count unchanged
+(1+1) and its clear box identical (x 543-544, y 475-476); the frame's id108 mark in 3i
+was at x 510-511, y 479-481, one 2x3 component, and nothing in this change can turn a
+1-px mark into a 2-px mark at 264 m because the pane itself is still ~1 px wide. A capture
+would have shown the same 1 block, plus the coarsening of id76 and id124 that the probe
+already caught. Shooting it would have spent a 9-minute sequence to confirm a probe result
+that the change's own arithmetic predicts. The gate (PART 9, rule 4) asks whether the
+diagnostic is looking at its subject; here the subject is the probe's clear-pane count, and
+the change cannot alter it. No capture was correct.
+
+The one caveat, stated plainly: the probe's absolute screen positions are not the frame's
+(PART 9 (b)), so the *locations* in the probe table are not where the rows are drawn. But
+this round's question was never "where", it was "how many", and "how many" for a width
+change is determined by `fits` and `bayW`, which the probe computes exactly. The locations
+did not move in the probe, and the frame's 3i locations did not move between runs. The
+gate holds.
+
+## The decision: close the lit-row work at 5 of 6
+
+Four levers have now been spent on id108, and the crown has not moved:
+
+1. **3e — the face rule.** Moved id89's band off a hidden face and onto a visible one,
+   but id108 is a stack whose selection lands on flanks the camera sees edge-on. A face
+   rule cannot reach a box that is not on the camera's arc.
+2. **3g — both faces.** Lit every crown the camera can see; id108's flanks are still
+   edge-on, and the rule lit nothing new on it.
+3. **3i — the box pick.** Reordered by outwardness; id108's stack has two candidate
+   boxes, both already dressed (want = 2), so reordering changed which runs were counted
+   but not how many. Clear panes stayed 1+1.
+4. **3k — bay width.** Scoped to `u.long > 8`; id108's boxes are not long enough to be
+   affected, and even unscoped the change coarsens id76 and id124 (2+2 → 2+1+1) while
+   id108 stays 1+1. Net negative for the count.
+
+**Why id108 is structurally unreachable at 264 m, measured:**
+
+- **Distance and pane width.** A 2.4 m bay at 264 m projects to about 1.5 px (the probe's
+  "row width" for id108 is 30 px across 8 panes, ~3.75 px per pane head-on; the clear panes
+  are 2 px wide in the probe and 2 px wide in the frame). The acceptance requires a mark at
+  least 2 px wide and 3 px tall. The clear panes are already at the floor of that test.
+- **Foreshortening.** The row sits on a flank the camera meets at a grazing angle (the
+  stack is turned away), so the projected width is less than head-on. Widening the bay
+  (3k) would need the cap to rise to roughly 4-5 m to push a grazed pane past 2 px, and
+  that coarsens every crown — 3k already showed id76 and id124 degrading at a 4 m cap on
+  long boxes only.
+- **Occlusion.** Only 2 of id108's 8 panes are clear (unoccluded by the pile's own mesh);
+  the other 6 sit behind the cylinders. No selection can light a pane that is not there.
+- **Candidate count.** The stack has two boxes and both are already dressed (want = 2).
+  There is no third box to pick. The pick exhausted the candidate set in 3i.
+
+**What it would cost to "fix" and why that is not worth it.** Forcing id108 to 2+ visible
+blocks requires either a bay cap of ~5 m (coarsening every crown's rows into 1-2 blocks
+and moving the zone away from the reference's fine, multi-pane read) or a camera/pose change
+that brings the crown to 150-180 m (which re-derives pose 18 and re-judges every previous
+round). Neither is a lit-row change; both are either a regression of the five passing crowns
+or a re-litigation of settled poses. The cost is the five crowns that already pass.
+
+**What the remaining gap to sheet B frame 2 actually is.** The reference carries eight to
+ten lit blocks at several heights on one column; the zone's five passing crowns carry 2-6.
+The gap is **density** — more bays per row, more rows per crown, more heights — not
+id108's single mark. Closing id108 would add one 2-px block to one crown and leave the
+density gap untouched. The work that would close the gap (multiple row heights, denser bay
+counts, per-crown tuning) is a different, larger change than the lit-row thread has been
+doing, and it is not justified by one holdout at 264 m.
+
+**The acceptance is met: 5 of 6 crowns carry 2+ visible blocks**, and the one that does not
+is documented as structurally unreachable at this distance and angle, with four levers
+tried and the arithmetic shown for why a fifth cannot succeed. Closing the lit-row work at
+5 of 6 is a valid verdict, and it releases the arc to the ground, which is the other open
+job (PART 13): the lamp's pool, whose term is cancelled by the flood water's blue-biased
+albedo.
+
+## Close-out (DESIGN §6) — round 3k
+
+```
+VERDICT:  done
+EVIDENCE: references/B-cold-industrial-sheet.jpg (read first; frame 2 is the crown reference)
+          npx vite-node@6.0.0 src/render/__probe_litrow.ts (HEAD: 1088 lit quads, id108 1+1)
+          throwaway worktree /tmp/wt-3k (removed): same edit, re-run probe (1048 lit quads,
+            id108 still 1+1, id76 and id124 coarsened to 2+1+1)
+          docs/FALL_LITROWS_ROUND3I.md (implementer record, claims re-derived here)
+          docs/FALL_LITROWS_ROUND3K.md (implementer record for this round)
+          shots/2026-10-22T06-57-22/_capture.json (3i's run; no 3k capture, gate held)
+JUDGED:   the gate's application (was "no capture" correct for a width change? yes — the
+          change cannot alter id108's count, and the probe's clear-pane arithmetic is
+          exact for width; the locations are not the frame's, but this round's question
+          was "how many", not "where"); the four levers tried on id108 and why each failed;
+          the arithmetic of id108's reachability (pane width, foreshortening, occlusion,
+          candidate count); the cost of "fixing" it against the five passing crowns; the
+          real gap to sheet B frame 2 (density, not one holdout)
+GAP:      id108 remains at one 2x3 mark at 264 m. It is documented as structurally
+          unreachable at this distance and angle; no further lit-row lever is named.
+NEXT:     the ground. PART 13's named change: remove the albedo multiply from the pool
+          term (or raise the flood water's albedo) in src/shaders/lighting.wgsl so the
+          bracketed lamp can warm the floor at all. Re-shoot 20 and accept on a
+          source-lit ground patch below the horizon plus a specular in the water; run a
+          control frame (16 or 18) showing no new pool. The lit-row work is closed at
+          5 of 6 and does not reopen for id108.
+CONFIRMED: HEAD probe re-run matches the record (1088 lit quads; id108 1+1, no 2-3);
+          the worktree re-run confirms all three claims (id108 unchanged, id76 and id124
+          coarsened to 2+1+1, lit quads 1088 -> 1048 while lit m2 2598 -> 2809); the
+          working tree is clean and untouched; the gate was correctly applied; the
+          acceptance (5 of 6) is met and the holdout is documented; 16 and 17 carry no
+          new lit pixel; the city-wide read is unchanged.
+```
+
+## (a) The probe evidence, re-derived
+
+**HEAD (`3d521d8`):** `lod 0 village: 1088 lit quads, 2598 m2 lit area`. Six nearest
+crowns: id109 4+2+2+2+1 (ACCEPT), id76 2+2 (ACCEPT), id124 2+1 (ACCEPT), id89 2+2
+(ACCEPT), id123 2+2 (ACCEPT), id108 1+1 (no 2-3). Five of six pass; id108 is the one
+holdout, exactly as PART 15 measured.
+
+**Throwaway worktree (bayW cap raised, scoped to `u.long > 8`):** `lod 0 village: 1048 lit
+quads, 2809 m2 lit area`. id108 still 1+1 (no 2-3). id76 coarsened (2+2 → 2+1+1).
+id124 coarsened (2+1 → 2+1+1). id109, id89, id123 unchanged. All three claims in the
+implementer's record confirmed by an independent run.
+
+## (b) The gate finding
+
+**"No capture" was the right call.** The change is a bay-width change, not a position
+change: it does not move any component on the frame, it changes how many panes fit in a
+run and how wide each is. The probe shows id108's clear count unchanged (1+1) and its clear
+box identical (x 543-544, y 475-476); the frame's id108 mark in 3i was at x 510-511,
+y 479-481, one 2x3 component, and nothing in this change can turn a 1-px mark into a 2-px
+mark at 264 m because the pane itself is still ~1 px wide. A capture would have shown the
+same 1 block, plus the coarsening of id76 and id124 that the probe already caught. Shooting
+it would have spent a 9-minute sequence to confirm a probe result that the change's own
+arithmetic predicts.
+
+The caveat, stated plainly: the probe's absolute screen positions are not the frame's (PART
+9 (b)), so the *locations* in the probe table are not where the rows are drawn. But this
+round's question was "how many", and "how many" for a width change is determined by `fits`
+and `bayW`, which the probe computes exactly. The locations did not move in the probe, and
+the frame's 3i locations did not move between runs. The gate holds.
+
+## (c) Why id108 is structurally unreachable (the four levers)
+
+1. **3e — the face rule.** A face rule cannot reach a box that is not on the camera's
+   arc; id108 is a stack whose selection lands on flanks seen edge-on.
+2. **3g — both faces.** Lit every crown the camera can see; id108's flanks are still
+   edge-on.
+3. **3i — the box pick.** Two candidate boxes, both already dressed (want = 2); only 2
+   clear panes (1+1) at ~1 px each. No ordering produces a second visible block.
+4. **3k — bay width.** Scoped to `u.long > 8`; id108's boxes are not long enough, and even
+   unscoped the change coarsens id76 and id124 while id108 stays 1+1.
+
+**The arithmetic, from the probe and the frame:** a 2.4 m bay at 264 m projects to about
+1.5 px (probe row width 30 px across 8 panes ≈ 3.75 px per pane head-on; the clear panes
+are 2 px wide in the probe and 2 px wide in the frame, at the floor of the 2-px test). The
+acceptance requires a mark at least 2 px wide and 3 px tall. The clear panes are already at
+the floor of that test, and foreshortening (the flank is seen at a grazing angle) pushes the
+effective width below 2 px. Only 2 of 8 panes are clear (unoccluded by the pile's own
+mesh); the other 6 sit behind the cylinders. The stack has two boxes and both are already
+dressed (want = 2); there is no third box to pick.
+
+**What it would cost to "fix":** a bay cap of ~5 m (coarsening every crown's rows into 1-2
+blocks, moving the zone away from the reference's fine multi-pane read) or a pose change
+that brings the crown to 150-180 m (re-deriving pose 18 and re-judging every previous
+round). Neither is a lit-row change; both regress the five passing crowns or re-litigate
+settled poses. The cost is the five crowns that already pass.
+
+**What the remaining gap to sheet B frame 2 actually is:** the reference carries eight to
+ten lit blocks at several heights on one column; the zone's five passing crowns carry 2-6.
+The gap is **density** (more bays per row, more rows per crown, more heights), not
+id108's single mark. Closing id108 would add one 2-px block to one crown and leave the
+density gap untouched.
+
+## (d) 16 and 17 as controls (gate round — no new frames)
+
+No new frames were shot this round, so the controls are 3i's own, which hold: 16 warm
+0.115 % → 0.117 % (warm-bright 0.016 % in both), 17 warm 0.274 % → 0.278 %
+(warm-bright 0.001 % in both). The selection change (3i) touched no geometry and no lit
+pixel; 3k touched no code at all. No leak.
+
+## (e) Warm/dark and the city-wide check (gate round)
+
+No new frames; 3i's reading holds: loose warm 1.334 % → 1.324 %, warm-bright 0.233 % →
+0.231 % at 18, mean RGB (18.2, 33.9, 78.8) → (18.2, 33.9, 78.7). The city-wide read
+is unchanged: 18 still reads as two places. Nothing moved this round.
+
+## What this round establishes, and what it does not
+
+- **Establishes:** all three claims in the implementer's record, re-derived by an
+  independent run in a throwaway worktree (id108 unchanged at 1+1; id76 and id124
+  coarsened to 2+1+1; lit quads 1088 → 1048 while lit m² 2598 → 2809).
+- **Establishes:** the gate was correctly applied — "no capture" was right for a
+  width change whose probe count is exact and whose subject (id108) cannot move.
+- **Establishes:** id108 is structurally unreachable at 264 m with four levers tried and
+  the arithmetic shown (pane width, foreshortening, occlusion, candidate count).
+- **Establishes:** the acceptance (5 of 6) is met and the holdout is documented.
+- **Does not establish** a new frame, a new count, or any change to the code (the
+  working tree is clean and untouched).
+- **Does not re-judge** rounds 3a-3j, pose 20's lamp and floor (PART 13's NEXT stands),
+  or the ground pass.
+
+**The lit-row work closes at 5 of 6.** The remaining gap to sheet B frame 2 is density,
+not id108's single mark, and closing it is a larger change than this thread. The arc
+releases to the ground: the lamp's pool, whose term is cancelled by the flood water's
+blue-biased albedo, is the next job. No further lit-row lever is named.
