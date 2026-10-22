@@ -1,33 +1,42 @@
 # Handoff
 
-**2026-10-22, the fall zone's four rounds — read [STATE_2026-10-22](STATE_2026-10-22.md)
-first, it is one page and it is current.** The short version: the fall zone's poses
-were being shot at a red sunset while sheet B is blue hour, and that was proven by a
-control rather than argued — moving poses 16 and 18 to the existing `bluehour` rig
-took warm pixels from 96.9 % to 0.0 % at 16 and 68.8 % to 0.6 % at 18 (`6d5e81a`,
-verdict `7e53006`). Removing the sunset removed the only warmth, which is the real
-open gap: the crowns carried one 2 px point each, where sheet B's crowns carry rows
-of window blocks. Four implementation rounds followed — lit area (`9b157dd`),
-ground lifelines/wreck dressing/flooded lows (`b37d74b`), a bay row on the LOD 0-1
-path (`d949bf5`), and pose 20 for the zone's floor (`08ff863`) — and each was
-judged by an agent that did not implement it, in
-[VISION_FALL_BASELINE](VISION_FALL_BASELINE.md) PARTS 1-9:
+**2026-10-22, the fall zone: twelve verdicts across ten implementation rounds, and
+the zone still does not read as the village. Read
+[STATE_2026-10-22](STATE_2026-10-22.md) first — one page, current.** The short
+version: the fall zone's poses were being shot at a red sunset while sheet B is blue
+hour, and that was proven by a control rather than argued — moving poses 16 and 18
+to the existing `bluehour` rig took warm pixels from 96.9 % to 0.0 % at 16 and
+68.8 % to 0.6 % at 18 (`6d5e81a`, verdict `7e53006`). Removing the sunset removed
+the only warmth, and that is the real gap: the crowns carried one 2 px point each
+where sheet B's carry rows of window blocks, and nothing in the zone lit its own
+ground. Every round since was judged by an agent that did not implement it, in
+[VISION_FALL_BASELINE](VISION_FALL_BASELINE.md) PARTS 1-12:
 
-- **the row renders** and reads as separate blocks, not a bar — but 36 of 56 lit
-  panes sit behind the pile's own boxes, so only 2 of the six nearest crowns meet
-  the acceptance; the fix is to choose the row's face by line of sight, not a
-  crown-first 3-5 face roll (PART 9);
-- **the ground pass is built, compiles, and is in no frame** until pose 20 exists;
-  pose 20 now exists and lands on the wrong side of the pile — the winch houses sit
-  on the column's `+b` side and the camera was on `−b`, so the pile hides the lamp
-  (PART 8); the pose is being re-derived to stand on the lamp side at a pool's edge;
-- **D32 is not at risk**: rounds 0-2 measured hero 52.03/s base vs 52.09/s head, and
+- **The lit row works where it faces the camera, and only there.** Pose 18's id109
+  carries a row of three openings with 1-2 px mullions at 193 m (PART 11); 19 at
+  3 m was the proof in round 3c (PART 9). Choosing the outward face by line of
+  sight gained two crowns (id76, id123: 0 → 2 blocks) and **lost** the one the
+  close pose saw, so **3 of the six nearest crowns carry 2+ visible blocks, at most
+  4 counted generously, against an acceptance of 5** (PART 11). The next change is
+  to stop choosing one face: light the row on **both** long faces, so whichever
+  face a camera meets carries a row and the far one is simply hidden.
+- **The work lamp is out of its own hut, and the floor is still unlit.** The head
+  moved from the hut centre to the door face (`8608fbe`) and that is real and
+  visible — a warm rectangle at 1x and a wall whose max R-B goes 12 → 97 — but the
+  floor 1-6 m in front of that door, which is in frame, carries R-B −2, and every
+  warm pixel below the horizon is the stall or the canopy row, present before the
+  change (PART 12). The acceptance is met only nominally. The next change is to
+  bracket the head above the eave so its cone lands on that visible strip, and to
+  accept on a source-lit ground patch, not a warm threshold.
+- **D32 is not at risk**: rounds 0-2 measured hero 52.03/s base vs 52.09/s head;
   the ground round cost +1 % G-buffer and +26/+21/+18/+21 lights with 0 starved
-  (`85065d0`).
+  (`85065d0`); 3e's extra bays cost +580 triangles of 98,628 and 1,405 lights
+  delivered, 0 starved.
 
-The fall zone has **not** been closed out into the roadmap; do that after the next
-two verdicts. Owner calls still open: cause of the fall, the burnt quarter, bridge
-density.
+The two next changes are independent — `fallvillage.ts` for pose 18,
+`fallground.ts` for pose 20 — and can run in parallel with two agents. The fall
+zone is **not** closed into R11 as done; R11 carries the verdicts. Owner calls
+still open: cause of the fall, the burnt quarter, bridge density.
 
 **2026-10-15, fall zone placement pass:** see item 5 below. On the way it found that every
 vehicle of a kind rode the first line of that kind, so second tram, cable car, funicular and

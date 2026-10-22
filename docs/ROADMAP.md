@@ -603,24 +603,42 @@ a *frame* better.
 
 ## R11 — Build the four sections (D24)
 
-**Status: built, ZERO sections visually verified** · **Priority: highest** · *Vision:
-"large sections of the city have differing styles and colors like a real city"*
+**Status: built; §B has twelve verdicts and none passes; §A, §C and §D have no
+frames** · **Priority: highest** · *Vision: "large sections of the city have
+differing styles and colors like a real city"*
 
-> **2026-10-22 update — §B now has frames and nine verdicts.** The claim in the
+> **2026-10-22 update — §B has frames and twelve verdicts.** The claim in the
 > block below ("not one section has been photographed") is no longer true for §B:
-> poses 16-20 shoot the fall zone and `VISION_FALL_BASELINE.md` PARTS 1-9 judge
+> poses 16-20 shoot the fall zone and `VISION_FALL_BASELINE.md` PARTS 1-12 judge
 > them, each by an agent that did not implement the round. §A, §C and §D still
 > have no frames.
 >
 > The one finding that outranks the round-by-round list: **the poses were shot at
 > a red sunset against a sheet that is blue hour**, and a control proved it
 > (warm pixels 96.9 % → 0.0 % at 16, 68.8 % → 0.6 % at 18). Three rounds of cold
-> material had been fighting the light. What the control also exposed is the
-> real gap: at blue hour the fall zone's crowns carry one 2 px warm point each
-> where sheet B's carry rows of window blocks. That is now two open changes —
-> lit rows on a face the camera can see (PART 9: 36 of 56 lit panes sit behind
-> the pile) and pose 20 standing on the lamp side of a winch house (PART 8).
-> Current state and the commands: [`STATE_2026-10-22.md`](STATE_2026-10-22.md).
+> material had been fighting the light. What the control also exposed is the real
+> gap: at blue hour the zone's warm inventory is sparse **and none of it reaches
+> the ground**.
+>
+> Where the two most recent verdicts leave it:
+>
+> - **the lit row** renders and reads as separate blocks, not a bar, wherever it
+>   faces the camera — id109 at 193 m, 19 at 3 m. Round 3e put the row on the face
+>   that looks out, which gained two crowns (0 → 2 blocks) and lost the one the
+>   close pose saw; the count on the frame is **3 of 6 nearest crowns with 2+
+>   visible blocks, at most 4 generously, against an acceptance of 5** (PART 11).
+>   Next: the row on **both** long faces, so the far one is simply hidden.
+> - **the ground pose** now has a lamp that is lit and a floor that is not.
+>   Moving the head out of its own hut body (`8608fbe`) made a warm rectangle on
+>   the door face with a lit wall (max R-B 12 → 97), but the floor 1-6 m in front
+>   of it carries R-B −2 and every warm pixel below the horizon belongs to the
+>   stall or the canopy row, both present before the change (PART 12). Next:
+>   bracket the head above the eave so the cone lands on that visible strip, and
+>   accept on a source-lit ground patch.
+>
+> The two next changes are independent (`fallvillage.ts` / `fallground.ts`) and can
+> run in parallel. Current state and the commands:
+> [`STATE_2026-10-22.md`](STATE_2026-10-22.md).
 
 > **2026-10-02: §B and §A are BUILT and §D's evidence is landed — and not one
 > section has been photographed.** That is the state of this row, and it is worse

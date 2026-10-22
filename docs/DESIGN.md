@@ -286,8 +286,10 @@ Honest inventory, so nobody mistakes absence for oversight:
 
 ### Section B's makeshift village: the fall zone (designed with the owner, 2026-10-15)
 
-**Status: lore, form and placement done (placement pass, 2026-10-15; a greybox in frame at
-poses 16-19). Rendering not started.** Judge it against the sheet only once it renders.
+**Status: lore, form and placement done (placement pass, 2026-10-15). Rendering is
+in progress and unapproved: poses 16-20 shoot the zone, and
+[`VISION_FALL_BASELINE.md`](VISION_FALL_BASELINE.md) PARTS 1-12 judge every round,
+none of them `done`.** Judge it against the sheet only on a frame.
 
 **What it replaces.** `pushScaffold` (citymesh.ts) bolts a column of shanty rooms on a
 scaffold up a tower's face from street level and adds an accreted crown; `weatherRoom`

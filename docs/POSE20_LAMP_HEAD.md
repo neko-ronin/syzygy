@@ -90,7 +90,10 @@ behind the geometry the camera can see; the visible ground at 10 m+ gets R-B 28
 at most. The light stops at the wall: no pool, nothing below the horizon that is
 the lamp.
 
-**Whole frame:** 7318 px = 0.5 % warm-bright (baseline 1.34 %). No flood.
+**Whole frame:** 7318 px = 0.5 % warm-bright, and 0.5 % on the same definition
+in the 03-11-38 baseline: no flood. The 1.34 % this line used to cite is pose
+18's *warm* share (PART 11) — a different pose and a different definition, and
+not this frame's control.
 
 **Lens caveat.** Held fov 1.0324 here against 1.0754 in the 03-11-38 baseline
 (~5 % tighter), so before/after sizes are not exact.
