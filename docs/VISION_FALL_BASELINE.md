@@ -1432,3 +1432,29 @@ used here to judge a material.
 
 **One next change, not three.** Pose 20. Until the floor is in a frame, more ground geometry
 is unjudgeable, and the reviewer cannot tell a good lifeline from a bad one.
+
+---
+
+# PART 8 — ROUND 3D: pose 20, the zone's floor (runs `01-39-10`, control `01-45-37`)
+
+**VERDICT: more work needed.** Pose 20 is eye 2.05 m at (521.5, −468.1), target
+(579, −439.9), blue hour, fov 1.1; derived in `__probe_fallzone.ts`, copied to
+`capture.mjs`, explicit in `sections.json` as B. Run `shots/2026-10-22T01-39-10`
+(PASS, 65.4 s, frameCount 1089, 0 GPU/WGSL errors; held y 2.019 vs requested 2.1,
+8 cm from the ground clamp; direction 5.95° vs 6.0°). Control
+`shots/2026-10-22T01-45-37` is the same camera at noon.
+
+**The ground pass is not visible from ground level.** The frame is at the floor
+and shows the shaft out of the top and the old city behind, but the floor reads
+as a flat dark band: no pool outline, no waterline, no rubble/rebar, and no warm
+lamp (0 strong-warm pixels below y 600; the flood band's max is 101/255). At noon
+the barrels and hut walls show, still with no water surface and no lamp.
+
+**Why the lamp is not in frame:** `winchHouse`/`stairTower` place the hut on the
+column's +b side (`b0 = c.halfZ + 2.9` / `+1.7`); pose 20's camera is on the −b
+side (camera local b −11.1 m, house +10.3 m), so the pile stands between it and
+the lamp.
+
+**NEXT:** stand 10–18 m from a winch/stair foot on its lamp side, at a pool's
+near edge, shaft out of the top; accept the pose only on a warm component below
+the horizon.
