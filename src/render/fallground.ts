@@ -155,6 +155,37 @@ function stairTower(
   obstacles.push({ x: dx, z: dz, tx, tz, halfAlong: 1.6, halfAcross: 1.6, minY: GROUND_Y, maxY: GROUND_Y + height, kind: 'fall-stair-tower-foot' });
 }
 
+/**
+ * A work lamp on a bracket arm: the post stands on the roof slab, the arm
+ * reaches out past the eave, and the head hangs at the arm's tip.
+ *
+ * The geometry is not decoration. The roof slab's top is at `GROUND_Y + 2.94`
+ * and its footprint reaches `b0 + 1.95`, so a head ABOVE the door face
+ * (`b0 + 1.72`) hangs UNDER the eave: its cone lands on the roof, not on the
+ * floor the camera can see. The head therefore goes outboard of the eave and
+ * above the slab, where the light falls on the strip between the hut and the
+ * camera — the strip pose 20 frames.
+ *
+ * `headB` is the head's centre; the head's own half-extents are 0.14, so it
+ * clears the eave by 0.11 m. `headY` is the head's centre, so it clears the
+ * slab's top by 0.34 m. Neither is a coplanar contact: the post's foot is
+ * sunk 0.02 m into the slab and the arm's tip is inside the head.
+ */
+function bracketHead(
+  f: Frame, c: FallColumn,
+  box: (x: number, y: number, z: number, hx: number, hy: number, hz: number, col: Vec3) => void,
+  a: number, postB: number, headB: number, headY: number, slabTop: number,
+): [number, number, number] {
+  // The post: on the slab, inboard of the eave, foot sunk into the slab.
+  const [px, pz] = f.at(c.x, c.z, a, postB);
+  box(px, (slabTop - 0.02 + headY) / 2, pz, 0.05, (headY - slabTop + 0.02) / 2, 0.05, STEEL);
+  // The arm: level with the head, reaching out from the post to it.
+  const [ax, az] = f.at(c.x, c.z, a, (postB + headB) / 2);
+  box(ax, headY, az, 0.05, 0.05, (headB - postB) / 2, STEEL);
+  const [hx, hz] = f.at(c.x, c.z, a, headB);
+  return [hx, headY, hz];
+}
+
 /** The hut where the hoist cable lands: drum, cable up to the pile, door. */
 function winchHouse(
   bld: MeshBuilder, c: FallColumn, f: Frame,
@@ -175,7 +206,11 @@ function winchHouse(
   bld.pushCylinder([sx, GROUND_Y + 0.55, sz], [ex, GROUND_Y + 0.55, ez], 0.42, 8, RUST, { capEnds: true });
   const [cx, cz] = f.at(c.x, c.z, 0, c.halfZ + 0.2);
   pushBeam(bld, [ex, GROUND_Y + 0.95, ez], [cx, c.pileBase + 2.5, cz], 0.025, CABLE);
-  lamp(dx, GROUND_Y + 2.2, dz);
+  // The head is on the bracket: outboard of the eave (b0 + 1.95) and above
+  // the slab (GROUND_Y + 2.94), so its light falls on the floor in front of
+  // the door rather than on the roof. The light goes with it, in one call.
+  const [lx, ly, lz] = bracketHead(f, c, box, 0, b0 + 1.75, b0 + 2.2, GROUND_Y + 3.4, GROUND_Y + 2.94);
+  lamp(lx, ly, lz);
   obstacles.push({ x: hx, z: hz, tx, tz, halfAlong: 2.2, halfAcross: 1.8, minY: GROUND_Y, maxY: GROUND_Y + 3, kind: 'fall-winch-house' });
 }
 
@@ -206,7 +241,13 @@ function workshopYard(
     const [lx, lz] = f.at(c.x, c.z, sx, b0 + 2.2);
     box(lx, GROUND_Y + 0.22, lz, 0.07, 0.22, 0.35, TIMBER);
   }
-  lamp(dx, GROUND_Y + 2.2, dz);
+  // The same defect as the winch house, and the same fix: this yard's roof
+  // slab reaches b0 + 2.5 and its top is at GROUND_Y + 3.64, so a head above
+  // the door face (b0 + 2.22) hangs under the eave and lights the roof. The
+  // head goes outboard of the eave and above the slab, over the door's own
+  // `a`, so the light falls on the yard in front of the door.
+  const [lx, ly, lz] = bracketHead(f, c, box, 1.2, b0 + 2.3, b0 + 2.75, GROUND_Y + 4.1, GROUND_Y + 3.64);
+  lamp(lx, ly, lz);
   obstacles.push({ x: hx, z: hz, tx, tz, halfAlong: 3.3, halfAcross: 2.3, minY: GROUND_Y, maxY: GROUND_Y + 3.6, kind: 'fall-salvage-workshop' });
 }
 
