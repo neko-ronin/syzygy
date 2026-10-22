@@ -1236,6 +1236,7 @@ async function main() {
             },
           });
           say(`    ✓ ${pose.name.padEnd(18)} ${String(Date.now() - at).padStart(5)}ms` +
+            ` q:${stats?.tier ?? '?'}` +
             `${warm ? ` (warm ${warm.ms}ms ${warm.residentChunks}/${warm.target} ${warm.stopped})` : ''}` +
             `${settled.paced ? '' : ' [UNPACED]'}  ${ped}`);
           if (stats?.derivedPose?.ok) {
@@ -1257,6 +1258,38 @@ async function main() {
           results.push({ name: pose.name, label: pose.label, error: String(err?.message || err) });
           say(`    ✗ ${pose.name.padEnd(18)} ${String(err?.message || err).split('\n')[0]}`);
         }
+      }
+
+      // A sequence is one measurement, so its frames must come from one tier.
+      //
+      // The app's governor picks the tier at capture time, and it does not always
+      // pick the same one under load. Pose 20 is the heaviest in the set (605k
+      // triangles, 2550 crowd) and landed on `low` in 06-07-15, 06-57-22 and
+      // 08-12-59 while every other pose in those runs was `medium`. Nothing
+      // failed: the shots were written, the counters were plausible, and the
+      // tier sat in the sidecar where nobody read it. PART 17's second reading
+      // then measured a "flat +11 to +14 luma of albedo" across the boundary
+      // between 06-07-15 (low) and 07-21-31 (medium) — a tier flip dressed up as
+      // a material change, because `low` is renderScale 0.75, shadowRes 1024 and
+      // 3 cascades against `medium`'s 1.0, 2048 and 4.
+      //
+      // So it is not a warning. A mixed-tier sequence is not a comparable run and
+      // exits non-zero, like a GPU error. Pin the tier with `--quality` when the
+      // governor cannot be trusted to hold one.
+      const tiers = new Map();
+      for (const r of results) {
+        const t = r.stats?.tier;
+        if (!t) continue;
+        if (!tiers.has(t)) tiers.set(t, []);
+        tiers.get(t).push(r.name);
+      }
+      if (tiers.size > 1) {
+        const parts = [...tiers].map(([t, names]) => `${t}: ${names.join(', ')}`);
+        const m = `!! mixed quality tiers in one sequence (${parts.join(' | ')}) — these frames are not ` +
+          `comparable; re-run with --quality <low|medium|high> to pin it`;
+        say(`    ${m}`);
+        notes.push(m);
+        failed = true;
       }
 
       const sheet = await contactSheet(dir, join(dir, '_contact-sheet.png'));

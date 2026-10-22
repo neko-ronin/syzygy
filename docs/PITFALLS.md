@@ -1103,6 +1103,58 @@ alone — the reason to skip re-measuring is usually "I would have to rebuild", 
 you do not.
 
 
+## 40. A sequence that was not one measurement: pose 20 landed on a different quality tier
+
+**Symptom:** `shots/2026-10-22T08-12-59/_capture.json` lists pose 20 at tier `low` while the other
+four poses in the same run are `medium`. The same happens in `06-07-15` and `06-57-22`. Nothing
+failed. Five of five shots, `error: null`, lights delivered, crowd attached, counters plausible.
+
+The tier is not cosmetic. `low` is `renderScale 0.75` — so the "1600×900" frame is a 1200×675 render
+scaled up — `shadowRes 1024` against 2048, three cascades against four, and an LOD ceiling of 3
+against 2. On pose 20 at the same commit the LOD histogram is `[9,28,98,0]` at `medium` and
+`[9,28,32,66]` at `low`: **66 chunks of the far city drop to the coarsest geometry**. A judged frame
+whose skyline is a different build is not the frame the previous round judged.
+
+**Why it was invisible:** the tier is written into the per-shot provenance and printed nowhere. The
+console line gives milliseconds, the warm plateau and a pedestrian count; the sidecar is read after
+the fact, if at all. Every other field that distinguishes a trusted run from an untrusted one — the
+seed, the held camera, `starved` — had already been promoted to a printed line for exactly this
+reason. The tier had not.
+
+**The near-miss, and the control that refuted it.** I suspected this had confounded PART 17's
+second reading: its baseline was `06-07-15` (**low**) compared against `07-21-31` (**medium**), and
+its finding was a *flat* +11 to +14 luma across the whole strip — precisely the shape a tier flip
+would produce. That would have made round 3l's premise unsound and inverted the arc.
+
+It does not. Same commit, same pose, same seed, same 1133 lights, `--quality=low` then
+`--quality=medium`, radial band x1330-1560:
+
+| y band | low luma | medium luma | lift |
+| --- | --- | --- | --- |
+| 730-739 | 82.6 | 84.3 | +1.7 |
+| 740-749 | 133.3 | 132.0 | −1.2 |
+| 780-789 | 64.9 | 65.3 | +0.4 |
+| 850-859 | 38.4 | 38.6 | +0.2 |
+
+Mean +0.2 over 17 rows, min −1.2, max +1.7. Runs `09-10-14` (low) and `09-14-22` (medium), both at
+`47032a2`. The tier does not move this surface; it moves the far city.
+
+**Both halves are the lesson.** A flat-luma claim across a tier boundary is *not* automatically
+suspect, because a near-field surface is dominated by geometry and lights that do not change. A
+*skyline density* claim across one is. And the corollary that cost nothing here only because the
+control ran: had I written "PART 17 is confounded" into the record on the strength of the shape of a
+number, the next session would have inherited a false correction — which is harder to dislodge than
+an unexamined number, because it comes with an explanation attached.
+
+**Rule:** a sequence is one measurement, so its frames must come from one tier. The tier is part of
+the experiment, not metadata about it. When two runs are compared, read both tiers before either
+number.
+
+**Harness fix, made:** `capture.mjs` now prints `q:<tier>` on every shot line, and a sequence
+containing more than one tier **fails the run** (named poses, `--quality` suggested to pin it),
+alongside the GPU-error gate. The frames are still written — they are evidence of what happened —
+but the run is not comparable and says so.
+
 ## Working norms that held up
 
 - **Measure before theorising.** Every bug above cost far less time to measure
