@@ -41,7 +41,49 @@ const LAMP: Vec3 = [1.0, 0.72, 0.4];
 
 /** One work lamp's reach — the alley-lantern scale, so it pools on the deck. */
 const LAMP_RADIUS = 10;
-const LAMP_INTENSITY = 2.2;
+/**
+ * Round 3l: the work lamp's own strength, 2.2 → 6.6.
+ *
+ * Round 3j (the flooded low's material) left the floor lighter and less blue,
+ * and the second reading of PART 17 measured the lamp at only 15-25 % of that
+ * visible change: the material's flat lift was +11 to +14 luma across the whole
+ * strip and the lamp's own disc only +2 to +3 on top. PART 13's acceptance asks
+ * for a SOURCE-lit patch, and a floor that is mostly paint with a lamp tint is
+ * not one.
+ *
+ * The lever is this constant, not the pool term: `POOL_GAIN` in
+ * `src/shaders/lighting.wgsl` is global, and every street lamp's pool in every
+ * frame already judged moves with it. `LAMP_INTENSITY` reaches only the fall
+ * zone's own work lamps, and it scales the lamp's brdf contribution and its
+ * pool term together (`color += albedo * li.colorInt.rgb * li.colorInt.w * disc
+ * * POOL_GAIN * pools`), which is what a brighter lamp should do.
+ *
+ * **6.6 is three times 2.2, and it was measured, not computed.** The tonemap
+ * (`common.wgsl`, an ACES-ish curve) is compressive, so the first candidates
+ * were modelled by inverting it on round 3j's own transect; the model
+ * over-predicted, and three sequence runs (06-07-15's 1200x675 baseline,
+ * 08-03-24 at 6.6, 08-08-59 at 8.8, 08-12-59 at 17.6) measured it:
+ *
+ *   intensity   centre lift   edges lift   differential   strip warm px
+ *      2.2        +13.7          +12.4          +1.3             1
+ *      6.6        +42.9          +39.0          +3.9         10,526
+ *      8.8        +55.8          +51.7          +4.1         11,093
+ *     17.6        +86.4          +83.7          +2.7         15,393
+ *
+ * The differential — the acceptance's "+8 luma above the strip's flat lift" —
+ * SATURATES at about +4 and then falls: the same light's brdf term reaches the
+ * transect's lateral edges almost as far as its centre, and the tonemap's
+ * shoulder then compresses what is left. No intensity this lever allows
+ * produces +8, and the wall does not clip at any of them (the hut's own wall
+ * peaks at R 153 here, 199 at 17.6, with no pixel at or near 255 in any
+ * frame). 6.6 is shipped because it is the smallest value that flips the
+ * attribution — the lamp now carries ~75 % of the centre's lift and the strip's
+ * strict warm count goes from 1 px to 10,526 — with the least blow-out and the
+ * least leak into pose 18 (+0.004 pp; at 8.8 it is +0.026 pp). The remaining
+ * lever is a per-light pool gain, which is a WGSL uniform-struct ABI change and
+ * belongs to the orchestrator. See docs/FALL_POOL_ROUND3L.md.
+ */
+const LAMP_INTENSITY = 6.6;
 /**
  * Per chunk, at lod < 1. The audit shows the market is not the payer (see the
  * header), so this is a GPU-cost ceiling, not a starvation guard: a chunk holds
