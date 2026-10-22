@@ -1716,3 +1716,165 @@ stranger shown this frame would read "a dark plaza at the foot of two pylons", n
 **One next change, not three.** Move the lamp head clear of its own body: the door face or a roof
 bracket, one lamp within 15 m of this camera. That single source is what turns a rippled plaza into
 a working floor at night, and it is the only change that can invalidate this verdict in one frame.
+
+# PART 11 — ROUND 3E: the row on the face that looks out (`492d97c`, run `03-26-25`, `shots/2026-10-22T03-26-25`)
+
+**Scope.** One change judged: `dressFaces` now picks the row's long face by line of sight
+(outward normal away from the pile's own axis) instead of by the unit's roll. Baseline is round
+3c (`shots/2026-10-22T01-23-07`), same hour, same rig, same seed; one round between them
+(3d's pose work, which changed no fall crown). The implementer's record
+(`docs/FALL_LITROWS_ROUND3E.md`) was read for what was built; the frames decide, and the
+acceptance is a **count**, not an impression: 2-3 contiguous lit blocks per crown at 193-410 m,
+at the six nearest columns, counted on the frame where the row is actually drawn — not at the
+probe's projection (PART 9 (b) measured that map ~12 % too close to frame centre).
+
+## Count (pose 18, six nearest fall crowns, drawn positions)
+
+Method: warm = `R > B + 15 && R > 60`, 4-connected components, in a box round the row the
+frame actually carries (not the probe's). Baseline column is 3c's count from PART 9.
+
+| column | dist | 3c blocks | 3e components (≥4 px) | visible blocks (by eye) | drawn where (x, y) |
+|---|---|---|---|---|---|
+| id109 | 193 m | 5 | 4 (28, 14, 14, 8) | 3 — two adjacent panes read as one window with a mullion | 136-173, 387-396 |
+| id89 | 228 m | 2-3 | 1 (62) | 1 — one merged band with a notch, not two | 621-633, 377-383 |
+| id76 | 198 m | 0 | 2 (24, 24) | 2 | 759-772, 658-665 |
+| id124 | 225 m | 0 | 2 (20, 4) | 1 — the second is a 1 px × 4 px sliver, not a block | 115, 119-124, 444-448 |
+| id123 | 262 m | 0 | 2 (33, 32) | 2 | 272-290, 502-507 |
+| id108 | 264 m | 1 | 1 (5) | 1 — a stack; the face rule cannot reach it | 511-512, 478-481 |
+
+**3 of 6 crowns carry 2+ visible blocks strictly; 4 if id109's adjacent panes are split and
+id124's sliver is counted. The acceptance asks for 5 of 6. It is not met.**
+
+## Close-out (DESIGN §6) — round 3e
+
+```
+VERDICT:  more work needed
+EVIDENCE: references/B-cold-industrial-sheet.jpg (read first; frame 2 is the crown reference)
+          shots/compare/2026-10-22T05-01-07.png (+ .txt)   BASELINE | CURRENT | REFERENCE
+            baseline: shots/2026-10-22T01-23-07 (round 3c)
+            current:  shots/2026-10-22T03-26-25 (round 3e, shot after 492d97c)
+            reference column: references/sections/B-cold-industrial/
+          full-size: shots/2026-10-22T03-26-25/{16,17,18,19,20}.png and
+                     shots/2026-10-22T01-23-07/{16,17,18,19}.png
+          4-8x crops of each of the six nearest crowns (id109, id76, id124, id89, id123,
+            id108) in both runs; _capture.json (5 shots, error null, lights 1222, starved 0)
+JUDGED:   the acceptance as a count at 18's six nearest fall columns at drawn positions (not
+          the probe's); whether the row reads as a row and not a bar at 193 m; the near control
+          19 (lost 4-block band); 17 and 16 as controls; warm/dark against sheet B frame 2;
+          the city-wide check
+GAP:      acceptance not met — only 3 (at most 4) of 6 crowns carry 2+ visible blocks.
+          id89 regressed from 2-3 blocks to one merged 62 px band because the outward-face
+          selection dropped the second bay; id108 is a stack the face rule cannot reach;
+          id124's second "block" is a 1 px sliver; pose 19 lost its 4-block band with nothing
+          replacing it in that spot.
+NEXT:     light the row on both long faces of each box (not one), so every pile carries a row
+          on the face any camera sees; keep the cost check (D32). Re-shoot 18 and 19, count
+          blocks at 18, verify 19 recovers its band.
+CONFIRMED: the mechanism reads as a row, not a bar, at 193 m (id109: distinct blocks with
+          1-2 px mullions, not the 31 px bar 3a feared); id76 and id123 gained 2 blocks each
+          (0 -> 2); 17 unchanged (warm 0.291 -> 0.290 %, same composition, no new geometry);
+          16 still has no fall crown in frame and is not a material read; no GPU/WGSL error;
+          warm at 18 1.31 -> 1.34 % (no light flood); LOD 2 merged pass byte-identical by
+          construction (2,872 quads / 7,842 m²); city-wide heterogeneity preserved (old-city
+          window grids still read as a different place behind the fall crowns).
+```
+
+## (a) The count, at the six nearest columns, where the row is actually drawn
+
+The probe's own numbers (3e's record) are not the frame's. Four independent bands already
+showed the probe's screen map lands ~12 % too close to frame centre (PART 9 (b)); counting in a
+90 px box at the probe's position reads geometry that is not there. The table above is counted
+from the warm pixels where each crown's row actually sits (crops at 4-8x, both runs), and the
+drawn positions are listed so the next round can re-count them.
+
+- **id109 (193 m)** is the one crown that unambiguously carries a row: four warm components
+  (28, 14, 14, 8 px) spanning x 136-173, y 387-396, with 1-2 px dark mullions between them.
+  At 1x it reads as a row of three openings, not the 31 px bar 3a feared. This is the round's
+  genuine win, and it is the only crown that improved *and* stayed visible.
+- **id89 (228 m)** is the round's quiet regression. In 3c it carried two components (63 and
+  9 px, x 621-641, y 377-383); in 3e the outward-face selection merged them into one 62 px
+  band with a single notch. The second bay did not disappear from the frame because it was
+  hidden — it disappeared because the row left that face. The implementer's "2 blocks" counts
+  the notch as a split; on the frame it is one connected region.
+- **id76 (198 m)** and **id123 (262 m)** are the round's clear gains: 0 -> 2 blocks each,
+  now on faces the camera sees. These are the crowns the rule was written for.
+- **id124 (225 m)** is a gain with an asterisk: one 20 px block plus a 1 px × 4 px sliver.
+  The sliver is the row's second bay seen at a grazing angle on a small box; it is warm by
+  threshold but it is not a visible block at 1x. Counted strictly, id124 carries one block.
+- **id108 (264 m)** is unchanged at one 5 px mark. It is a stack, and the selection's `|a|`
+  tie-break lands on its flanks, which this camera sees edge-on. No face rule can reach a box
+  that is not on the camera's arc; this one needs a different lever (the pick), not a face rule.
+
+## (b) Does the row read as a row and not a bar, at 193 m?
+
+**Yes.** id109's row is four separate warm regions with 1-2 px dark columns between them at
+y 387-396. The dark gaps are the panels/mullions, not dither: they are 1 px wide and run the
+full height of the row, and the warm regions on either side are 10-14 px and 28 px wide. A bar
+would be a single connected warm strip; this is not one. The 0.45 m panel survives at 193 m as
+a readable dark line, which is the thing the bay size was chosen to protect.
+
+## (c) The near control, 19, lost its 4-block band — is that acceptable?
+
+**No, not as a standing consequence — but it is an honest one.** The 4-block band that 3c
+carried (68 px component, x 1234-1245, y 644-650) is gone in 3e; it is not replaced by
+anything in that spot (the nearest surviving warm component is 180 px at x 1215-1229,
+y 657-670, a different mass). The camera at 19 sits 3 m from that box's inward side, so the
+row that used to open on the face it saw has moved to the outward face, which the box now
+hides. That is the rule working exactly as written — and it is also a real visual loss at a
+pose PART 9 praised, with no compensating gain that meets the acceptance. The trade was not
+worth it: we bought 3 crowns a row and took the best close-up away. The consequence is
+acceptable only if the next round recovers it, which a single-face rule cannot do from this
+camera. The fix is to stop choosing one face: light the row on both long faces, so whichever
+face a camera meets carries a row and the far face's row is simply hidden by the box.
+
+## (d) 17 and 16 as controls
+
+**17 is unchanged.** Warm 0.291 % -> 0.290 % (4186 -> 4181 px); the composition, hue and crowd
+are the same as 3c, and no new lit geometry appears in the grid. Consistent, and this time it
+is reassuring because 3e's change touched `dressFaces`, which 17's dressed faces are not
+turned toward — so "unchanged" means the lever did not leak, not that it did nothing.
+
+**16 is not a material read and still cannot judge this round.** Warm 0.102 % -> 0.111 %
+(1473 -> 1601 px), a small rise that is crowd/dither on the old-city towers at the frame edge;
+no fall crown is in the frame (PART 6 (b)), so the village's material is not tested here. It
+is a valid control for "did the change leak into a frame with no fall crown" — it did not.
+
+## (e) Warm/dark against sheet B frame 2
+
+18's mean RGB is (18.2, 33.9, 78.7) against 3c's (17.9, 33.7, 78.7): the value structure
+has not moved, because ~440 new lit pixels in a 1.44 M px frame is what three crowns look like,
+not what a lit zone looks like. Whole-frame warm 1.31 % -> 1.34 %, still near the sheet's
+~1.1 % but carried by the old city's window points, not the zone's. The sheet's tower carries
+eight to ten blocks at several heights on one column; this frame carries a row on three
+crowns and one mark on the other three. The warm/dark balance is not closer to frame 2, because
+the zone's own warm inventory is still sparse. The balance will not move until more crowns
+carry rows, which is the acceptance this round missed.
+
+## (f) The city-wide check
+
+**Passes.** Pose 18 still reads as two places: the fall crowns (dark, windowless stacks with
+sparse warm rows) in front of a wall of old-city window grids. The zone does not look like the
+rest of the city, and 3e did not homogenise it — the added rows are sparse enough (3-4 crowns,
+1-4 blocks each) that the city-wide read is unchanged. Pose 20 (ground level, current run) is
+2.51 % warm and was not re-judged this round; the lamp defect named in PART 10 (the head
+buried inside its own hut) is a separate, still-open item and is not touched by this round.
+
+## What this round establishes, and what it does not
+
+- **Establishes:** where the row is on a face the camera sees, it is a row and not a bar, and
+  the bay size, panel and per-face key are all right. id109 at 193 m and 19 at 3 m (in 3c)
+  remain the proof that the mechanism works.
+- **Establishes:** a camera-independent face pick can *remove* a visible row (19) while
+  *adding* hidden ones (76, 123, 124). The rule is necessary but not sufficient.
+- **Establishes:** 17 and the city-wide check are untouched; no leak, no flood, no GPU/WGSL
+  error; LOD 2 merged pass byte-identical.
+- **Does not establish** that 5 of 6 crowns carry 2-3 blocks. Three do, four if generous.
+- **Does not establish** that id108 can be reached by any face rule (it cannot; the pick is
+  the lever).
+- **Does not re-judge** rounds 3a/3b/3c, pose 20's lamp, or the ground pass.
+
+**One next change, not three.** Light the row on both long faces of each box, not one, so every
+pile carries a row on the face any camera sees and the far face's row is simply hidden by the
+box; keep the cost check (D32). Re-shoot 18 and 19, count blocks at 18 against the table
+above, and verify 19 recovers its band. id108's pick and id124's grazing angle are the same
+change's to verify, not separate items.
