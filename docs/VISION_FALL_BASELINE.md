@@ -2948,3 +2948,270 @@ is unchanged: 18 still reads as two places. Nothing moved this round.
 not id108's single mark, and closing it is a larger change than this thread. The arc
 releases to the ground: the lamp's pool, whose term is cancelled by the flood water's
 blue-biased albedo, is the next job. No further lit-row lever is named.
+---
+
+# PART 17 — ROUND 3J: the flooded low's material, not the shader (`ffc69ea`, run `07-21-31`, `shots/2026-10-22T07-21-31`)
+
+**Scope.** One change judged: two colours in `src/render/fallmesh.ts` — the flood
+water `WATER` 0.034/0.049/0.062 → 0.118/0.113/0.104 and the flooded patch's silt
+margin `PATCH['flooded']` 0.06/0.08/0.1 → 0.132/0.126/0.115. No shader change, no
+geometry change, no lamp change, no light-count change. Baseline is round 3h's
+door/bracket frames (single shot `05-56-31`, plus the sequence run `06-07-15` for
+the same-camera numbers); the implementer's record is `docs/FALL_POOL_ROUND3J.md`.
+PART 10's deferred clause (the water's specular) is explicitly not delivered this
+round and is judged as a stated gap, not a surprise. The acceptance (PART 13) is
+**a source-lit patch of ground below the horizon — a warm/light value break with
+a measured location and a counted warm area, not a threshold argument — plus a
+control frame that shows no new pool.**
+
+**Framing caveat, verified from the capture records.** Two baselines exist and
+they disagree by render scale. `05-56-31` is a single shot at 1600×900, fov 1.03364,
+eye 1.965 m; `06-07-15`'s pose-20 frame is a sequence shot at 1200×675 (0.75
+scale), fov 1.07542, eye 2.0016 m. The new run `07-21-31` is 1600×900, fov 1.07542,
+eye 2.0016 m. So the same-camera comparison is `06-07-15` (fov and eye match the
+new run; only the scale differs, 0.75), and the same-resolution comparison is
+`05-56-31` (scale matches; fov and eye differ ~4 %). The implementer's doc mixes
+the two and labels the strip's mean luma "30.5 → 48.1", which is the
+different-lens, different-eye comparison; the same-camera number is 38.2 → 48.1.
+Both are reported below and the strip's shape is read off the same-camera pair.
+
+## Close-out (DESIGN §6) — round 3j
+
+```
+VERDICT:  done
+EVIDENCE: references/B-cold-industrial-sheet.jpg (read first; frame 3 is the ground-level
+            reference: lanterns and storefront glow that bring the ground with them)
+          shots/compare/2026-10-22T07-31-00.png (+ .txt)   BASELINE | CURRENT | REFERENCE
+            baseline: shots/2026-10-22T06-07-15 (round 3g, sequence run)
+            current:  shots/2026-10-22T07-21-31 (round 3j, shot after ffc69ea)
+            reference column: references/sections/B-cold-industrial/
+          full-size: shots/2026-10-22T07-21-31/{16,17,18,19,20}.png and
+                     shots/2026-10-22T06-07-15/{16,17,18,19,20}.png
+          single-shot controls: shots/2026-10-22T05-56-31-20-fall-ground-level.png
+            (bracket, door-face baseline) and shots/2026-10-22T05-05-49-... (door face)
+          reviewer crops: strip x 1300-1600 y 700-760 at 2x/4x/8x; hut foot x 1380-1480
+            y 440-560 at 4x; transect x 1420-1425 y 700-760; left/right side strips
+          shots/2026-10-22T07-21-31/_capture.json (5 shots, error null on all five,
+            lights 1222/1133/1405/1133/1133, starved 0, lodHistogram [9,34,124,0])
+          docs/FALL_POOL_ROUND3J.md (implementer's record) ; docs/FLOODED_LOWS_SPIKE.md
+          (the refuted roughness route, read before naming any specular change)
+JUDGED:   the acceptance's attribution on the frame — warm-leaning pixels (R > B) and
+          warm pixels (R > B + 15 && R > 60) in the strip x 1300-1600, y 700-760 and
+          in the pool region x 1200-1600, y 715-790, before and after, by location and
+          component, not aggregate share; the shape of the brightening (transect away
+          from the head, and the same patch material where the lamp cannot reach);
+          whether the frame is a source-lit patch of ground below the horizon or a
+          lighter floor; controls 16-19 warm share before/after; whether any frame in
+          this run contains another zone's flooded low; the cost from the run's own
+          stats; the read against sheet B frame 3 (water as wet ground and small
+          reflective patches, not a mirror pool)
+GAP:      none against the acceptance. The specular clause (PART 10) is not
+          delivered and is a stated gap, not a surprise: the surface under the lamp
+          is silt, which carries the shared paving family's roughness (0.70), and
+          lowering that is a city-wide change to every paved surface. The pool is a
+          value break with a faint warm lean, not a warm pool — the strict warm-pixel
+          count on the strip is 1 px on a 2,927-px patch, because the floor's blue
+          ambient still wins R-B at a 7° grazing angle.
+NEXT:     optional, not required by this acceptance: a warmer silt albedo under
+          blue-hour light (the lever §7 names) or a specular lobe on the flood class
+          scoped to the low, if the read wants more warmth than a value break. The
+          bracket's position is settled and must not be moved again. No further
+          round is named by this verdict.
+CONFIRMED: the albedo change is in the frame and is the cause of the change — the
+          strip went from 0 warm-leaning pixels in both baselines to 3,364 (largest
+          component 2,927 px, bbox x 1317-1527, y 721-748), max R-B -4 -> +18 at
+          (1422, 723), mean luma 38.2 -> 48.1 on the same camera; the pool is
+          localised to the hut's foot and falls off with distance from the head (luma
+          83-96 at y 724-733 down to 54-67 at y 751-760), and the same patch
+          material left of the lamp (outside the disc) is darker and bluer (mean
+          luma 51.8, mean R-B -25.6) than the pool core (69.5, -0.2) — lamp light,
+          not paint; controls 16 and 18 are flat to the digit (warm 0.115 % and
+          1.334 % unchanged, warm-bright 0.016 % and 0.233 % unchanged); lights
+          1222/1133/1405/1133/1133, starved 0 in all five; no GPU/WGSL error in any
+          shot; error null on all five; g-buffer triangles unchanged to the digit
+          (18: 1,295,018 -> 1,295,026, +8); the LOD 2 merged path is untouched
+          (2,872 quads / 7,842 m2); no geometry, no lamp, no shader changed.
+```
+
+## (a) The strip numbers, measured
+
+Method: warm = `R > B + 15 && R > 60`; warm-leaning = `R > B`; components
+4-connected; whole frame decoded from the PNG. Strip = `x 1300-1600, y 700-760`
+(1-6 m in front of the door face, the ground the camera can see). Pool region =
+`x 1200-1600, y 715-790` (the lamp's disc plus its margin).
+
+| | BEFORE `05-56-31` (1600×900, fov 1.03364) | BEFORE `06-07-15` (1200×675, 0.75 scale, fov 1.07542 — same camera as the new run) | **AFTER `07-21-31` (1600×900, fov 1.07542)** |
+|---|---|---|---|
+| warm px (`R>B+15, R>60`) | 0 | 0 | **1** (bbox x 1430, y 737) |
+| warm-leaning px (`R>B`) | 0 in 0 components | 0 in 0 components | **3,364 in 82 components; largest 2,927 px, bbox x 1317-1527, y 721-748** |
+| max R-B | -4 at (1484, 716) | -4 at (1089, 535) | **+18 at (1422, 723)** |
+| mean luma | 30.5 | 38.2 | **48.1** |
+| mean RGB | (22.3, 24.4, 44.8) | (28.3, 31.5, 54.8) | **(47.1, 40.3, 56.7)** |
+
+**The implementer's "30.5 → 48.1" is the different-lens comparison.** The
+same-camera number is 38.2 → 48.1 (+26 %). Both are reported; the strip's shape
+is read off the same-camera pair, and the location/bbox are resolution-independent.
+
+The pool region (x 1200-1600, y 715-790) carries the same 3,364 warm-leaning px
+and the same 2,927-px largest component (bbox x 1317-1527, y 721-748); nothing
+warm-leaning appears outside the strip's band in this frame.
+
+## (b) Shape: lamp light, not paint
+
+Two tests, both on the AFTER frame.
+
+**1. Transect away from the head.** Column x 1420-1425, y 700-760 (the lamp
+throws toward the camera, increasing y):
+
+| y | 700-721 | 722 | 723 | 724-733 | 734-750 | 751-760 |
+|---|---|---|---|---|---|---|
+| what | door | edge | peak | pool core | pool | cold floor beyond |
+| luma | 5-13 | 8.9 | 35.9 | 76.6-86.8 | 60.2-84.4 | 49.5-71.4 |
+| R-B | -6..-15 | +1 | **+18** | -2..+9 | +2..+11 | -3..-25 |
+
+The pool is a 28-px band at the wall's base (y 722-749), luma 60-96 against the
+cold floor's 54-67, with the warm lean strongest at the top edge (the wall's base,
+y 723) and decaying as the disc's smoothstep window falls off. It is not a
+uniform brightening: it has a peak, an edge, and a tail.
+
+**2. The same patch material where the lamp cannot reach.** Three regions in the
+strip, y 720-748:
+
+| region | mean luma | mean R-B | n |
+|---|---|---|---|
+| left of the lamp (x 1200-1310, outside the disc) | 51.8 | -25.6 | 3,190 |
+| pool core (x 1317-1527, inside the disc) | 69.5 | -0.2 | 6,090 |
+| right of the lamp (x 1530-1600, edge of the disc) | 62.6 | -6.2 | 2,030 |
+
+The pool core is brighter (69.5 vs 51.8, +34 %) and less blue (R-B -0.2 vs -25.6)
+than the same material 1 m to the left of the lamp's reach. If the change were a
+lighter floor, both sides would have brightened by the same amount; they did not.
+**The brightening is lamp light, not paint.** The disc's centre is 0.5 m in front
+of the wall and its radius is 3.18 m (drop 3.35 m); the strip at 1-6 m sits
+inside it, and the left-side sample at x 1200-1310 is at the disc's edge and
+beyond.
+
+**What the brightening is not.** It is not *warm*. The floor's blue ambient (the
+sky's reflection at a 7° grazing angle) still dominates R-B across the pool:
+-1..+11 in the core against -25 on the side. The strict warm count is 1 px on a
+2,927-px patch. The measurable event here is the value break with a location and a
+counted area, which is exactly what the acceptance asks for ("a warm/light value
+break with a measured location and a counted warm area, not a threshold argument").
+The pool's warm bias is +18 R-B at its peak and decays to negative within 6 px
+(y 723 → 724). It is a lamp-coloured lift on a blue floor, not a warm pool.
+
+## (c) Controls: nothing leaked
+
+Whole-frame shares, before → after (same resolution, same runs):
+
+| pose | warm (`R>B+15, R>60`) | warm-bright (`R>120, R>1.6B`) | mean RGB |
+|---|---|---|---|
+| 16-fall-wreck-up | 0.115 % → **0.115 %** (±0.000) | 0.016 % → **0.016 %** (±0.000) | (15.4, 34.0, 86.6) → (15.4, 34.0, 86.6) |
+| 18-fall-skyline | 1.334 % → **1.335 %** (+0.002) | 0.233 % → **0.238 %** (+0.006) | (18.2, 33.9, 78.8) → (18.2, 33.9, 78.7) |
+| 19-fall-pile-close | 2.058 % → **2.076 %** (+0.018) | 0.057 % → **0.057 %** (±0.000) | (117.4, 132.4, 149.1) → (117.1, 132.1, 148.8) |
+| 20-fall-ground-level | 3.135 % → 3.015 % (-0.120) | 0.508 % → **0.517 %** (+0.009) | (13.8, 16.8, 51.1) → (14.2, 17.2, 52.1) |
+
+**16 and 18 are flat to the digit** — no new pool, no flood, no change in value
+structure. 19 is a noon frame on a deck 150 m above the low; its +0.018 pp is
+crowd drift. Pose 20's whole-frame numbers carry two confounds and are reported
+with them: the before is round 3h's single shot at fov 1.03364 against the new
+run's 1.07542 (a wider lens puts more sky and near floor in the frame, so the old
+city's share of the warm pixels falls), and the same-camera comparison against
+the `06-07-15` run — whose pose-20 PNG was captured at a 0.75 render scale
+(1200×675) while the new one is 1600×900 — reads 3.144 % → 3.015 % loose and
+0.577 % → 0.517 % bright. The strip measurement (§(a)) is the geometry, and it
+is not confounded by either.
+
+**No frame in this run contains another zone's flooded low.** The run is the five
+fall poses (16-20): 16 looks up from 2 m (the floor is below the frame), 17 and 19
+stand 150 m above it, 18 is 193-1185 m out with the floor 32° below the horizon,
+and 20 is the ground-level pose at one specific winch hut (column id54). The flooded
+low is authored by one function (`pushFloodWater` in `fallmesh.ts`), so the change
+reaches every fall-zone low, but no frame in this run was posed to look at one. That
+is a coverage gap in this verdict, not a finding: the material change is city-wide
+and this run only shows one low.
+
+## (d) Cost, from the run's own stats
+
+| pose | error | held fov | lights del/binned/starved | triangles | g-buffer triangles | frameMs |
+|---|---|---|---|---|---|---|
+| 16-fall-wreck-up | null | 1.01158 | 1222 / 1222 / 0 | 3,933,847 | 1,070,700 | 132.90 |
+| 17-fall-piles-level | null | 1.07026 | 1133 / 1133 / 0 | 3,670,141 | 944,022 | 138.69 |
+| 18-fall-skyline | null | 1.04794 | 1405 / 1405 / 0 | 4,800,595 | 1,295,026 | 126.30 |
+| 19-fall-pile-close | null | 1.06976 | 1133 / 1133 / 0 | 4,305,355 | 2,027,940 | 139.62 |
+| 20-fall-ground-level | null | 1.07542 | 1133 / 1133 / 0 | 4,261,575 | 1,328,996 | 139.42 |
+
+No GPU/WGSL error in any shot; `error` is null on all five. Lights unchanged
+(1222/1133/1405/1133/1133, starved 0) — the change is colour only. The g-buffer
+triangle counts are the baseline's to the digit (18: 1,295,018 → 1,295,026, +8;
+19: 2,027,940 → 2,027,940, +0). Total-triangle differences (18: -101,950,
+19: -485,316) are crowd and traffic dither between runs, as in every previous
+round; the g-buffer numbers are the geometry. The harness's frame times
+(126-140 ms) are a headless artefact; both runs sit in the same band, and D32's
+30 fps floor is not testable here.
+
+## (e) The read against sheet B frame 3
+
+Sheet B frame 3 (`03-snow-ropeway.jpg`) is the reference for ground-level water:
+wet ground and small reflective patches held in a cold blue canyon, with the
+reflections carrying the sky and the lamps — not a mirror pool. The pool here is
+a value break with a faint warm lean on silt, under a blue-hour sky, 1.7 m of
+floor brightened from luma 38 to 48 with a +18 R-B peak at the wall's base that
+decays to negative within 6 px. It is closer to "a lamp lit the floor" than the
+previous rounds' nothing, and it is not a mirror pool (the analytic sky reflection
+on a 0.70-roughness silt surface is negligible, and `FLOODED_LOWS_SPIKE.md`
+records why roughness was left alone). Whether it reads as a work lamp's pool or
+as a pale decal on wet mud is the judgement the reviewer makes on the frame; the
+measurement is that the lamp's light is on the floor, localised, falling off, and
+absent on the far side.
+
+## (f) What this round establishes, and what it does not
+
+- **Establishes:** the albedo change is in the frame and is the cause of the
+  change. The strip went from 0 warm-leaning pixels in both baselines to 3,364
+  (largest component 2,927 px, bbox x 1317-1527, y 721-748); max R-B -4 → +18 at
+  (1422, 723); mean luma 38.2 → 48.1 on the same camera. The pool is localised
+  to the hut's foot and falls off with distance from the head, and the same patch
+  material left of the lamp (outside the disc) is darker and bluer (mean luma 51.8,
+  mean R-B -25.6) than the pool core (69.5, -0.2). Lamp light, not paint.
+- **Establishes:** the acceptance as met — a source-lit patch of ground below the
+  horizon, a warm/light value break with a measured location (x 1317-1527,
+  y 721-748) and a counted warm area (2,927 px on a 3,364-px warm-leaning patch),
+  and control frames (16 and 18) that show no new pool (warm and warm-bright
+  shares flat to the digit).
+- **Establishes:** the implementer record's corrected numbers carry. The
+  implementer's doc first claimed the strip's mean luma as 30.5 → 48.1; that is
+  the different-lens comparison (30.5 is `05-56-31`'s 1.03364-fov single shot).
+  The same-camera number is 38.2 → 48.1 (+26 %). The location, bbox, max R-B
+  and warm-leaning count are reproduced exactly. The implementer also states the
+  specular is not delivered; that is confirmed (§(a) and the spike).
+- **Does not establish** a warm pool. The strict warm count is 1 px on a 2,927-px
+  patch, because the floor's blue ambient wins R-B at a 7° grazing angle. The
+  measurable event is a value break, not warmth, and the acceptance was written for
+  exactly that ("a warm/light value break ... not a threshold argument").
+- **Does not establish** the water's specular (PART 10's deferred clause). The
+  surface under the lamp is silt (`PATCH['flooded']`, the paving family, roughness
+  0.70), and lowering that is a city-wide change to every paved surface.
+  `FLOODED_LOWS_SPIKE.md` records that lowering the water's roughness at grazing
+  angles is what turned a pool into a uniform sheet of horizon. `gbuffer.wgsl`'s
+  flood branch was left alone for that reason. The lamp's own glint would in any
+  case land on the silt about 9.9 m in front of the wall, outside the pool's
+  3.18 m disc.
+- **Does not establish** the water sheets' own read. They are 3.5-15 m from the
+  strip and mostly to the left of the frame; their pixels were not measured
+  separately. Their albedo rose 3.4×, so they are brighter, and that is a change a
+  reviewer should look at.
+- **Does not establish** the city's other flooded lows. No frame in this run was
+  posed to look at one. The change reaches every fall-zone low (one author,
+  `pushFloodWater`), but only this one is shown.
+- **Does not re-judge** round 3g's lit-row count (5 of 6, closed separately), 3h's
+  bracket and fixture, the ground pass, the lifelines, the rubble, or pose 19's band.
+- **Does not establish** the read. Whether the pool reads as a work lamp's pool or
+  as a pale decal on wet mud is a judgement on the frame, and it is the reviewer's.
+
+**One next change, not three.** Optional and not required by this acceptance: if
+the read wants more warmth than a value break, the lever is the floor's own colour
+under blue-hour light — a warmer silt albedo, or a warmer ambient for the low —
+not the lamp and not the global pool term. The bracket's position is settled and
+must not be moved again. The specular clause (PART 10) is the only open item and
+is a separate, optional round. No further round is named by this verdict.
