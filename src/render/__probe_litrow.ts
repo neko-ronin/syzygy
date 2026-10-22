@@ -103,9 +103,10 @@ const near = litArea(all), farL = litArea(far);
 /**
  * Stream-neutrality. A bay is 1 pane quad + 6 frame quads = 7 quads = 14 tris,
  * so `total - 14 * bays` is everything the round did NOT mean to touch. It is
- * 90,460 before round 3c and 90,460 after: the row added bays and re-rolled
- * nothing (a re-roll would move seams, skirts and openings, and this number
- * with them). The exact multiple is the proof — +292 bays is +4,088 tris.
+ * 90,460 up to round 3c and 90,564 after round 3e: the face flip moved rows and
+ * the record guard's fallback re-admitted a few faces, and the number reports
+ * both rather than hiding them. The exact multiple per bay is the evidence that
+ * no existing face's seams, skirt or openings were re-rolled.
  */
 const bayFree = (mb: MeshBuilder, bays: number): number => mb.triangleCount - 14 * bays;
 
@@ -115,7 +116,7 @@ console.log(`lod 0 village: ${near.quads} lit quads, ${near.area.toFixed(0)} m2 
 console.log(`lod 2 merged:  ${farL.quads} lit quads, ${farL.area.toFixed(0)} m2 lit area, ` +
   `${(farL.area / cols.length).toFixed(2)} m2 per column`);
 console.log(`bay-free triangles at lod 0: ${bayFree(all, near.quads)} ` +
-  `(90,460 both before and after round 3c — the row added bays and re-rolled no face)`);
+  `(90,460 through round 3c; 90,564 after 3e's face flip)`);
 
 // ---------------------------------------------------------------- LOD, the renderer's
 const CHUNK = defaultCityConfig(SEED).chunkSize;
@@ -125,13 +126,50 @@ const lodFor = (c: FallColumn): number =>
   lodForDistance(chunkDistance(Math.floor(c.x / CHUNK), Math.floor(c.z / CHUNK), camCx, camCz), TIERS.medium);
 
 /** One lit-warm pane: world centre, outward normal, run axis, and screen box. */
-interface Pane { sx: number; sy: number; d: number; wpx: number; hpx: number; cx: number; cy: number; cz: number; n: [number, number, number]; ax: [number, number, number]; wm: number }
+interface Pane { sx: number; sy: number; d: number; wpx: number; hpx: number; cx: number; cy: number; cz: number; n: [number, number, number]; ax: [number, number, number]; wm: number; clear: boolean }
+
+/**
+ * Own-pile occlusion, the test PART 9 used and the probe was missing. A pane
+ * that faces the camera can still sit behind the pile's own boxes — that is how
+ * round 3c reported four rows no frame contains. Each pane's centre is pushed
+ * 0.12 m clear of its own face (past the dressing, which sits 0.038 m proud) and
+ * a ray is cast to the camera against every triangle of the same column; any hit
+ * nearer than the camera hides the pane.
+ */
+function occluders(mb: MeshBuilder): Float64Array {
+  const raw = mb as unknown as { pos: number[]; idx: number[] };
+  return Float64Array.from(raw.pos);
+}
+const TRI = (mb: MeshBuilder): Int32Array => Int32Array.from((mb as unknown as { idx: number[] }).idx);
+/** Moller-Trumbore, double-sided, any hit closer than the ray length. */
+function blocked(pos: Float64Array, idx: Int32Array, o: [number, number, number], e: [number, number, number]): boolean {
+  const dx = e[0] - o[0], dy = e[1] - o[1], dz = e[2] - o[2];
+  for (let t = 0; t + 2 < idx.length; t += 3) {
+    const a = idx[t] * 3, b = idx[t + 1] * 3, c = idx[t + 2] * 3;
+    const e1x = pos[b] - pos[a], e1y = pos[b + 1] - pos[a + 1], e1z = pos[b + 2] - pos[a + 2];
+    const e2x = pos[c] - pos[a], e2y = pos[c + 1] - pos[a + 1], e2z = pos[c + 2] - pos[a + 2];
+    const px = dy * e2z - dz * e2y, py = dz * e2x - dx * e2z, pz = dx * e2y - dy * e2x;
+    const det = e1x * px + e1y * py + e1z * pz;
+    if (Math.abs(det) < 1e-9) continue;
+    const inv = 1 / det;
+    const tx = o[0] - pos[a], ty = o[1] - pos[a + 1], tz = o[2] - pos[a + 2];
+    const u = (tx * px + ty * py + tz * pz) * inv;
+    if (u < 0 || u > 1) continue;
+    const qx = ty * e1z - tz * e1y, qy = tz * e1x - tx * e1z, qz = tx * e1y - ty * e1x;
+    const v = (dx * qx + dy * qy + dz * qz) * inv;
+    if (v < 0 || u + v > 1) continue;
+    const s = (e2x * qx + e2y * qy + e2z * qz) * inv;
+    if (s > 1e-4 && s < 0.999) return true;
+  }
+  return false;
+}
 
 function litPanes(c: FallColumn, lod: number): Pane[] {
   const mb = new MeshBuilder();
   pushFallVillage(mb, oneChunk([c]), lod);
   const raw = mb as unknown as { pos: number[]; col: number[]; idx: number[] };
   const pos = raw.pos, col = raw.col, idx = raw.idx;
+  const occPos = occluders(mb), occIdx = TRI(mb);
   const warm = (i: number): boolean => {
     const k = i * 4;
     return Math.abs(col[k] - 1.0) < 0.02 && Math.abs(col[k + 1] - 0.72) < 0.02 && Math.abs(col[k + 2] - 0.4) < 0.02;
@@ -154,11 +192,13 @@ function litPanes(c: FallColumn, lod: number): Pane[] {
     if ((POSE18.pos[0] - cx) * n[0] + (POSE18.pos[1] - cy) * n[1] + (POSE18.pos[2] - cz) * n[2] <= 0) continue;
     const s = project(cx, cy, cz);
     if (!s) continue;
+    const start: [number, number, number] = [cx + n[0] * 0.12, cy + n[1] * 0.12, cz + n[2] * 0.12];
+    const clear = !blocked(occPos, occIdx, start, POSE18.pos);
     // Triangle edge lengths give the pane's own projected size, so the run test
     // scales with distance instead of using a fixed pixel gap.
     const wpx = (Math.hypot(e1[0], e1[1], e1[2]) * B.focal) / s.d;
     const hpx = (Math.hypot(e2[0], e2[1], e2[2]) * B.focal) / s.d;
-    out.push({ sx: s.sx, sy: s.sy, d: s.d, wpx, hpx, cx, cy, cz, n: nn, ax, wm: el });
+    out.push({ sx: s.sx, sy: s.sy, d: s.d, wpx, hpx, cx, cy, cz, n: nn, ax, wm: el, clear });
   }
   return out;
 }
@@ -203,16 +243,26 @@ const inFrame = cols
 console.log(`\npose 18: ${inFrame.length} of ${cols.length} columns in frame; ` +
   `camera chunk (${camCx},${camCz}), ${CHUNK} m chunks, LOD = floor(chunks / 1.6) capped at ${TIERS.medium.lodRange[1]}`);
 console.log('  id  kind     dist  screen      lod  panes  runs (largest first)   row width');
+console.log('                                                  facing/clear  runs of the CLEAR panes');
 for (const { c, p } of inFrame.slice(0, 8)) {
   const lod = lodFor(c);
   const panes = litPanes(c, lod);
   const rr = runs(panes);
+  const clearPanes = panes.filter((q) => q.clear);
+  const cr = runs(clearPanes);
+  const cb = clearPanes.length
+    ? `  clear box x ${Math.min(...clearPanes.map((q) => q.sx)).toFixed(0)}-${Math.max(...clearPanes.map((q) => q.sx)).toFixed(0)}` +
+      ` y ${Math.min(...clearPanes.map((q) => q.sy)).toFixed(0)}-${Math.max(...clearPanes.map((q) => q.sy)).toFixed(0)}`
+    : '';
   const width = panes.length
     ? Math.max(...panes.map((q) => q.sx)) - Math.min(...panes.map((q) => q.sx)) + Math.max(...panes.map((q) => q.wpx))
     : 0;
   console.log(`  ${String(c.id).padStart(3)} ${c.kind.padEnd(8)} ${p.d.toFixed(0).padStart(4)}m ` +
     `(${p.sx.toFixed(0).padStart(4)},${p.sy.toFixed(0).padStart(3)})  ${String(lod).padStart(2)}  ` +
-    `${String(panes.length).padStart(5)}  ${(rr.length ? rr.join('+') : '-').padEnd(20)}  ${width.toFixed(0)} px`);
+    `${String(panes.length).padStart(5)}  ${(rr.length ? rr.join('+') : '-').padEnd(20)}  ${width.toFixed(0)} px` +
+    `   ${panes.length}/${clearPanes.length}  ${cr.length ? cr.join('+') : '-'}` +
+    `  ${cr.filter((n) => n >= 2 && n <= 3).length ? `ACCEPT(${cr.filter((n) => n >= 2 && n <= 3).join('+')})` : 'no 2-3'}` +
+    cb);
 }
 const lodHist: Record<number, number> = {};
 for (const { c } of inFrame) lodHist[lodFor(c)] = (lodHist[lodFor(c)] ?? 0) + 1;

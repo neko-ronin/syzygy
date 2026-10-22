@@ -357,7 +357,10 @@ function dressFaces(bld: MeshBuilder, c: FallColumn, yaw: number, tops: TopSpot[
   if (cands.length === 0) return;
   // Selection (how many faces, crown-first) rolls on the pile's dress stream;
   // each face's own layout rolls on a stream keyed to the face itself, so a
-  // face never re-rolls because of its neighbours.
+  // face never re-rolls because of its neighbours. Round 3e (PART 9) chooses
+  // WHICH long face of the box is dressed by line of sight — the one looking
+  // out of the pile — and keeps the key unchanged, so the layout itself does
+  // not re-roll.
   const sel = makeRng((c.seed ^ FACE_SALT) >>> 0);
   const want = Math.min(cands.length, 3 + sel.int(0, 3)); // 3-5 dressed faces
   cands.sort((p, q) => q.y - p.y || Math.abs(p.a) - Math.abs(q.a) || Math.abs(p.b) - Math.abs(q.b));
@@ -369,22 +372,40 @@ function dressFaces(bld: MeshBuilder, c: FallColumn, yaw: number, tops: TopSpot[
     // The run axis in grid coordinates is (cos rot, -sin rot), the outward
     // normal (sin rot, cos rot): every point the face's run plus a balcony's
     // reach can cover must sit inside the record the placement locked.
+    // Round 3e (PART 9's next change): the face's SIDE is chosen by line of
+    // sight, not by the unit's roll. In grid coordinates the box's +across
+    // normal is (sin rot, cos rot). The box's two long faces stand at
+    // centre ± (wide/2)·normal from the pile's own axis; the one further from
+    // that axis is the one looking out of the pile, and on a stepped pile the
+    // layer above is inset from it, so the pile cannot stand in front of it.
+    // `side` is which of the two the row is drawn on. The face's KEY does not
+    // include this (the key is the box's a, b and level), so the layout's
+    // rolls do not move: the same seams, skirt and windows are drawn, on the
+    // side that has air in front of it.
     const cp = Math.cos(u.rot), sp = Math.sin(u.rot), runHalf = u.long / 2, reach = u.wide + 1.5;
-    let outside = false;
-    for (const tt of [0, u.long]) {
-      const ga = t.a - runHalf * cp + tt * cp + reach * sp;
-      const gb = t.b + runHalf * sp - tt * sp + reach * cp;
-      if (Math.abs(ga) > c.pileHalfX - 0.3 || Math.abs(gb) > c.pileHalfZ - 0.3) { outside = true; break; }
-    }
-    if (outside) continue; // an undressed face where a balcony would cross the record
+    let side = t.a * sp + t.b * cp >= 0 ? 1 : -1;
+    // The dressing (a balcony is the furthest reach) has to stay inside the
+    // record on the side it is drawn. The outward side is preferred; where a
+    // balcony would cross the record there, the other side is still a face of
+    // the same box, and the row moves there rather than the face disappearing.
+    const fitsRecord = (sd: number): boolean => {
+      for (const tt of [0, u.long]) {
+        const ga = t.a - runHalf * cp + tt * cp + sd * reach * sp;
+        const gb = t.b + runHalf * sp - tt * sp + sd * reach * cp;
+        if (Math.abs(ga) > c.pileHalfX - 0.3 || Math.abs(gb) > c.pileHalfZ - 0.3) return false;
+      }
+      return true;
+    };
+    if (!fitsRecord(side)) side = -side;
+    if (!fitsRecord(side)) continue; // an undressed face where a balcony would cross the record
     // The box's back-left-floor corner, its run axis and its outward normal,
     // as weatherRoom's frame: t from the face's left edge, d from the back
     // plane, y absolute.
-    const oA = t.a - runHalf * cp - (u.wide / 2) * sp;
-    const oB = t.b + runHalf * sp - (u.wide / 2) * cp;
+    const oA = t.a - runHalf * cp - side * (u.wide / 2) * sp;
+    const oB = t.b + runHalf * sp - side * (u.wide / 2) * cp;
     const ox = c.x + oA * cs + oB * ss, oz = c.z - oA * ss + oB * cs;
     const ux = Math.cos(yaw + u.rot), uz = -Math.sin(yaw + u.rot);
-    const Q = (tt: number, y: number, d: number): Vec3 => [ox + ux * tt - uz * d, y, oz + uz * tt + ux * d];
+    const Q = (tt: number, y: number, d: number): Vec3 => [ox + ux * tt - side * uz * d, y, oz + uz * tt + side * ux * d];
     const key = (c.seed ^ FACE_SALT
       ^ ((Math.round(t.a * 8) & 0xffff) * 7919 | 1)
       ^ ((Math.round(t.b * 8) & 0xffff) * 104729 | 3)
