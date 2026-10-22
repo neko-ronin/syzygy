@@ -603,9 +603,46 @@ a *frame* better.
 
 ## R11 — Build the four sections (D24)
 
-**Status: built; §B has fourteen verdicts and none passes; §A, §C and §D have no
+**Status: built; §B has eighteen verdicts — the lit row closed `done` at 5 of 6,
+the ground's pool is accepted and the wall is the live job; §A, §C and §D have no
 frames** · **Priority: highest** · *Vision: "large sections of the city have
 differing styles and colors like a real city"*
+
+> **2026-10-22 update (later the same day) — §B: eighteen verdicts, one `done`.**
+> The block below was written at fourteen and both of its "next changes" have now
+> been run and judged; this block supersedes it, and the block is kept because its
+> measurements are still the reason.
+>
+> - **The lit row closed `done` at 5 of 6** (PART 16). The pick (3i) took five
+>   crowns. id108 is a stack seen edge-on at 264 m, foreshortened to two clear
+>   panes, and the candidate count equals what the camera wants — no pick can add
+>   a third, so the row's done-when was arithmetically unreachable there. The
+>   bay-width cap proposed to fix it was **gated before a capture was spent**
+>   (3k: 1088 → 1048 lit quads, id108 unmoved). A gate that stops a round before
+>   it costs a capture is a successful round.
+> - **The ground's pool is accepted and source-lit** (PART 18). The flooded low
+>   got its own material (3j, `ffc69ea`) and the work lamp went 2.2 → 6.6 (3l,
+>   `47032a2`). On the **radial** axis the lamp carries ~70-80 % of the pool's
+>   brightening (+40 to +52 luma in y 720-759 against +10 to +12 on the wall),
+>   strict warm 1 px → 10,526, max R-B +18 → +59, no clipping, controls within
+>   0.03 pp.
+> - **The second reading of PART 17 was wrong and is struck through in place.**
+>   It put the lamp at 15-25 % by measuring across **x** on a strip 2 m wide
+>   inside a 3.18 m disc — every column inside the pool, so the axis could not
+>   separate a pool from a flat lift. That mis-reading is what round 3l was
+>   dispatched to fix, and it was the wrong problem: the pool was already mostly
+>   lamp light. The lesson is in the state file, not here.
+> - **The live job is the hut's wall.** At 6.6 the wall band (x 1340-1480,
+>   y 490-600) is **79 % warm** and the largest lit area in the frame; section B
+>   carries warm as small apertures on a large cold dark mass, so the hut is the
+>   inverse. The instruction is explicit: *structure the wall — do not reduce the
+>   lamp, that kills the pool.*
+> - **The gap that outlives these rounds:** sheet B shows **8-10 window blocks per
+>   crown**; this zone has **5 crowns** carrying 2-6. The row work optimised
+>   *which* boxes show blocks at 200-270 m and never addressed density. That is a
+>   larger job and it is not in this arc.
+>
+> Current state and the commands: [`STATE_2026-10-22.md`](STATE_2026-10-22.md).
 
 > **2026-10-22 update — §B has frames and fourteen verdicts.** The claim in the
 > block below ("not one section has been photographed") is no longer true for §B:

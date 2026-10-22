@@ -1,49 +1,47 @@
 # Handoff
 
-**2026-10-22, the fall zone: fourteen verdicts across twelve implementation
-rounds, and the zone still does not read as the village. Read
-[STATE_2026-10-22](STATE_2026-10-22.md) first — one page, current.** The short
-version: the fall zone's poses were being shot at a red sunset while sheet B is blue
-hour, and that was proven by a control rather than argued — moving poses 16 and 18
-to the existing `bluehour` rig took warm pixels from 96.9 % to 0.0 % at 16 and
-68.8 % to 0.6 % at 18 (`6d5e81a`, verdict `7e53006`). Removing the sunset removed
-the only warmth, and that is the real gap: the crowns carried one 2 px point each
-where sheet B's carry rows of window blocks, and nothing in the zone lit its own
-ground. Every round since was judged by an agent that did not implement it, in
-[VISION_FALL_BASELINE](VISION_FALL_BASELINE.md) PARTS 1-14:
+**2026-10-22, the fall zone: eighteen verdicts across fifteen implementation
+rounds. Read [STATE_2026-10-22](STATE_2026-10-22.md) first — one page, current.**
+The short version: the fall zone's poses were being shot at a red sunset while sheet
+B is blue hour, and that was proven by a control rather than argued — moving poses 16
+and 18 to the existing `bluehour` rig took warm pixels from 96.9 % to 0.0 % at 16 and
+68.8 % to 0.6 % at 18 (`6d5e81a`, verdict `7e53006`). Removing the sunset removed the
+only warmth, and that is the real gap: the crowns carried one 2 px point each where
+sheet B's carry rows of window blocks, and nothing in the zone lit its own ground.
+Every round since was judged by an agent that did not implement it, in
+[VISION_FALL_BASELINE](VISION_FALL_BASELINE.md) PARTS 1-18:
 
-- **The lit row works where the camera can read it, and two crowns cannot.** The
-  row on both long faces (`db33795`) undid 3e's regression (id89's 62-px band is
-  two 28-px blocks again), gave id109 a fourth window, and returned pose 19's band
-  to the exact place 3c had it — but **4 of the six nearest crowns carry 2+
-  visible blocks, 5 if id124's 2-px bay is counted, against an acceptance of 5**
-  (PART 14). id124 is a small box turned away at 225 m and id108 a stack seen
-  edge-on at 264 m: the face rule reached neither. The next change is **the
-  pick** — choose which *box* carries the row by line of sight, the way 3e chose
-  the face.
-- **The work lamp is out of its own hut, and the floor is dark for one reason.**
-  Three rounds got the fixture right — the head on the door face (`8608fbe`), then
-  on a bracket 0.11 m outboard of the eave, 0.34 m above the slab (`95bb881`),
-  which reads as a lamp post at 4x and lifts the wall by 431 warm px. The floor
-  strip 1-6 m in front is in frame and carries **0 warm px, max R-B −4** (PART 13).
-  The pool *is* computed: with the albedo multiply removed from the pool term in
-  `src/shaders/lighting.wgsl`, the diagnostic frame carries one 15,733-px warm
-  component at x 1205-1599, y 721-786. It is invisible in the committed build
-  because the strip is flood water at albedo 0.034/0.049/0.062 — warm light times
-  a blue albedo lifts luma and leaves R-B negative. Next: scope the fix to the
-  flood class (albedo and/or a specular lobe), leave the global pool term alone,
-  and require a control frame.
-- **D32 is not at risk**: rounds 0-2 measured hero 52.03/s base vs 52.09/s head;
-  the ground round cost +1 % G-buffer and +26/+21/+18/+21 lights with 0 starved
-  (`85065d0`); 3e's extra bays cost +580 triangles of 98,628; 3g's both-faces rule
-  costs +11,068 triangles of 4.9 M in frame (+0.23 %) and +0.7 % frame time, light
-  count unchanged — and +98.9 % lit bays zone-wide.
+- **The lit row closed `done` at 5 of 6** (PART 16). The pick (3i) took five crowns;
+  id108 is a stack seen edge-on at 264 m, foreshortened to two clear panes, and the
+  candidate count equals what the camera wants — no pick can add a third. The
+  bay-width cap proposed to fix it was **gated before a capture was spent** (3k:
+  1088 → 1048 lit quads, id108 unmoved). A gate that stops a round before it costs a
+  capture is a successful round, and it is recorded as one.
+- **The pool exists and is source-lit** (PART 18). The floor was dark for one reason:
+  the pool term multiplies by the fragment's albedo, and the flood water is
+  0.034/0.049/0.062 and blue-biased, so warm light lifted luma and left R-B negative.
+  Round 3j gave the flooded low its own material; round 3l took the work lamp from
+  2.2 to 6.6. On the **radial** axis — the one the lamp actually throws along — the
+  lamp is now ~70-80 % of the pool's brightening (+40 to +52 luma in y 720-759 against
+  +10 to +12 on the wall, same material outside the disc), strict warm 1 px → 10,526,
+  max R-B +18 → +59, no clipping, controls 16-19 within 0.03 pp.
+- **The live job is the hut's wall, not the pool** (PART 18). At 6.6 the wall band
+  (x 1340-1480, y 490-600) is **79 % warm** and the largest lit area in the frame.
+  Section B carries warm as small apertures on a large cold dark mass; the hut is the
+  inverse. The instruction is explicit: *structure the wall — do not reduce the lamp,
+  that kills the pool.*
+- **D32 is not at risk**: rounds 0-2 measured hero 52.03/s base vs 52.09/s head; the
+  ground round cost +1 % G-buffer and 0 starved (`85065d0`); 3e's extra bays cost +580
+  triangles of 98,628; 3g's both-faces rule +11,068 of 4.9 M (+0.23 %) for +0.7 % frame
+  time, +98.9 % lit bays zone-wide.
 
-The two next changes are independent (`fallvillage.ts` for pose 18, the flood
-material for pose 20) and can run in parallel with two agents; captures are
-serialized on memory headroom. The fall zone is **not** closed into R11 as done;
-R11 carries the verdicts. Owner calls still open: cause of the fall, the burnt
-quarter, bridge density.
+Two harness lessons from this arc outlived their rounds and are in
+[`PITFALLS.md`](PITFALLS.md): a counted frame is shot with `--sequence` (§38), and a
+sequence is **one** measurement, so its poses must come from one quality tier — pose 20
+silently ran `low` in three runs, and mixed-tier sequences now fail the run (§40).
+
+The fall zone is **not** closed into R11 as done; R11 carries the verdicts. Owner calls
+still open: cause of the fall, the burnt quarter, bridge density.
 
 **2026-10-15, fall zone placement pass:** see item 5 below. On the way it found that every
 vehicle of a kind rode the first line of that kind, so second tram, cable car, funicular and
