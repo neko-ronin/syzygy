@@ -334,21 +334,34 @@ function greybox(): void {
   }
   if (inward > 0) fail(`${inward} greybox triangles wind into their box`);
 
-  // Every column, wreck piece, patch and station a chunk bakes registers its crowd obstacle.
+  // Every column, wreck piece, patch and station a chunk bakes registers its
+  // crowd obstacle. Derived dressing (round 3b's lifelines: stair-tower feet,
+  // winch houses, workshops) registers obstacles of its own, so this counts the
+  // PLACEMENT kinds by exact kind rather than every `fall-` prefix — otherwise
+  // adding a hut reads as a missing obstacle, and a prefix match would let a
+  // column lose its obstacle unnoticed.
   const seed = DEFAULT_SEED, city = new City(defaultCityConfig(seed));
   let want = 0, got = 0, chunks = 0;
+  const bump = (m: Map<string, number>, k: string): void => { m.set(k, (m.get(k) ?? 0) + 1); };
   for (let cx = -6; cx <= 6; cx++) {
     for (let cz = -6; cz <= 6; cz++) {
       const ch = city.getChunk(cx, cz);
       if (!ch) continue;
-      const n = ch.fall.columns.length + ch.fall.wreck.length + ch.fall.patches.length + ch.fall.stations.length;
-      if (n === 0) continue;
+      const placed = new Map<string, number>();
+      for (const c of ch.fall.columns) bump(placed, `fall-${c.kind}`);
+      for (const w of ch.fall.wreck) bump(placed, `fall-${w.kind}`);
+      for (const p of ch.fall.patches) bump(placed, `off-limits-${p.kind}`);
+      for (const _ of ch.fall.stations) bump(placed, 'fall-ropeway-station');
+      if (placed.size === 0) continue;
       chunks++;
-      want += n;
-      got += bakeChunk(ch, 0, seed).obstacles.filter((o) => o.kind.startsWith('fall-') || o.kind.startsWith('off-limits-')).length;
+      const obs = bakeChunk(ch, 0, seed).obstacles;
+      for (const [k, n] of placed) {
+        want += n;
+        got += Math.min(n, obs.filter((o) => o.kind === k).length);
+      }
     }
   }
-  console.log(`  ${chunks} chunks bake fall-zone items; ${got}/${want} obstacles`);
+  console.log(`  ${chunks} chunks bake fall-zone items; ${got}/${want} placement obstacles`);
   if (got !== want) fail(`${want - got} fall-zone items registered no crowd obstacle`);
 }
 

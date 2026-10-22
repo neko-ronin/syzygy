@@ -15,6 +15,7 @@ import type { CrowdObstacle } from '../world/crowdobstacles';
 import type { FallChunk, PatchKind } from '../world/fallzone';
 import type { MeshBuilder } from '../world/geometry';
 import { pushColumn } from './fallcolumn';
+import { pushFallGround } from './fallground';
 import { pushFallVillage } from './fallvillage';
 
 const STEEL: Vec3 = [0.14, 0.17, 0.21];
@@ -105,4 +106,8 @@ export function pushFallChunk(bld: MeshBuilder, fall: FallChunk, lod: number, ob
     pushOrientedBox(bld, [s[0], GROUND_Y + 2, s[2]], ...flat, [3, 2, 3], STEEL);
     obstacles.push({ x: s[0], z: s[2], tx, tz, halfAlong: 3, halfAcross: 3, minY: GROUND_Y, maxY: GROUND_Y + 4, kind: 'fall-ropeway-station' });
   }
+  // The working floor (round 3b): lifelines at the columns' feet, the D30 kit
+  // and the ropeway huts' rails, with the zone's warm work lamps. Last, so the
+  // lamps land after the village's crown lights in the same chunk list.
+  pushFallGround(bld, fall, lod, obstacles, lights);
 }
