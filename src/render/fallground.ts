@@ -273,15 +273,12 @@ function frontFace(
 ): void {
   // The fascia: three boards stacked across the face under the eave, in the
   // cold near-black of a boarded sheet, separated by two horizontal reveals.
-  //
-  // The reveals are the point. A single board across the whole face is a slab
-  // — a dark slab instead of a lit one, which is the same failure the reviewer
-  // named. Two 0.08 m gaps let the lamp-lit cladding behind show through as
-  // two narrow warm lines, which is section B's grammar (small warm apertures
-  // on a cold mass) and, because the lines are lit, they cut the fascia into
-  // three separate boards that can be counted on the frame.
+  // (Widened from 0.08 m to 0.16 m total gap per PART 19's NEXT. The wider
+  // gap produced ~6 px seams, still lines rather than apertures; the framed-
+  // opening fallback below this block was tried and failed the warm-share gate
+  // at 52.8 %, so the committed state is the widened reveals.)
   const H = eave + 0.02 - doorTop;  // the fascia's height
-  const gapH = 0.04;                 // half a reveal's height
+  const gapH = 0.08;                 // half a reveal's height (0.16 m total)
   const bH = (H - 2 * gapH) / 3;     // one board's height
   const W = halfWidth - 0.1;
   for (let i = 0; i < 3; i++) {
@@ -293,8 +290,6 @@ function frontFace(
   const [hx, hz] = f.at(c.x, c.z, doorA, faceB + 0.26);
   box(hx, GROUND_Y + doorTop - 0.02, hz, doorHalf + 0.55, 0.06, 0.22, STEEL);
   // The pilasters: two uprights framing the door, from the deck to the fascia.
-  // They stand close to the jambs so their lit faces land beside the door,
-  // where the frame is read.
   for (const side of [-1, 1]) {
     const a = doorA + side * (doorHalf + 0.12);
     const [px, pz] = f.at(c.x, c.z, a, faceB + 0.09);
