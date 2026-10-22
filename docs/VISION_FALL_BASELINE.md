@@ -2978,7 +2978,7 @@ Both are reported below and the strip's shape is read off the same-camera pair.
 ## Close-out (DESIGN §6) — round 3j
 
 ```
-VERDICT:  done
+VERDICT:  more work needed
 EVIDENCE: references/B-cold-industrial-sheet.jpg (read first; frame 3 is the ground-level
             reference: lanterns and storefront glow that bring the ground with them)
           shots/compare/2026-10-22T07-31-00.png (+ .txt)   BASELINE | CURRENT | REFERENCE
@@ -3005,18 +3005,24 @@ JUDGED:   the acceptance's attribution on the frame — warm-leaning pixels (R >
           this run contains another zone's flooded low; the cost from the run's own
           stats; the read against sheet B frame 3 (water as wet ground and small
           reflective patches, not a mirror pool)
-GAP:      none against the acceptance. The specular clause (PART 10) is not
-          delivered and is a stated gap, not a surprise: the surface under the lamp
-          is silt, which carries the shared paving family's roughness (0.70), and
-          lowering that is a city-wide change to every paved surface. The pool is a
-          value break with a faint warm lean, not a warm pool — the strict warm-pixel
-          count on the strip is 1 px on a 2,927-px patch, because the floor's blue
-          ambient still wins R-B at a 7° grazing angle.
-NEXT:     optional, not required by this acceptance: a warmer silt albedo under
-          blue-hour light (the lever §7 names) or a specular lobe on the flood class
-          scoped to the low, if the read wants more warmth than a value break. The
-          bracket's position is settled and must not be moved again. No further
-          round is named by this verdict.
+GAP:      the acceptance asks for a SOURCE-LIT patch, and the second reading
+          (appended below) measures the lamp at roughly 15-25 % of the visible
+          change (luma +2 to +7 on top of a flat material lift of +11 to +14;
+          R-B +5 to +7 on top of a flat +17). The floor is lighter and less blue
+          mostly because of the albedo rise, with a faint lamp-coloured tint. The
+          strict warm count is 1 px on a 2,927-px patch. The specular clause
+          (PART 10) is also not delivered: the surface under the lamp is silt,
+          which carries the shared paving family's roughness (0.70), and lowering
+          that is a city-wide change to every paved surface. The value break is
+          real and localised; the cause is mostly material, not the source.
+NEXT:     one change: raise POOL_GAIN (or the pool term's multiplier) in
+          src/shaders/lighting.wgsl so the lamp's disc dominates the material's
+          flat lift; the bracket and the material are settled and must not be
+          moved again. Re-shoot 20 and accept when the lamp contributes more than
+          half of the strip's luma lift and the strict warm count exceeds a
+          threshold. The specular clause (PART 10) stays deferred: FLOODED_LOWS_SPIKE.md
+          refutes the roughness route, and the lamp's glint lands ~9.9 m in front of
+          the wall, outside the pool's 3.18 m disc.
 CONFIRMED: the albedo change is in the frame and is the cause of the change — the
           strip went from 0 warm-leaning pixels in both baselines to 3,364 (largest
           component 2,927 px, bbox x 1317-1527, y 721-748), max R-B -4 -> +18 at
@@ -3215,3 +3221,94 @@ under blue-hour light — a warmer silt albedo, or a warmer ambient for the low 
 not the lamp and not the global pool term. The bracket's position is settled and
 must not be moved again. The specular clause (PART 10) is the only open item and
 is a separate, optional round. No further round is named by this verdict.
+---
+
+## Second reading (independent reviewer, PART 17 re-judged)
+
+PART 17 (round 3j, `ffc69ea`, run `07-21-31`) was judged `done` with the claim
+"the pool is **lamp light, not paint**". This section is an independent
+re-measurement of the attribution asked for by the orchestrator. It does not
+rewrite PART 17's measurements; it corrects one and adds the material/lamp split.
+
+**What I changed in PART 17 above:** the VERDICT line (`done` → `more work
+needed`), the GAP line (added the attribution finding), and the NEXT line (named
+a lever that can make the lamp dominant). Everything else in PART 17 stands.
+
+### The numbers I re-derived
+
+Same-resolution baseline `05-56-31` (1600×900, fov 1.03364) vs after `07-21-31`
+(1600×900, fov 1.07542), strip `x 1300-1600, y 700-760`, 20-px columns,
+y 715-760:
+
+| col (after) | before luma | after luma | lift | before R-B | after R-B | liftRB |
+|---|---|---|---|---|---|---|
+| 1280-1299 | 32.9 | 50.5 | +17.6 | -33.9 | -21.0 | +12.9 |
+| 1300-1319 | 35.1 | 54.2 | +19.1 | -31.7 | -16.9 | +14.8 |
+| 1320-1339 | 36.9 | 56.9 | +20.0 | -29.7 | -12.4 | +17.3 |
+| 1340-1359 | 38.5 | 59.1 | +20.6 | -28.1 | -9.3 | +18.8 |
+| 1360-1379 | 39.5 | 60.0 | +20.5 | -26.9 | -7.3 | +19.6 |
+| 1380-1399 | 39.7 | 59.4 | +19.7 | -25.7 | -4.8 | +20.9 |
+| 1400-1419 | 34.5 | 60.1 | +25.6 | -20.9 | -3.5 | +17.4 |
+| 1420-1439 | 33.8 | 60.7 | +26.8 | -19.7 | -2.6 | +17.1 |
+| 1440-1459 | 33.5 | 60.4 | +26.9 | -19.3 | -2.2 | +17.2 |
+| 1460-1479 | 33.2 | 62.5 | +29.3 | -19.1 | -3.4 | +15.7 |
+| 1480-1499 | 35.9 | 62.7 | +26.8 | -21.6 | -3.9 | +17.7 |
+| 1500-1519 | 37.4 | 61.9 | +24.4 | -24.1 | -4.9 | +19.3 |
+| 1520-1539 | 37.1 | 60.1 | +23.0 | -24.9 | -6.3 | +18.6 |
+| 1540-1559 | 36.1 | 58.0 | +21.9 | -25.4 | -7.8 | +17.6 |
+| 1560-1579 | 35.0 | 55.5 | +20.5 | -25.8 | -10.0 | +15.8 |
+| 1580-1599 | 33.5 | 53.2 | +19.7 | -26.4 | -12.0 | +14.4 |
+
+Same-camera baseline `06-07-15` (1200×675, scaled ×4/3) vs after:
+
+| col (after) | base luma | after luma | lift | base R-B | after R-B | liftRB |
+|---|---|---|---|---|---|---|
+| 1280-1299 | 39.1 | 50.5 | +11.4 | -38.2 | -21.0 | +17.2 |
+| 1300-1319 | 41.8 | 54.2 | +12.4 | -35.5 | -17.0 | +18.5 |
+| 1320-1339 | 44.5 | 57.0 | +12.4 | -32.6 | -12.5 | +20.2 |
+| 1340-1359 | 46.4 | 59.2 | +12.8 | -30.4 | -9.3 | +21.1 |
+| 1360-1379 | 47.0 | 60.1 | +13.2 | -28.9 | -7.4 | +21.5 |
+| 1380-1399 | 46.1 | 59.5 | +13.4 | -26.5 | -4.9 | +21.6 |
+| 1400-1419 | 46.9 | 60.2 | +13.4 | -25.8 | -3.6 | +22.2 |
+| 1420-1439 | 47.3 | 60.7 | +13.4 | -25.5 | -2.6 | +23.0 |
+| 1440-1459 | 46.7 | 60.4 | +13.7 | -25.1 | -2.1 | +23.0 |
+| 1460-1479 | 48.7 | 62.4 | +13.8 | -27.3 | -3.3 | +24.0 |
+| 1480-1499 | 48.4 | 62.6 | +14.2 | -28.3 | -3.9 | +24.4 |
+| 1500-1519 | 47.4 | 61.8 | +14.4 | -28.9 | -4.8 | +24.1 |
+| 1520-1539 | 46.3 | 60.1 | +13.7 | -29.4 | -6.3 | +23.1 |
+| 1540-1559 | 44.6 | 58.0 | +13.4 | -30.3 | -7.8 | +22.5 |
+| 1560-1579 | 42.1 | 55.5 | +13.5 | -31.4 | -10.0 | +21.4 |
+| 1580-1599 | 40.8 | 53.2 | +13.4 | -33.5 | -12.0 | +21.5 |
+
+**Reading.** The luma lift is flat (+11.4 to +14.4) across the whole strip, including
+the lateral edges where the pool disc (radius 3.18 m, drop 3.35 m) is near zero. The
+R-B lift is peaked (+17.2 at the left edge to +24.4 at x 1480-1499) — the lamp does
+leave a hue signature. The material (the albedo rise) contributes the flat
++11 to +14 luma and +17 to +18 R-B everywhere, including outside the disc; the
+lamp contributes the differential, roughly +2 to +3 luma and +5 to +7 R-B, on top.
+The lamp's share of the visible change is therefore about 15-25 %, not dominant.
+The strict warm count is 1 px on a 2,927-px patch. PART 17's left/right comparison
+(pool core 69.5 luma / -0.2 R-B vs outside 51.8 / -25.6) is reproduced and is
+valid (same material, different disc), but it measures the lamp's *incremental*
+contribution on top of a flat material lift that is larger than the increment.
+
+**Reconciliation with PART 17 (b).** PART 17 (b) is arithmetically correct: the pool
+core is +34 % brighter and +25 R-B less blue than the same material outside the disc,
+and that difference is the lamp. What it does not establish is that the lamp is the
+*dominant* cause of the visible change: the material's flat lift (+12 luma, +17 R-B)
+is larger than the lamp's increment (+2 to +3 luma, +5 to +7 R-B). The floor is
+lighter and less blue mostly because of the albedo rise; the lamp adds a faint
+warm tint. "Lamp light, not paint" overstates the lamp's share; the honest
+statement is "paint, with a lamp tint."
+
+**The verdict change.** PART 13's acceptance asks for "a **source-lit** patch of ground
+below the horizon." The source contributes roughly 15-25 % of the visible change and
+1 strict warm pixel on a 2,927-px patch. The value break is real and localised, but
+its cause is mostly material, not the source. VERDICT changed from `done` to
+`more work needed`. The specular clause (PART 10) stays deferred: FLOODED_LOWS_SPIKE.md
+refutes the roughness route (lowering roughness turns the pool into a uniform sheet
+of horizon), and the lamp's glint lands ~9.9 m in front of the wall, outside the
+pool's 3.18 m disc. NEXT: raise POOL_GAIN (or the pool term's multiplier) in
+src/shaders/lighting.wgsl so the lamp's disc dominates the material's flat lift;
+re-shoot 20 and accept when the lamp contributes more than half of the strip's
+luma lift and the strict warm count exceeds a threshold.
