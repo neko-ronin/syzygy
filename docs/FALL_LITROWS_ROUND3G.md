@@ -34,16 +34,20 @@ are untouched (merged pass still 2,872 quads / 7,842 m²).
   (pose 19). No light-count change from the round.
 - **LOD 2 merged:** 2,872 quads / 7,842 m², byte-identical by construction.
 
-## Runs
+## Run (sequence, authoritative sidecar)
 
-Single-shot captures (no run directory; flat PNG + `shots/latest.json`):
+Run directory: `shots/2026-10-22T06-07-15/` with `_capture.json`.
 
-- Pose 18: stamp `2026-10-22T05-39-47`, frame
-  `shots/2026-10-22T05-39-47-18-fall-skyline.png`,
-  error null, lights 1405, starved 0, lodHistogram [9, 28, 128, 0].
-- Pose 19: stamp `2026-10-22T05-40-06`, frame
-  `shots/2026-10-22T05-40-06-19-fall-pile-close.png`,
-  error null, lights 1133, starved 0, lodHistogram [9, 28, 98, 0].
+Per-pose (from `_capture.json`):
+
+- 18-fall-skyline: error null, lights 1405, starved 0, held fov 1.04451235,
+  triangles 4,902,545, gbufferTriangles 1,295,018, lodHistogram [9, 34, 124, 0].
+- 19-fall-pile-close: error null, lights 1133, starved 0, held fov 1.07304157,
+  triangles 4,790,671, gbufferTriangles 2,027,940, lodHistogram [9, 34, 124, 0].
+
+Earlier single-shot frames (no sidecar; kept as earlier evidence only):
+`shots/2026-10-22T05-39-47-18-fall-skyline.png` and
+`shots/2026-10-22T05-40-06-19-fall-pile-close.png`.
 
 ## Warm share at 18
 
