@@ -1,4 +1,7 @@
-# Pose 20 — the lamp head on a bracket above the eave (round 3g)
+# Pose 20 — the lamp head on a bracket above the eave (round 3h)
+
+> Round number corrected by the orchestrator: the long-face lit row took `3g`
+> (`db33795`), so this round is `3h`. The commit message on `95bb881` says 3g.
 
 **Implementer:** fall-lamp. **Date:** 2026-10-22. **Subject:** the winch-house /
 workshop work lamp whose head sat on the hut's door face, so its light stopped

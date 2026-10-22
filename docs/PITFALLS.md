@@ -1040,6 +1040,30 @@ beside the other gates: start the dev server, open it with Playwright, and asser
 self-test are three statements about the *source*; a boot probe is the only statement about the
 *product*, and this bug lived in the gap between them.
 
+## 38. A counted frame with no record of its run: single-shot captures overwrite `shots/latest.json`
+
+**Symptom:** round 3g's evidence was `shots/2026-10-22T05-39-47-18-fall-skyline.png` and
+`shots/2026-10-22T05-40-06-19-fall-pile-close.png`. Both frames exist and look right. Only the
+second has provenance, because `capture.mjs` in single mode writes the PNG plus **one**
+`shots/latest.json`, and the next single run overwrites it. So pose 18 — the frame the round's
+acceptance is counted on — had no `error`, no `lights`, no `starved`, no held `fov`, and no way to
+tell whether it came from a healthy run. The implementer reported the run stamps; they are stamps,
+not run directories.
+
+**Why it was invisible:** the PNG is the artifact a reviewer opens; the sidecar is the artifact that
+says the run was sound. A file exists, the frame looks like the pose, every gate is green — and the
+evidence that the frame is not a transition or a partial render is gone. `--sequence` writes a run
+directory and `_capture.json` for every pose, which is why the earlier rounds had this and this one
+did not: the round shot two poses alone to save time.
+
+**Rule:** any frame that will be counted, measured or judged is shot with `--sequence` (or a single
+pose alone, keeping `latest.json` before the next shot). A stamp is not a run directory, and
+`docs/` should cite run directories.
+
+**Harness fix, not made:** write `shots/<stamp>-<pose>.json` next to each single-mode PNG instead of
+overwriting a single `latest.json`. Left as a named gap in `STATE_2026-10-22.md` rather than an
+unverified edit to the harness everything else depends on.
+
 ## Working norms that held up
 
 - **Measure before theorising.** Every bug above cost far less time to measure
