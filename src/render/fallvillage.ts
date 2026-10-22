@@ -372,22 +372,18 @@ function dressFaces(bld: MeshBuilder, c: FallColumn, yaw: number, tops: TopSpot[
     // The run axis in grid coordinates is (cos rot, -sin rot), the outward
     // normal (sin rot, cos rot): every point the face's run plus a balcony's
     // reach can cover must sit inside the record the placement locked.
-    // Round 3e (PART 9's next change): the face's SIDE is chosen by line of
-    // sight, not by the unit's roll. In grid coordinates the box's +across
-    // normal is (sin rot, cos rot). The box's two long faces stand at
-    // centre ± (wide/2)·normal from the pile's own axis; the one further from
-    // that axis is the one looking out of the pile, and on a stepped pile the
-    // layer above is inset from it, so the pile cannot stand in front of it.
-    // `side` is which of the two the row is drawn on. The face's KEY does not
-    // include this (the key is the box's a, b and level), so the layout's
-    // rolls do not move: the same seams, skirt and windows are drawn, on the
-    // side that has air in front of it.
+    // Round 3e chose WHICH long face by line of sight. Round 3g (this round)
+    // draws the row and the face dressing on BOTH long faces of the box, not
+    // only the outward one, so a camera that meets the inward face no longer
+    // sees an undressed box (PART 11 (c)). The face KEY is still keyed to the
+    // box's a, b and level (no side in it), so the two faces draw from the
+    // same stream and do not re-roll each other's seams, grime, skirt or bays.
     const cp = Math.cos(u.rot), sp = Math.sin(u.rot), runHalf = u.long / 2, reach = u.wide + 1.5;
-    let side = t.a * sp + t.b * cp >= 0 ? 1 : -1;
+    const outward = t.a * sp + t.b * cp >= 0 ? 1 : -1;
     // The dressing (a balcony is the furthest reach) has to stay inside the
-    // record on the side it is drawn. The outward side is preferred; where a
-    // balcony would cross the record there, the other side is still a face of
-    // the same box, and the row moves there rather than the face disappearing.
+    // record on the side it is drawn. Each long face is tried independently;
+    // a face is drawn only where its balcony's reach stays inside the record,
+    // and the box is skipped only when neither long face fits.
     const fitsRecord = (sd: number): boolean => {
       for (const tt of [0, u.long]) {
         const ga = t.a - runHalf * cp + tt * cp + sd * reach * sp;
@@ -396,91 +392,70 @@ function dressFaces(bld: MeshBuilder, c: FallColumn, yaw: number, tops: TopSpot[
       }
       return true;
     };
-    if (!fitsRecord(side)) side = -side;
-    if (!fitsRecord(side)) continue; // an undressed face where a balcony would cross the record
-    // The box's back-left-floor corner, its run axis and its outward normal,
-    // as weatherRoom's frame: t from the face's left edge, d from the back
-    // plane, y absolute.
-    const oA = t.a - runHalf * cp - side * (u.wide / 2) * sp;
-    const oB = t.b + runHalf * sp - side * (u.wide / 2) * cp;
-    const ox = c.x + oA * cs + oB * ss, oz = c.z - oA * ss + oB * cs;
-    const ux = Math.cos(yaw + u.rot), uz = -Math.sin(yaw + u.rot);
-    const Q = (tt: number, y: number, d: number): Vec3 => [ox + ux * tt - side * uz * d, y, oz + uz * tt + side * ux * d];
+    const orderedSides: number[] = [outward, -outward].filter((sd, i, arr) => arr.indexOf(sd) === i && fitsRecord(sd));
+    if (orderedSides.length === 0) continue; // an undressed box where no balcony fits either face
+    // The box's back-left-floor corner, run axis and outward normal, as
+    // weatherRoom's frame. `side` selects which long face; Q is rebuilt per
+    // side below.
     const key = (c.seed ^ FACE_SALT
       ^ ((Math.round(t.a * 8) & 0xffff) * 7919 | 1)
       ^ ((Math.round(t.b * 8) & 0xffff) * 104729 | 3)
       ^ ((Math.round((y0 - c.pileBase) * 4) & 0xffff) * 1301 | 5)) >>> 0;
-    const w = makeRng(key);
+    // Layout (wins, bay count, anchor) is computed ONCE from the box key, so
+    // both long faces share it and neither re-rolls the other.
+    const w0 = makeRng(key);
     const wins: number[] = [];
-    for (let wi = 0, nw = u.long > 9 ? 1 + w.int(0, 1) : w.int(0, 1); wi < nw; wi++) {
-      wins.push(clamp(u.long * (0.3 + 0.4 * wi) + w.jitter(0.6), 1.1, u.long - 1.1));
+    for (let wi = 0, nw = u.long > 9 ? 1 + w0.int(0, 1) : w0.int(0, 1); wi < nw; wi++) {
+      wins.push(clamp(u.long * (0.3 + 0.4 * wi) + w0.jitter(0.6), 1.1, u.long - 1.1));
     }
-    // The per-window 25 % lit roll is CONSUMED but no longer decides anything:
-    // round 3c's row is guaranteed on every dressed face. The draws stay because
-    // `w` feeds weatherRoom on the next line — one fewer draw here would re-roll
-    // every seam, grime skirt and opening on every face in the zone, and this
-    // round is one change, not a re-roll.
-    const litRoll = wins.map(() => w.bool(0.25));
+    const litRoll = wins.map(() => w0.bool(0.25));
     void litRoll;
-    weatherRoom(bld, Q, u.long / 2, y0, u.wide, u.long, u.tall, u.wide, u.col, wins, OUTRIGGER, w);
-    // Over-paint the lit ones (the scaffold's emissive convention) just proud
-    // of weatherRoom's work — frames at front + 0.022, so the pane sits at
-    // + 0.03; the first window of the pile always lights, so the crown row
-    // exists everywhere.
-    // Round 3a: a lit BAY, not a lit slit. The old pane was 0.56 x 0.32*tall
-    // (about 0.5 m2); at pose 18 it is 2 px and at 1400 m it is sub-pixel, which
-    // is the whole of the reviewer's "one warm point, about 2 px". The bay is
-    // 0.4 of the box's length (capped at 2.4 m) by 0.46 of its height — a lit
-    // room front, which is what sheet B's containers actually carry — with its
-    // own jambs, head, sill and two mullions so up close it still reads as
-    // glazing rather than a glowing slab. The bay is drawn over
-    // weatherRoom's opening, whose frame constants it mirrors (0.34/0.80 covers
-    // the 0.42/0.74 glass plus its 0.34-0.42 sill and 0.74-0.80 head), so the
-    // small frame is hidden under it and this one replaces it.
-    //
-    // Round 3c: a contiguous ROW of 2-3 bays at one height, not one bay per
-    // window. 3a's bay was the right size and the wrong count: at the 193-264 m
-    // where pose 18's crowns actually are a bay is ~10 px wide, so one bay per
-    // face is one mark — which is what the reviewer counted on every crown. The
-    // row is anchored on the face's first window (always lit by construction)
-    // and its 2-vs-3 rolls on the face's own KEY, not on `w`, for the same
-    // stream reason as above.
     const ya = y0 + u.tall * 0.34, yb = y0 + u.tall * 0.80;
     const bayW = clamp(u.long * 0.4, 1.1, 2.4);
-    // 0.45 m of panel between openings, not 0.12: at 410 m a 0.12 m gap is a
-    // third of a pixel, the bays merge, and the row is one 31 px bar — a wider
-    // point, not blocks. At 193 m this gap is 1.9 px, so the openings stay
-    // countable across the band the acceptance names.
     const gap = 0.45;
     const fits = Math.max(1, Math.floor((u.long - 0.6 + gap) / (bayW + gap)));
     const n = Math.min(fits, 2 + ((key >>> 5) & 1));
     const runW = n * bayW + (n - 1) * gap;
-    // A face can roll ZERO windows (`nw = w.int(0, 1)` on a face <= 9 m), and
-    // 3a then drew nothing there. Anchoring on undefined made every one of those
-    // rows NaN — 32 of 44 warm triangles on id109 — so the fallback is the face
-    // centre, which is also what makes 3a's "every dressed face lights" true.
     const anchor = wins.length ? wins[0] : u.long / 2;
     const mid = clamp(anchor, runW / 2 + 0.3, u.long - runW / 2 - 0.3);
-    for (let k = 0; k < n; k++) {
-      const t0 = mid - runW / 2 + k * (bayW + gap);
-      const t1 = t0 + bayW;
-      bld.pushQuad(Q(t0, ya, u.wide + 0.03), Q(t1, ya, u.wide + 0.03),
-        Q(t1, yb, u.wide + 0.03), Q(t0, yb, u.wide + 0.03),
-        LIT_WARM, 1, { emissive: 3.0, doubleSided: true });
-      // Its frame, proud of the pane: jambs, head, sill, two mullions.
-      const fr = tint(u.col, 0.35), fd = u.wide + 0.038;
-      bld.pushQuad(Q(t0 - 0.07, ya - 0.07, fd), Q(t0, ya - 0.07, fd), Q(t0, yb + 0.07, fd), Q(t0 - 0.07, yb + 0.07, fd), fr, 1, { doubleSided: true });
-      bld.pushQuad(Q(t1, ya - 0.07, fd), Q(t1 + 0.07, ya - 0.07, fd), Q(t1 + 0.07, yb + 0.07, fd), Q(t1, yb + 0.07, fd), fr, 1, { doubleSided: true });
-      bld.pushQuad(Q(t0 - 0.07, yb, fd), Q(t1 + 0.07, yb, fd), Q(t1 + 0.07, yb + 0.07, fd), Q(t0 - 0.07, yb + 0.07, fd), fr, 1, { doubleSided: true });
-      bld.pushQuad(Q(t0 - 0.07, ya - 0.07, fd), Q(t1 + 0.07, ya - 0.07, fd), Q(t1 + 0.07, ya, fd), Q(t0 - 0.07, ya, fd), fr, 1, { doubleSided: true });
-      for (const s of [1 / 3, 2 / 3]) {
-        const tm = t0 + (t1 - t0) * s;
-        bld.pushQuad(Q(tm - 0.035, ya, fd), Q(tm + 0.035, ya, fd), Q(tm + 0.035, yb, fd), Q(tm - 0.035, yb, fd), fr, 1, { doubleSided: true });
+    // Replay helper: a fresh rng from the same key, advanced past the layout
+    // rolls, so each face's weatherRoom starts at the same post-layout state.
+    const replayW = (): Rng => {
+      const rw = makeRng(key);
+      const nw = u.long > 9 ? 1 + rw.int(0, 1) : rw.int(0, 1);
+      for (let wi = 0; wi < nw; wi++) clamp(u.long * (0.3 + 0.4 * wi) + rw.jitter(0.6), 1.1, u.long - 1.1);
+      for (let wi = 0; wi < nw; wi++) rw.bool(0.25);
+      return rw;
+    };
+    for (const side of orderedSides) {
+      const oA = t.a - runHalf * cp - side * (u.wide / 2) * sp;
+      const oB = t.b + runHalf * sp - side * (u.wide / 2) * cp;
+      const ox = c.x + oA * cs + oB * ss, oz = c.z - oA * ss + oB * cs;
+      const ux = Math.cos(yaw + u.rot), uz = -Math.sin(yaw + u.rot);
+      const Q = (tt: number, y: number, d: number): Vec3 => [ox + ux * tt - side * uz * d, y, oz + uz * tt + side * ux * d];
+      weatherRoom(bld, Q, u.long / 2, y0, u.wide, u.long, u.tall, u.wide, u.col, wins, OUTRIGGER, replayW());
+      // Over-paint the lit row on this face: a contiguous row of 2-3 bays at
+      // one height, identical layout on both long faces (same n, mid, wins).
+      for (let k = 0; k < n; k++) {
+        const t0 = mid - runW / 2 + k * (bayW + gap);
+        const t1 = t0 + bayW;
+        bld.pushQuad(Q(t0, ya, u.wide + 0.03), Q(t1, ya, u.wide + 0.03),
+          Q(t1, yb, u.wide + 0.03), Q(t0, yb, u.wide + 0.03),
+          LIT_WARM, 1, { emissive: 3.0, doubleSided: true });
+        const fr = tint(u.col, 0.35), fd = u.wide + 0.038;
+        bld.pushQuad(Q(t0 - 0.07, ya - 0.07, fd), Q(t0, ya - 0.07, fd), Q(t0, yb + 0.07, fd), Q(t0 - 0.07, yb + 0.07, fd), fr, 1, { doubleSided: true });
+        bld.pushQuad(Q(t1, ya - 0.07, fd), Q(t1 + 0.07, ya - 0.07, fd), Q(t1 + 0.07, yb + 0.07, fd), Q(t1, yb + 0.07, fd), fr, 1, { doubleSided: true });
+        bld.pushQuad(Q(t0 - 0.07, yb, fd), Q(t1 + 0.07, yb, fd), Q(t1 + 0.07, yb + 0.07, fd), Q(t0 - 0.07, yb + 0.07, fd), fr, 1, { doubleSided: true });
+        bld.pushQuad(Q(t0 - 0.07, ya - 0.07, fd), Q(t1 + 0.07, ya - 0.07, fd), Q(t1 + 0.07, ya, fd), Q(t0 - 0.07, ya, fd), fr, 1, { doubleSided: true });
+        for (const s of [1 / 3, 2 / 3]) {
+          const tm = t0 + (t1 - t0) * s;
+          bld.pushQuad(Q(tm - 0.035, ya, fd), Q(tm + 0.035, ya, fd), Q(tm + 0.035, yb, fd), Q(tm - 0.035, yb, fd), fr, 1, { doubleSided: true });
+        }
       }
-    }
-    if (!lightDone && dress.lights && dress.lod < 1) {
-      dress.lights.push({ pos: Q(mid, y0 + u.tall * 0.6, u.wide + 0.8), radius: 10, color: [1.0, 0.68, 0.34], intensity: 1.4 });
-      lightDone = true;
+      if (!lightDone && dress.lights && dress.lod < 1) {
+        dress.lights.push({ pos: Q(mid, y0 + u.tall * 0.6, u.wide + 0.8), radius: 10, color: [1.0, 0.68, 0.34], intensity: 1.4 });
+        lightDone = true;
+      }
     }
     dressed++;
   }
