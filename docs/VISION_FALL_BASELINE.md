@@ -1321,3 +1321,114 @@ frame carries one point.
 **One next change, not three.** Put a 2-3 bay row on the LOD 0-1 dressed face, where 18's
 columns actually are, and count at 18. The merged row stays for LOD 2. The pose 16 fix is
 already named and is a separate item; it does not belong in this round's change.
+
+---
+
+# PART 7 — ROUND 3B: the ground (`0b52d9d`/`fe6bf11`/`b37d74b`, run 01:00, `shots/2026-10-22T01-00-11`)
+
+**Scope.** Three commits, one ground pass: lifelines and work lamps, wreck dressing, and the
+flooded lows. The baseline is round 3a (`shots/2026-10-21T23-54-59`), same four poses and
+hours, one round between them. The implementer's record
+(`docs/FALL_GROUND_ROUND3.md`) was read for what was built; the frames decide. PART 6's next
+change (the lit row on the LOD 0-1 path) was not taken; 18's crowns are still one point, and
+this part does not re-judge that.
+
+## Close-out (DESIGN §6) — round 3b
+
+```
+VERDICT:  more work needed
+EVIDENCE: references/B-cold-industrial-sheet.jpg (read first)
+          shots/compare/2026-10-22T01-17-40.png (+ .txt)   BASELINE | CURRENT | REFERENCE
+            baseline: shots/2026-10-21T23-54-59 (round 3a)
+            current:  shots/2026-10-22T01-00-11 (round 3b, shot after b37d74b)
+            reference column: references/sections/B-cold-industrial/
+          full-size: shots/2026-10-22T01-00-11/{16,17,18,19}.png
+          shots/2026-10-22T01-00-11/_capture.json
+JUDGED:   whether the ground pass exists in any of the four frames; what changed
+          that is actually visible; 17/18/19 regression; material read at the
+          daylight poses and light read at the blue-hour poses, kept separate
+GAP:      the round's own subject is photographed NOWHERE. 0 of 4 frames
+          contains the zone's floor. 16 looks up from 2.3 m and the lifeline feet
+          are below the frame; 17 and 19 stand 152 m above the floor; 18 is
+          193-1185 m out and the floor at 193 m lies ~32 deg below the horizon
+          against a ~2 deg camera pitch (out of the bottom), while at 1185 m it
+          is behind the near roofline. Pose 20 does not exist (grep: no
+          "20-fall", no "ground-level"). The measured frame yield is a light
+          count, not an image: 16 has 0 new warm components; 18 gains +0.03 %
+          warm, its largest new mark in the fall band is 9 px at (1228,480) —
+          a point. No pool, silt rim, rubble, rebar or lifeline is readable.
+NEXT:     one change: add pose 20-fall-ground-level. Derived from fallZone, not
+          typed coordinates (D21): eye at GROUND_Y + 1.7 m in the belt, a
+          flooded patch 15-30 m ahead with its near edge in the lower third and
+          the sky glint on the water, one winch house or stair-tower foot with
+          its warm lamp at the frame edge, and one shaft running out of the top
+          edge for scale, the old city behind. Blue hour. Shoot it, then judge
+          the ground; do not add more ground geometry before that frame exists.
+CONFIRMED: the ground pass is built and compiles: 51,370 tris / 27 chunks (mean
+          1,903, max 4,206), 104 work lamps, 0 of 51,370 triangles wound away
+          from their normal; lights 1215/1128/1401/1128 delivered (+26/+21/+18/
+          +21), 0 starved, app ready frameCount=1025, no GPU/WGSL error; the
+          flood branch compiled and the parity test was proved to fail on both
+          re-introduced faults; 17/18/19 show no regression in frame.
+```
+
+## (a) Is the round in the frames?
+
+**No.** Counted from the poses, not from the record:
+
+- **16** — camera at y = 2.3 m, pitch about 68 deg up. The frame's bottom edge is the two
+  shafts; their feet, the winch houses and the stair-tower landings are below it. The only
+  warm objects are old-city towers at the top-left, unchanged.
+- **17, 19** — both at y = 152 m, on or beside the deck fragment. The floor is 150 m below;
+  the frame bottom is the deck (17) and the pile's base (19). Nothing on the floor can be in
+  shot.
+- **18** — camera at y = 123 m, 193-1185 m out, pitch +2 deg. The floor at 193 m is ~32 deg
+  below the horizon, outside the bottom of the field; at 1185 m it sits at the horizon behind
+  the near city's roofline. The fall zone reads as crowns and shafts, never as ground.
+
+There is no pose 20 in `tools/capture.mjs` or in `references/sections.json`. The ground pass
+is therefore verified by geometry, a shader that compiled, and a parity test — not by a frame.
+That is the round-0 failure one level down, exactly as the plan predicted.
+
+## (b) What did change that exists
+
+The only visible change in the four frames is small warm points, and only at 18: warm pixels
+1.63 % -> 1.66 %, 99 new warm components >= 4 px, largest 39 px at (813,782) in the near
+street (clock/crowd/old-city, not the fall zone). The largest new mark in the fall band is
+9 px at (1228,480) — consistent with a work lamp seen end-on at 1.2 km, not with a lit floor.
+16 has **zero** new warm components. 17 and 19 are visually identical in composition; their
+MAE is 2.41 and 2.25, all diffuse (clock, crowd, the new lights in the chunk), and 19's mean
+RGB is unchanged.
+
+So what exists in the frames of this round's work is: the light count, and two or three points
+at 18 that could be lamps. Rubble, rebar, slab edges, silt, water and lifelines are not in any
+frame at any size. The round's own measured cost (1,903 tris/chunk mean) is a fact about the
+mesh, not evidence about the image.
+
+## (c) Regression
+
+**None in frame.** 18's MAE 5.88 is within the same-build/clock noise band PART 5 measured
+(5.81) and its silhouette and value structure are unchanged; 17 and 19 read exactly as in 3a;
+16's two piers are unchanged. The citywide ground pass touched 27 fall chunks, and no old-city
+district changed. Lights rose but nothing starved, and the values did not shift.
+
+## (d) Daylight and blue hour, kept separate
+
+17 and 19 are daylight: their material read (pile, deck, distant towers, cream windows) is
+unchanged, and that is a material statement. 16 and 18 are blue hour: their darkness and
+indigo are a **light** statement. The absence of the flood, the silt and the rubble from 16
+and 18 is not a material failure — those things are not in the frame. No blue-hour frame is
+used here to judge a material.
+
+## What this round establishes, and what it does not
+
+- **Establishes:** the geometry exists, compiles, costs about 1 % of the G-buffer, adds 104
+  lamps with 0 starved, and the flood branch and its parity guard work (the guard was shown
+  to fail on both faults it was written for).
+- **Does not establish** that any of it reads. The subject is unphotographed.
+- **Does not establish** the flood's material or its reflection, the lifelines' scale, or the
+  wreck dressing's read, because no frame contains them.
+- **Does not re-judge** round 3a's lit row, or round 2's break.
+
+**One next change, not three.** Pose 20. Until the floor is in a frame, more ground geometry
+is unjudgeable, and the reviewer cannot tell a good lifeline from a bad one.
