@@ -363,7 +363,35 @@ function dressFaces(bld: MeshBuilder, c: FallColumn, yaw: number, tops: TopSpot[
   // not re-roll.
   const sel = makeRng((c.seed ^ FACE_SALT) >>> 0);
   const want = Math.min(cands.length, 3 + sel.int(0, 3)); // 3-5 dressed faces
-  cands.sort((p, q) => q.y - p.y || Math.abs(p.a) - Math.abs(q.a) || Math.abs(p.b) - Math.abs(q.b));
+  // Round 3i (PART 14, "the pick"): choose which box of a crown carries the row
+  // by RADIAL line of sight, the way 3e chose the face by line of sight. There is
+  // no camera in the generator, so "line of sight" here means radial: prefer the
+  // box whose dressed long face points away from the pile's axis (a*sin rot +
+  // b*cos rot large) and which is not standing in the shadow of a box above or
+  // beside it (a higher box with at least as much radial reach). The old
+  // |a|/|b| tie-break preferred the INNER boxes, which is exactly what put the
+  // row on a flank the camera sees edge-on (id108) or on a small box turned away
+  // (id124). No new rng draw: the order is a pure function of the already-rolled
+  // tops, so the seed and the dressing rolls are untouched.
+  const radialReach = (t: (typeof cands)[number]): number => Math.hypot(t.a, t.b);
+  const outwardness = (t: (typeof cands)[number]): number => t.a * Math.sin(t.u.rot) + t.b * Math.cos(t.u.rot);
+  const shadowed = (t: (typeof cands)[number]): boolean =>
+    cands.some((o) => o !== t && o.y > t.y + 0.1 && radialReach(o) >= radialReach(t) - 0.5);
+  // Composite score: y (crown height) dominates, but outwardness (radial line of
+  // sight) can override differences smaller than ~2 m, so an outward-facing box
+  // slightly below an inward-facing one wins the slot instead of the inner flank.
+  // Primary: radial reach (outer boxes first) so the row lands on a box the
+  // camera's radial line of sight can actually see, rather than on an inner
+  // flank. y is retained as a secondary key so crown height still matters among
+  // boxes of similar reach.
+  cands.sort((p, q) =>
+    outwardness(q) - outwardness(p) ||
+    (shadowed(p) ? 1 : 0) - (shadowed(q) ? 1 : 0) ||
+    radialReach(q) - radialReach(p) ||
+    q.y - p.y ||
+    Math.abs(q.a) - Math.abs(p.a) ||
+    Math.abs(q.b) - Math.abs(p.b));
+
   const cs = Math.cos(yaw), ss = Math.sin(yaw);
   let dressed = 0, lightDone = false;
   for (const t of cands) {
