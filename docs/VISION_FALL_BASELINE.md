@@ -3422,6 +3422,15 @@ same tier — medium).
 | 840-849 | 25.9 | 44.1 | +18.2 | -34.0 | -16.3 | +17.7 |
 | 850-859 | 24.0 | 40.2 | +16.2 | -34.1 | -17.9 | +16.2 |
 
+> **Metric annotation (orchestrator, after the verdict):** the two "luma" columns are the
+> **plain RGB mean**, not Rec.709 luma — `(r+g+b)/3`. The same pixels on the same band give
+> 73.0 → 132.9 (**+59.9**) under `0.2126r + 0.7152g + 0.0722b`, against this table's
+> 77.5 → 129.7 (+52.3). Reproduced from raw 8-bit RGB with no text parsing and no
+> resampling. Warm pixels are red-heavy, so the plain mean under-weights them and compresses
+> the lift. Nothing in the verdict changes — the shape, the attribution and the +45 threshold
+> in the done-when all survive either metric — but the column is mislabelled and two people
+> quoting "luma" for this strip will disagree by ~7 points. The numbers are left as measured.
+
 **The pool has a profile, not a flat lift.** The wall above the pool (y 690-719) lifts
 +10 to +12 luma and +11 to +13 R-B — that is the material (same silt, outside the
 pool's 3.18 m disc, plus the lamp's brdf tail). The pool itself (y 720-759) lifts

@@ -118,6 +118,50 @@ function latestRunDir() {
 }
 
 /**
+ * The quality tiers a run's frames were actually shot at.
+ *
+ * A sequence is one measurement, so its frames should all share a tier. When they do
+ * not, comparing that run against another is comparing two experiments, not two
+ * builds (PITFALLS §40) — and the grid said nothing about it. Pose 20 is the heaviest
+ * frame in the set and the app's governor put it on `low` (a 1200×675 render upscaled
+ * to 1600×900) in three runs while the rest were `medium`, moving 66 chunks of the far
+ * city to the coarsest geometry. `--latest` then picked one of those runs and would
+ * have judged an experiment as if it were HEAD.
+ */
+function tierProfile(dir) {
+  if (!dir) return null;
+  try {
+    const shots = JSON.parse(readFileSync(join(dir, '_capture.json'), 'utf8')).shots || [];
+    const tiers = [...new Set(shots.map((s) => s.provenance?.tier).filter(Boolean))].sort();
+    return tiers.length ? tiers : null;
+  } catch {
+    return null; // no sidecar (a reference or a hand-made directory), not an error
+  }
+}
+
+/**
+ * Loud notes about the two runs' tiers, or an empty list when they agree.
+ * Silence here means "comparable", which is worth being able to trust.
+ */
+function tierNotes(baseDir, currentDir, hasBaseline) {
+  const out = [];
+  const cur = tierProfile(currentDir);
+  const base = hasBaseline ? tierProfile(baseDir) : null;
+  const where = (label, t) => `${label} ${t.join('/')}`;
+  if (cur && cur.length > 1) {
+    out.push(`${where('CURRENT', cur)} — mixed tiers in one run, so the frames are not one measurement`);
+  }
+  if (base && base.length > 1) {
+    out.push(`${where('BASELINE', base)} — mixed tiers in one run, so the frames are not one measurement`);
+  }
+  if (base && cur && base.length === 1 && cur.length === 1 && base[0] !== cur[0]) {
+    out.push(`tier changed between runs: ${where('BASELINE', base)} vs ${where('CURRENT', cur)} — ` +
+      `renderScale, shadow resolution, cascades and the LOD ceiling all move with it`);
+  }
+  return out;
+}
+
+/**
  * Extract a frame from a reference video, cached under shots/reference/.
  * `spec` is `name[@seconds]`, default 10s in — past the opening title cards.
  */
@@ -341,13 +385,26 @@ async function main() {
     '-frames:v', '1', outPng,
   ]);
 
+  // The tiers belong in the sidecar next to the directories, not only on the console:
+  // a reviewer reads the .txt days later, and this is the field that decides whether
+  // the two columns are comparable at all.
+  const notes = tierNotes(baseDir, currentDir, hasBaseline);
   writeFileSync(outTxt,
     `columns, left to right: ${cols.join('  |  ')}\n` +
-    `baseline directory: ${hasBaseline ? baseDir : '(none)'}\ncurrent directory: ${currentDir}\n\n${legend.join('\n')}\n`);
+    `baseline directory: ${hasBaseline ? baseDir : '(none)'}\ncurrent directory: ${currentDir}\n` +
+    `tiers: baseline ${(tierProfile(baseDir) ?? ['(no sidecar)']).join('/')}, ` +
+    `current ${(tierProfile(currentDir) ?? ['(no sidecar)']).join('/')}\n` +
+    (notes.length ? `\n!! ${notes.join('\n!! ')}\n` : '') +
+    `\n${legend.join('\n')}\n`);
 
   console.log('');
   console.log(`  rows     ${poses.length}`);
   console.log(`  columns  ${cols.join('  |  ')}`);
+  if (notes.length) {
+    console.log('');
+    for (const n of notes) console.log(`  !! ${n}`);
+    console.log('  !! read the numbers above before believing any difference between columns');
+  }
   console.log('');
   console.log(`  grid     ${outPng}`);
   console.log(`  legend   ${outTxt}`);
