@@ -1588,3 +1588,131 @@ like.
 **One next change, not three.** Choose the face by line of sight: the row goes on the outermost
 face at each level. The count is not the lever this round thought it was — 292 bays already
 exist, and 20 of the 56 that face the camera can be seen.
+
+---
+
+# PART 10 — ROUND 3D, SECOND PASS: pose 20 on the lamp's side (`8e10f35` pose, run `03-11-38`, `shots/2026-10-22T03-11-38`)
+
+**Scope.** One change judged: the pose. PART 8's NEXT was "stand 10-18 m from a winch/stair foot
+on its lamp side, at a pool's near edge, shaft out of the top; accept the pose only on a warm
+component below the horizon". The camera is now eye (558.1, 1.97, −452.4) → (471.1, 19.7, −501.8),
+fov 1.0754, pitch 10.0° up, bluehour; winch foot id54 is 15.0 m away with the camera on its lamp
+side (camera local b 24.8 vs foot b 11.2). **No world change.** The baseline is the old pose 20
+(`shots/2026-10-22T01-39-10`, PART 8's frame) — a different camera on the wrong side of the pile,
+same hour, same seed. The implementer recorded the lamp defect in `docs/POSE20_FIX.md`; the frames
+decide, and the numbers below are mine.
+
+## Close-out (DESIGN §6) — round 3d, second pass
+
+```
+VERDICT:  more work needed
+EVIDENCE: references/B-cold-industrial-sheet.jpg (read first; frame 3 is the ground-level reference)
+          shots/compare/2026-10-22T03-21-39.png (+ .txt), row 5:
+            BASELINE shots/2026-10-22T01-39-10 | CURRENT shots/2026-10-22T03-11-38 | sheet B
+          full-size 20-fall-ground-level.png in both runs; 2-4x crops of the stall and crowd,
+          the water band, the near floor and the shafts; _capture.json (5 shots, error null,
+          lights 1133, starved 0)
+JUDGED:   the five things the round had to deliver, on the frame: a warm source below the
+          horizon; a pool whose edge and surface are legible; rubble/rebar; lifelines; the
+          floor as a place with people — and whether the frame is the fall zone or a plaza
+GAP:      nothing warm is below the horizon. Horizon is y 583-596 by geometry (pitch 10.0°;
+          583 at the probe's focal 756 px, 596 at the ~12 % longer focal PART 9 measured);
+          warm pixels stop at y 618 and the brightest are the stall's sign at
+          (386-400, 586), RGB (214, 67, 0) — i.e. every lit thing in the frame sits on the line,
+          50 m out. The bottom third (y 600-900) is unlit: 0 warm-bright px, 3 loose-warm px.
+          Cause, verified in code not taken on report: `winchHouse`'s head is at GROUND_Y+2.55
+          (2.43-2.67 m) at the hut's own centre, inside a box 0-2.70 m tall — the emitter is
+          buried, so it casts no source and no pool. And the pool itself is a decal: rippled,
+          35 % brighter than the paving, with no reflection of the 572 lit towers behind it.
+NEXT:     one change: move the lamp head out of its own body — onto the door face
+          (`b0 + 1.72`, GROUND_Y+2.2) or a bracket above the roof — so this camera, already
+          15 m out on the right side, has one source below the horizon. Re-shoot 20 and accept
+          on warm below y 600 > 0 plus a specular in the water; the water's reflection is the
+          round after.
+CONFIRMED: the pose itself is fixed — the camera is on the lamp side and at a real pool's edge
+          (the pile is behind the head, not in front of it); the stall and its crowd read, and
+          they are new to this frame; the water's value break is real and bounded on both sides;
+          the shafts' scale reads, and the old city behind them is a different place; the pose
+          change touched no other pose's content (16/17/18/19 against the 3c run: mean RGB
+          within 2.3/255 and warm within 0.07 pp on every frame — the pixel-level differences
+          are dither and crowd, not geometry).
+```
+
+## (a) The one gate that decides it: warm below the horizon
+
+| | value |
+| --- | --- |
+| camera pitch / focal | 10.0° up / 756 px → horizon at **y 583** (y 596 at the corrected focal) |
+| warm-bright (R > 120, R > 1.6 B) below y 600 | **0.000 %** (0 px) |
+| loose warm (R > B + 15, R > 60) below y 600 | 0.003 % (3 px, the stall's lower edge) |
+| rows carrying any warm pixel | 0 .. 618 |
+| brightest warm in frame | (386-400, **586**) RGB (214, 67, 0) — the stall's sign, on the horizon |
+| whole-frame warm | 2.52 % loose / 0.51 % bright (3d first pass: 1.38 / 0.25) |
+
+So the pose improved the frame's warm inventory by putting a lit stall and a crowd in it, and that
+is a real gain over PART 8's frame — but it is *at* the horizon, not below it. The gate PART 8 set
+is not met, and the reason is not framing: the emitter is inside its own hut (see GAP), so no
+camera position can meet it. The implementer reached the same conclusion and left it; I verified
+the geometry independently (`fallground.ts`: hut box GROUND_Y+0..2.70, roof to 2.94, head
+2.43-2.67 at the hut centre), so the defect is real and the round's pass/fail is a world item,
+not a pose item.
+
+## (b) The water: a value band with a ripple decal on it
+
+Measured on the frame (blue channel means, 1600 px rows): far floor y 610-690 **48.1**, the water
+band y 700-790 **63.9**, near floor y 800-890 **47.3**. So the band is real, and 35 % brighter than
+the paving on both sides — the implementer's "45 % break" is the same thing measured on a slightly
+different band. Both edges are value steps, not gradients.
+
+What it does *not* do is read as water:
+
+- **No reflection.** The band is uniform blue with a 15 px fbm ripple; none of the 572 lit towers
+  behind it appear in it. PART 8 named this risk (no SSR, no probe) and the round did not change it.
+  Water at blue hour is mostly reflection; a brighter, rippled floor is mostly floor.
+- **The ripple is the readable thing, not the water.** High-pass energy (13 px kernel) is 5.1 in the
+  band against 3.4 on the near paving and 8.2 in the far strip — the arcs are dense everywhere and
+  their autocorrelation peaks at ±15 px in x, i.e. one motif scale across the whole band. At 1x the
+  bottom third reads as a field of concentric ring decals with a value step in it. That is the
+  failure the brief asked about, in its own words: a repeating pattern laid over the floor.
+- **No edge treatment.** No waterline, no debris raft, no silt lip, no depth change at the edge —
+  the step is only brightness. The one pale streak at bottom right (x 1250-1500, y 760-800) is a
+  diffuse sheen with no source visible in frame.
+
+## (c) Rubble, rebar, lifelines
+
+**One** piece of ground clutter reads: a crate/barrel-sized dark box at (1030, 660), silhouette
+only, no contact shadow. There is no rebar and no debris field in this frame. The wreck's slab is
+in frame at ~40 m — the large rounded mass at x 560-880 — and it reads as a **smooth dome**: its
+rubble ridge is sub-pixel at that distance and the plate's face is unbroken, so the one piece of
+the zone's debris actually in shot reads as a boulder. **No lifeline reads**: no cable is legible
+against the open floor or the shafts, and the drum's cable run climbs out of the top of the frame.
+
+## (d) People, and whether this is the fall zone
+
+**The crowd reads.** At the stall, ~50 m out (feet at y 610-615, 2 m figures at 25-35 px), roughly
+ten silhouettes stand at a lit canopy with red signage; they are the best thing in the frame and
+the first time the zone's floor has had people on it in a judged frame.
+
+**The zone's identity is half there.** The two shafts — 120 m, out of the top edge at 78° — are
+unmistakably the fall's columns, and the old city behind them (a wall of lit window grids) is a
+different place, so the city-wide check passes: the zone does not look like the rest of the city.
+But the container piles, which are the village half of the zone's identity, are **not in frame at
+all** — at 2 m eye height with 10° of up-pitch the piles are 20-60 m overhead and out of shot. A
+stranger shown this frame would read "a dark plaza at the foot of two pylons", not "the village".
+
+## What this round establishes, and what it does not
+
+- **Establishes:** the pose fix works and was worth doing. The camera is on the right side, at a
+  real pool's edge, with the stall and its crowd in shot — a strictly better frame than PART 8's.
+- **Establishes:** the floor still has no light of its own. Verified in code and on the frame: the
+  head sits inside the hut, so the gate cannot be met from any pose.
+- **Establishes:** the pool is a value break plus a ripple decal; it is not yet water. Naming the
+  reflection as the next water change, and the lamp as this round's next change.
+- **Does not establish** the ground "reads" — the five things asked for score: people **yes**,
+  pool edge **weak**, water surface **no**, rubble/rebar **no**, lifelines **no**, warm below the
+  horizon **no**.
+- **Does not re-judge** rounds 3a/3b/3c or pose 20's role in the section beyond the above.
+
+**One next change, not three.** Move the lamp head clear of its own body: the door face or a roof
+bracket, one lamp within 15 m of this camera. That single source is what turns a rippled plaza into
+a working floor at night, and it is the only change that can invalidate this verdict in one frame.
