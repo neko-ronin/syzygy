@@ -4355,6 +4355,16 @@ of the same geometry, not a control.
   (the hut strip)" does not match my measurement: the diffs are scattered, with
   the largest at x 855-868 y 621-627. The 0.02 % figure is also off (actual 0.042 %).
   The round's changes are subtle and localized to the yard band, not the hut strip.
+
+> **Orchestrator note, provenance.** Both of those figures are **mine, not PART 21's**: I
+> measured 0.02 % at the 8 % threshold and read the hut-strip components off a 2 %
+> threshold in the dispatch that opened this review, and the review has (rightly) refuted
+> the second of them — at 2 % the frame is dominated by dither noise, so large components
+> are threshold artefacts, not structure. PART 21 never claimed either. The correction
+> stands; the attribution is corrected here rather than by editing the reviewer's text.
+> The lesson is the arc's oldest one: a component count at an arbitrary threshold is only
+> as good as the noise floor it is measured against, and 2 % of range is below this
+> renderer's dither.
 - **Yard band (x 250-1300, y 560-780):** 0.26 % of pixels >8 % (598 px). The
   beds are there but barely visible.
 - **1× crop of the yard band:** the beds are **not findable** without being told
