@@ -4224,3 +4224,285 @@ of done, because the read that earned the round's name has not arrived in the fr
 > state's larger bed footprint (4,214 vs 3,467 px) and identical capture-rig g-buffer counts
 > to the digit (poses 16-19 and 20: 1,075,650 / 948,798 / 1,298,308 / 2,031,414 / 1,332,194
 > in both attempts) confirm the tone constants move nothing structural.
+---
+
+> **Annotation (PART 22, independent review):** PART 21's diagnosis — "the tonemap
+> shoulder saturates the pale end" — is **wrong**. PART 22 re-derived the
+> illumination: the beds at 51-60 m receive no lamp light (nearest lamp id54 at
+> 13 m, radius 10 m; midground lamps behind the camera; sun below the horizon;
+> emissive surfaces self-only). The measured +12..+17 luma is what unpinned
+> ambient-only albedo predicts, not a shoulder. The falsifier: the hut wall moved
+> 79% -> 23.6% warm on albedo changes under a lit lamp, so albedo still moves value
+> when a lamp is present. PART 21's NEXT (chunkier shapes, rebar arcs, irregular
+> bed edges) will fail because all three are still albedo-and-shape under a
+> lightless ambient. PART 22 is the independent verdict. PART 21 is retained as
+> evidence and is not deleted or softened.
+
+# PART 22 — ROUND 3O: independent review (run `01-43-45`, `shots/2026-10-23T01-43-45`)
+
+## Governance
+
+PART 21 was written by a subagent spawned and prompted by the implementer (`w20:p5`)
+that made this round's change. A fresh subagent context is better than self-grading, and
+PART 21's verdict is honestly unfavourable — but its premise and diagnosis were still
+chosen by the agent that made the change. PART 21 is retained as evidence and is not
+deleted or softened. PART 22 is the independent verdict, written by a reviewer that did
+not implement the round and did not write PART 21.
+
+## Part 1 — the illumination question, settled with numbers
+
+### What light reaches the beds?
+
+The beds (rubble ridges) are on the ground at 51-60 m from the camera, in the yard band
+x 250-1300, y 560-780. The implementer's own census (`__probe_yard20.ts`) establishes:
+
+- **In-frustum warm sources: 2.** id54's bracket lamp at px (1341, 462), 13 m out; id27's
+  stair-tower lamp at the far-left edge, 152 m out. The midground lamps (id55 winch +
+  workshop at 62.7 m, id52 stair-tower at 90.9 m) sit **behind the camera** and are not in
+  any screen tile's bin.
+- **LAMP_RADIUS = 10 m** (`src/render/fallground.ts`). No registered lamp is within 30 m
+  of the beds. id54's lamp at 13 m reaches 10 m — the beds at 51-60 m are 38-47 m beyond
+  its radius. id27 at 152 m is outside by 142 m.
+- **Ambient:** `F.ambient = [0.02, 0.07, 0.32]`, intensity 0.8 (`_capture.json`). The
+  ambient is a sky IBL term (`skyIrradiance` in `lighting.wgsl`), blue-biased.
+- **Sun:** elevation -0.103 (below the horizon). `NoL < 0`, so the sun term contributes
+  zero (`sh = 0` when `NoL <= 0`).
+- **Emissive surfaces:** the lit stall strip at mid-left is emissive (matId 5). But
+  emissive is self-only in the shader: `color += emissive;` at the end of the lighting
+  pass. Emissive surfaces do not cast light on other surfaces. They glow; they do not
+  illuminate.
+- **Local light clustering:** lights are binned into 16×16 screen tiles. A lamp behind
+  the camera has no tile, so it is not in any bin. Even if it were in front, its 10 m
+  radius would not reach 51-60 m.
+
+**Conclusion: the beds receive no lamp light at all.** They are lit by ambient only
+(sky IBL, blue-biased, intensity 0.8) plus a sun below the horizon (zero contribution).
+
+### What the measured +12..+17 luma is
+
+Under ambient-only illumination, the lighting pass computes:
+  `diff = irr * albedo * (1.0 - metal)` where `irr = skyIrradiance(N)`.
+
+For a ground surface (N up), rough ~0.7, metal 0: `diff ≈ irr * albedo`. The ambient
+irradiance is roughly `ambient.rgb * ambient.w * 1.15 ≈ [0.018, 0.064, 0.294]` for
+the up direction. At albedo 1.0× (the crust, ~0.06-0.10), this gives ~0.06-0.10 luma
+contribution from ambient. At albedo 1.56× (the beds), it gives ~0.10-0.16. The lift
+from 1.0× to 1.56× is roughly 1.56× the ambient contribution, which is ~+8 to +17
+display luma depending on the surface normal and the sky IBL's exact value.
+
+The implementer measured +15.1 (attempt 1) and +15.2 (attempt 2) luma lift. This is
+exactly what ambient-only albedo predicts. The +0.1 difference between two titres is
+not a shoulder clipping — it is the expected behaviour when ambient multiplies both
+sides: brighter albedo lifts the value, but the lift is bounded by the ambient's
+contribution, which is small and fixed.
+
+### Falsifier for the shoulder story
+
+PART 21's GAP says: "the tonemap shoulder saturates the pale end (two titres measured:
++15.1 → +15.2)." The competing account says: ambient multiplies both sides, so the
+lift is fixed regardless of albedo.
+
+Falsifier: **the hut wall moved 79 % → 23.6 % warm on albedo changes in rounds 3l/3m
+under a lit lamp.** Albedo demonstrably still moves value in this frame — when a lamp
+is present. The wall's albedo change produced a 55-point warm-share drop and a
+mean-RGB shift from (93, 72, 56) to (46, 37, 38). If the tonemap shoulder were
+saturating the pale end, the wall's albedo change would not have moved the value
+either. It did. Therefore the shoulder is not the binding constraint for albedo
+changes in this frame; the binding constraint is the absence of a lamp.
+
+**PART 21's shoulder diagnosis is wrong.** The +12..+17 luma is (a) what unpinned
+ambient-only albedo predicts. It is not (b) a tonemap shoulder. The reason two titres
+moved by only +0.1 is that ambient multiplies both sides, not because a shoulder
+clipped anything.
+
+### What this means for the round's NEXT
+
+PART 21's NEXT — "chunkier, fewer, larger chunk silhouettes; rebar arcs; an irregular
+bed edge" — will fail in the same way, because all three are still albedo-and-shape
+under a lightless ambient. Chunkier shapes under ambient-only light are still
+ambient-only shapes; they will lift by the same fixed +8 to +17 luma and lose to the
+crust's ±25 modulation, because the crust is also lit by the same ambient. The
+geometry-scale lever does not address the root cause.
+
+## Part 2 — the round, judged
+
+### The grid and the frames
+
+The grid `shots/compare/2026-10-23T01-45-44.png` (+ `.txt`): baseline `11-09-19`
+(3n), current `01-43-45` (3o), reference column section B sheet. Tiers medium/medium.
+Rows 1-4 (poses 16-19) read identically column-to-column. Row 5 = pose 20, the subject.
+
+The full-size frames: `01-43-45/20-fall-ground-level.png` (current) vs
+`11-09-19/20-fall-ground-level.png` (before). Attempt 1 `01-36-05` is a tone variant
+of the same geometry, not a control.
+
+### Re-derived numbers
+
+- **g-buffer at pose 20:** `1,329,716` → `1,332,194`, +2,478 in frustum. (From
+  the implementer's record; the `_capture.json` carries only `entity.triangles`
+  (605,002) and `draws: []`, so the g-buffer number comes from the probe, not the
+  capture. The capture-rig A/B confirms +2,640.)
+- **Whole-frame RGB mean:** identical across 3n/3o within 0.05 on every channel
+  (no exposure or leak change). Confirmed: the round changed only ground geometry
+  and tones.
+- **Pixel diff 3o vs 3n:** 0.042 % of pixels differ by more than 8 % of range
+  (600 px of 1.44 M). The largest component above an 8 % threshold is 33 px at
+  x 855-868, y 621-627 — a single small blob, not the hut strip. At a 5 %
+  threshold: 2.85 % of pixels differ, with 11 components >20 px scattered across
+  the frame (x 852-870 y 619-627, x 756-782 y 634-638, etc.). At a 2 % threshold:
+  39 % of pixels differ (dither-level noise). PART 21's claim that "the largest
+  components above a 2 % threshold sit at x 1232-1600 and x 1308-1600 y 562-724
+  (the hut strip)" does not match my measurement: the diffs are scattered, with
+  the largest at x 855-868 y 621-627. The 0.02 % figure is also off (actual 0.042 %).
+  The round's changes are subtle and localized to the yard band, not the hut strip.
+- **Yard band (x 250-1300, y 560-780):** 0.26 % of pixels >8 % (598 px). The
+  beds are there but barely visible.
+- **1× crop of the yard band:** the beds are **not findable** without being told
+  where they are. The yard reads as paving texture, rubble, and noise. No new
+  readable surface registers at 1×. Count: 0 new readable components at 1×.
+
+### The yard at 1×: not findable
+
+Standing alone at 1× (x 250-900, y 560-700), the new beds do not register. The
+yard reads as the old city's printed paving with rubble and noise. The 3× cut shows
+a pale dust skirt with dark nicks along the slab bases — readable as fall material
+at 3×, but not at 1×. The meter finds 2 new cold components (1296,673 and 1212,766);
+the eye finds 0. This confirms PART 21's finding: "the read did not arrive at the
+frame's scale."
+
+### Controls
+
+- Pool strip vs 3j: +51.0 to +51.9 (peak +51.9, ≥ +45). The pool is untouched.
+- Wall band: +0.01 pp (3.23% → 3.23%). The wall is untouched.
+- Controls 16-19: +0.000/+0.000/+0.009/+0.001 pp (within 0.03). No leak.
+- Tier: medium on both runs, 5/5 poses, error null.
+- Lamps: 104, starved 0, winding 0.
+
+### Verdict
+
+**more work needed.** The round moved the floor from "nothing" to "real but
+sub-perceptual" (2 new cold components at 3×, 0 at 1×). The pool, wall, lights and
+controls are intact. But the yard does not read as a place at 1×, and the root cause
+is not tone (PART 21's diagnosis) but illumination (the yard is unlit — ambient only,
+no lamp within 30 m, sun below horizon, emissive surfaces self-only).
+
+I agree with PART 21's verdict (`more work needed`) but for a different reason:
+PART 21 blames the tonemap shoulder; the correct diagnosis is that the yard has no
+light source. The two predict the same numbers (+15.1 → +15.2) but the remedies are
+completely different: PART 21's NEXT (chunkier shapes, rebar arcs, irregular bed
+edges) will fail because all three are still albedo-and-shape under a lightless
+ambient; the correct NEXT is to light the yard.
+
+## Part 3 — the close-out
+
+```
+VERDICT:  more work needed
+EVIDENCE: references/B-cold-industrial-sheet.jpg (read first; frame 3 is the
+            ground-level reference: wet ground, small reflective patches, evidence
+            of passage at frame scale)
+          shots/compare/2026-10-23T01-45-44.png (+ .txt)  BASELINE | CURRENT | REFERENCE
+            baseline: shots/2026-10-22T11-09-19 (round 3n), current: 01-43-45 (round 3o)
+            tiers medium/medium, rows 1-4 identical, row 5 = pose 20 (subject)
+          full-size: 01-43-45/20-fall-ground-level.png vs 11-09-19/.../20-fall-ground-level.png
+          reviewer crops: yard band x 250-900 y 560-700 at 1x (beds not findable);
+            3x cut shows pale dust skirt with dark nicks along slab bases
+          _capture.json: medium on both runs, 5/5 poses error null, starved 0
+          docs/FALL_POOL_ROUND3O.md (implementer's record)
+          docs/FLOODED_LOWS_SPIKE.md (the refuted roughness route)
+JUDGED:   PART 21's diagnosis (tonemap shoulder) is wrong; the correct diagnosis is
+          that the yard is unlit (ambient only, no lamp within 30 m, sun below
+          horizon, emissive surfaces self-only). The competing account's falsifier
+          holds: the hut wall moved 79% -> 23.6% warm on albedo changes under a
+          lit lamp, so albedo still moves value when a lamp is present. The round
+          moved the floor from "nothing" to "real but sub-perceptual" (2 new cold
+          components at 3x, 0 at 1x). The pool, wall, lights and controls are
+          intact. The yard does not read as a place at 1x.
+GAP:      the yard is unlit. No registered lamp reaches the beds (id54 at 13 m,
+          radius 10 m; beds at 51-60 m; midground lamps behind the camera). Under
+          ambient only, albedo 1.56x produces a fixed +8 to +17 luma lift that
+          loses to the crust's +/-25 modulation at ~1.8% coverage. More albedo
+          or chunkier shapes under ambient-only light will fail the same way.
+NEXT:     one change: add a light source to the yard — a work lamp on a post or
+          bracket near the wreck beds (or extend an existing lamp's reach into the
+          yard) — so the rubble is lit by something other than ambient. This is a
+          geometry + light change, consistent with the root cause (unlit yard).
+          Re-shoot 20 and accept on a source-lit patch of ground in the yard band
+          (x 250-1300, y 560-780) with a measured warm area, plus a control frame
+          (16 or 18) showing no new pool. Do not add more albedo or chunkier shapes
+          — those are dead levers under ambient-only light. The bracket, pool,
+          material and wall are settled.
+CONFIRMED: g-buffer at pose 20: +2,478 in frustum (from probe; _capture.json
+          carries only entity.triangles, 605,002, identical in both runs). Whole-
+          frame RGB mean identical within 0.05 (no exposure/leak change). Pixel
+          diff 3o vs 3n: 0.042% >8% (600 px), largest component 33 px at
+          x 855-868 y 621-627 (not the hut strip as PART 21 claimed). Yard band
+          0.26% >8% (598 px). Pool strip vs 3j: +51.0 to +51.9 (peak +51.9,
+          >= +45). Wall band: +0.01 pp. Controls 16-19 within +0.009 pp. Tier
+          medium on both runs, 5/5 poses error null, starved 0. Lamps 104,
+          windings 0. 1x crop: beds not findable (0 new readable components at
+          1x). The round's changes are subtle and localized to the yard band.
+```
+
+## (a) The illumination number
+
+The beds at 51-60 m receive **no lamp light**. The nearest registered lamp is
+id54's bracket at 13 m (radius 10 m); the beds are 38-47 m beyond its reach.
+The midground lamps (id55 at 62.7 m, id52 at 90.9 m) sit behind the camera and
+are not in any screen tile's bin. The sun is below the horizon (elevation
+-0.103, NoL < 0, contribution zero). Emissive surfaces are self-only (the
+shader adds `emissive` to the surface's own colour; it does not cast light).
+Ambient is `[0.02, 0.07, 0.32]` at intensity 0.8 — a blue-biased sky IBL.
+
+Under ambient-only, albedo 1.56× vs 1.0× produces a fixed lift of +8 to +17
+display luma. The implementer measured +15.1 and +15.2. This is exactly what
+ambient-only albedo predicts. The +0.1 difference between two titres is the
+expected behaviour when ambient multiplies both sides, not a shoulder clipping.
+
+**Falsifier:** the hut wall moved 79% → 23.6% warm on albedo changes under a lit
+lamp (rounds 3l/3m). Albedo demonstrably still moves value in this frame when a
+lamp is present. If the tonemap shoulder were saturating the pale end, the wall's
+albedo change would not have moved the value. It did. Therefore the shoulder is
+not the binding constraint; the binding constraint is the absence of a lamp.
+
+**PART 21's shoulder diagnosis is wrong.** The +12..+17 luma is (a) what
+unpinned ambient-only albedo predicts. It is not (b) a tonemap shoulder.
+
+## (b) The round, judged
+
+**The round moved the floor from "nothing" to "real but sub-perceptual."** Two new
+cold components at 3× (meter-findable), 0 at 1× (eye-findable). The pool, wall,
+lights and controls are intact. The yard does not read as a place at 1×.
+
+The pixel diff between 3o and 3n is 0.042% >8% (600 px), with the largest
+component at x 855-868 y 621-627 — not the hut strip as PART 21 claimed. The
+yard band has 0.26% >8% (598 px). The beds are there but barely visible.
+
+PART 21's claim that "the largest components above a 2 % threshold sit at
+x 1232-1600 and x 1308-1600 y 562-724 (the hut strip)" does not match my
+measurement. The diffs are scattered, with the largest at x 855-868 y 621-627.
+The 0.02% figure is also off (actual 0.042%). These are minor discrepancies, but
+they undermine PART 21's specific location claim.
+
+## (c) What this round establishes, and what it does not
+
+- **Establishes:** the beds are real and findable at 3× (2 new cold components,
+  4,214 px footprint, +15.2 luma lift).
+- **Establishes:** the round's geometry is sound (0 bad windings of 68,092,
+  +2,478 g-buffer in frustum, +16,722 citywide tris, mean 2,522/chunk).
+- **Establishes:** the pool, wall, lights and controls are intact (no regression).
+- **Establishes:** the yard is unlit (ambient only, no lamp within 30 m).
+- **Does not establish:** a yard that reads as a place at 1×. The beds are
+  sub-perceptual. The floor's dominant surface is still the old city's printed
+  paving.
+- **Does not establish:** PART 21's shoulder diagnosis (wrong; the yard is unlit).
+- **Does not re-judge:** round 3g's lit-row count (5 of 6, closed), 3h's bracket
+  and fixture, 3l's pool, 3m/3n's wall.
+
+**One next change, not three.** Add a light source to the yard — a work lamp on a
+post or bracket near the wreck beds (or extend an existing lamp's reach into the
+yard) — so the rubble is lit by something other than ambient. This is a geometry +
+light change, consistent with the root cause (unlit yard). Re-shoot 20 and accept
+on a source-lit patch of ground in the yard band (x 250-1300, y 560-780) with a
+measured warm area, plus a control frame (16 or 18) showing no new pool. Do not
+add more albedo or chunkier shapes — those are dead levers under ambient-only
+light. The bracket, pool, material and wall are settled.
