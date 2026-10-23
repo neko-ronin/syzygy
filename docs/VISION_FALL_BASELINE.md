@@ -4104,3 +4104,123 @@ opening with battens) or a different scale (a hut closer to the camera, or a
 larger face). The lamp, pool, material and bracket are settled and must not be
 moved. No further round is named by this verdict; the wall is closed at 29.6 %
 warm with visible seams.
+
+# PART 21 — ROUND 3O: the yard's own rubble (run `01-43-45`, `shots/2026-10-23T01-43-45`)
+
+**Scope.** One lever judged: `rubbleRidges` in `src/render/fallground.ts` — per wreck piece,
+on the ground, two beds of pale concrete fines with 3-5 dark chunks and 1-2 rebar rods along the
+piece's long axis. Committed bed tints 1.56-1.70 / 1.30-1.42 (bodies' flanks 1.52-1.64), chunks
+0.42-0.72; the attempt-1 tones (1.34-1.44 / 1.16-1.26) were pushed apart between the two captures,
+and the push measured as a dead end. Baseline: `shots/2026-10-22T11-09-19` (round 3n). Pool
+baseline: `shots/2026-10-22T07-21-31` (round 3j). The implementer's record is
+`docs/FALL_POOL_ROUND3O.md`. Capture budget 2/2, both spent; the questions below were judged
+without re-shooting.
+
+## The metric, stated
+
+**Luma is the mean of R, G, B** — `(r+g+b)/3` — matching PART 18/19/20. Signed deltas are
+after-luma minus before-luma on the same pixel. Reviewer diagnostic crops live under
+`/tmp/opencode/3o/` (prefix `rev*`) and are not repo files; the red-tint overlay there is a
+change-locator, not evidence of an in-frame read.
+
+## Close-out (DESIGN §6) — round 3o
+
+```
+VERDICT:  more work needed
+EVIDENCE: references/B-cold-industrial-sheet.jpg (read first; the bar's floor frames carry
+            surface texture and evidence of passage that read at the frame's own scale)
+          shots/compare/2026-10-23T01-45-44.png (+ .txt)  BASELINE | CURRENT | REFERENCE
+            baseline: shots/2026-10-22T11-09-19 (round 3n), current: shots/2026-10-23T01-43-45
+            rows 1-4 controls read identical column-to-column; row 5 = pose 20, the subject
+          full-size: .../2026-10-23T01-43-45/20-fall-ground-level.png vs
+            .../2026-10-22T11-09-19/20-fall-ground-level.png; attempt-1 01-36-05
+          reviewer crops (/tmp/opencode/3o/): revBAND_3way.png x 330-900 y 585-655 at 3x
+            (before | attempt-1 | committed) — the round's writes, legible; revALONE_1x.png
+            x 300-1050 y 520-700 at 1x, committed, unaided — the writes, not findable;
+            rev*_red.png |d|>=15 overlay x-whole-frame — locator only; pairA/A2, pairB/B2,
+            pairC/C2 provided by the round
+          measurements re-run at the committed state (measure3o.py): pool strip y 730-739
+            vs 3j peak +51.9 (>= +45), vs 3n within +/-0.1 every row; wall band +0.01 pp;
+            controls +0.000/+0.000/+0.009/+0.001 pp; yard band 7 -> 10 comps, 2 NEW
+            (1296,673 n 52), (1212,766 n 40)
+          _capture.json: quality medium, 5 poses error null (both runs); pose-20 shot ms
+            10.3/10.5 vs 3n's 11.0; capture-rig pose-20 g-buffer 1,329,716 -> 1,332,194
+            (+2,478, matching the eval-rig A/B of +2,640)
+JUDGED:   the ribs exist, and they exist on the right lines — the sign-luma delta at the
+          committed state is a thin coherent trace at y ~600-640 spanning x ~440-1100, i.e.
+          along the in-frustum slab bases, with peak 8-px blocks at +12..+17 over a flat
+          background; the 3x cut shows it as a pale dust skirt with broken dark nicks lying
+          under the slab bases where 3n showed a hard dark merge. The mechanism and the line
+          placement are correct. But the round's goal was a yard that reads closer to a used
+          place, and at the frame's own scale nothing new registers: standing alone at 1x the
+          beds are not findable (revALONE_1x.png), and the wide 1:1 pair reads identically in
+          both bands. The floor's dominant surface in the band is still the old city's printed
+          crawl paving, running right up to the bed's lower edge. This matches the implementer's
+          own honest gap; the verdict follows the frames, not the meters.
+GAP:      the read did not arrive at the frame's scale. Bed lift is pinned at ~+15 display
+          luma under a crust that modulates +/-25 of its own; the tonemap shoulder saturates
+          the pale end (two titres measured: +15.1 -> +15.2), and bed footprint is ~1.8% of
+          the band. Tone is a dead lever in both directions — a point this round bought and
+          paid for. What is missing is amplitude of silhouette (chunk scale, bed edge
+          break-up) and/or a non-printed floor family under the fallen zone. The 16,722 new
+          citywide tris (mean 2,522/chunk) currently earn their cost only at 3x and in
+          meters, not at 1x.
+NEXT:     (a) do NOT flex the ribs darker/sparser and do not spend another capture on tone:
+          brighter saturates the shoulder, darker/sparser shrinks an already-thin footprint;
+          keep the beds as placed. (b) the read lever for next round is geometry-scale —
+          chunkier, fewer, larger chunk silhouettes; rebar arcs crossing the bed at angles;
+          an irregular bed edge — which needs no owner call; in parallel, put the ONE owner
+          question on the table: does the fall zone's ground keep `citygen`'s paving families
+          (owner-level re-tag). The printed paving is the yard's dominant surface and the
+          "intact city" tell; the re-tag is an ABI/contract change and must not happen in
+          passing. (c) pose 17/19: the beds are lod<2-gated, and every pose launches from the
+          yard, so each control pose carries ~2.1-3.4k cold in-frustum ridge tris in its
+          g-buffer (3n -> 3o measured on all five poses) while warm share and the grid show
+          no read change — acceptable; check reads once more when the geometry round lands,
+          not before any further spend.
+CONFIRMED: pool strip y 730-739: vs 3j +51.0..+51.9 (peak +51.9, >= +45); vs 3n +/-0.1 every
+          row (the accepted pool untouched). Wall band +0.01 pp. Controls 16-19 within
+          +0.009 pp. Yard band cold comps 7 -> 10, 2 NEW, both inside the pool-lit flank
+          (meter-findable, not eye-findable). Bed trace coherent at y 600-640, x 440-1100.
+          Tier medium both runs, 5/5 poses error null, starved 0, no GPU/WGSL error; pose-20
+          ms 10.3 vs 11.0 at 3n. Capture-rig g-buffer: pose 20 +2,478; controls +2.1-3.4k
+          (cold near-field launch-yard tris, reads flat). Lamps 104, windings 0 (doc).
+          Attempt-2 tone keep is a good call: footprint 4,214 px vs 3,467, no visual cost.
+```
+
+## (a) The controls and everything accepted are intact
+
+The grid's rows 1-4 (poses 16-19) read identically column-to-column at grid scale; the
+measurement battery agrees (warm shares +0.000/+0.000/+0.009/+0.001 pp). The pool strip is
+unchanged against 3n at every row within +/-0.1 luma while keeping its +51.9 lift over 3j —
+the flood skip did its job. The hut wall band moved +0.01 pp. Both runs pass 5/5 poses with
+error null at quality medium. Nothing round 3b-3n accepted was touched.
+
+## (b) What the round wrote and what it looks like
+
+The |d|>=15 locator shows exactly one coherent structure outside the run-noise that lifts
+every high-contrast edge (facades, hut legs): a ribbon at y ~600-640 from x ~360 to x ~870,
+hugging the bases of the lit strip's posts and slab line, plus a segment toward the drum at
+x ~980-1100. At 3x (revBAND_3way) the committed band shows a pale dust skirt with small dark
+nicks lying along those lines where 3n had a hard dark merge — it reads as *fall material*,
+oriented along the piece's axes, not as noise. That is the round's real achievement: the
+wrong-direction failure (random scatter, a band in the sky, a warm leak) did not happen.
+
+## (c) The 1x question, answered honestly
+
+The goal was a yard that reads closer to a used place. Standing alone at 1x
+(revALONE_1x.png, x 300-1050 y 520-700), the new beds do not register without prior
+knowledge of location; the wide 1:1 pair (pairC2) reads the same in both bands. Peak 8-px
+blocks carry +12..+17 sign-luma against a background whose own modulation is +/-25, at ~1.8%
+band coverage; the metres find them (2 NEW components), the eye does not, at this scale.
+Section B's bar — floor texture and passage read at frame scale — is still not met. The
+honest scoring: the round moved the floor from "nothing" to "real but sub-perceptual", bought
+two dead-end titres of tone evidence that forecloses further tonal work, and left every
+accepted thing intact. That is a normal, useful round of this arc — and it is not yet a verdict
+of done, because the read that earned the round's name has not arrived in the frame.
+
+> **Reviewer note on metric drift:** two "new readable component" counts differing across
+> attempts (4 -> 2) is the luma 40-95 window shifting, not a visibility change; the committed
+> state's larger bed footprint (4,214 vs 3,467 px) and identical capture-rig g-buffer counts
+> to the digit (poses 16-19 and 20: 1,075,650 / 948,798 / 1,298,308 / 2,031,414 / 1,332,194
+> in both attempts) confirm the tone constants move nothing structural.
