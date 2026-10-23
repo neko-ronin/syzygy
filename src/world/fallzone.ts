@@ -794,6 +794,8 @@ export interface FallChunk {
   wreck: WreckPiece[];
   /** Ropeway ground stations: the hut at the foot of each line. */
   stations: Vec3[];
+  /** Round 3p: the one salvage clamp-light's host cut, if it lands in this chunk. */
+  salvage: WreckPiece | null;
 }
 
 /** One chunk's share: an item belongs to the chunk holding its centre, a span to the one holding its midpoint. */
@@ -801,6 +803,32 @@ export function fallChunk(zone: FallZone, ox: number, oz: number, size: number):
   const inside = (x: number, z: number): boolean => x >= ox && x < ox + size && z >= oz && z < oz + size;
   const col = zone.columns;
   const mid = (a: FallColumn, b: FallColumn): boolean => inside((a.x + b.x) / 2, (a.z + b.z) / 2);
+  // Round 3p: the yard's salvage light — the zone computes, the chunk
+  // materializes. The core flooded low is the flooded patch nearest the grid
+  // origin; the winch serving it is the winch column nearest the core; the cut
+  // it serves is the wreck nearest that winch. One fixture citywide, standing
+  // on the wreck itself, because the standing structure tops out 22-40 m short
+  // of the cut's beds and no column's own lamp can reach (FALL_POOL_ROUND3P §2).
+  let salvage: WreckPiece | null = null;
+  {
+    const closest = <T extends { x: number; z: number }>(items: T[], x: number, z: number): T | null => {
+      let best: T | null = null;
+      let d = Infinity;
+      for (const it of items) {
+        const e = (it.x - x) * (it.x - x) + (it.z - z) * (it.z - z);
+        if (e < d) { d = e; best = it; }
+      }
+      return best;
+    };
+    const core = closest(zone.patches.filter((p) => p.kind === 'flooded'), zone.gridX, zone.gridZ);
+    if (core) {
+      const host = closest(zone.columns.filter((c) => c.access === 'winch'), core.x, core.z);
+      if (host) {
+        const cut = closest(zone.wreck, host.x, host.z);
+        if (cut && inside(cut.x, cut.z)) salvage = cut;
+      }
+    }
+  }
   return {
     yaw: zone.gridYaw,
     columns: col.filter((c) => inside(c.x, c.z)),
@@ -809,6 +837,7 @@ export function fallChunk(zone: FallZone, ox: number, oz: number, size: number):
     patches: zone.patches.filter((p) => inside(p.x, p.z)),
     wreck: zone.wreck.filter((w) => inside(w.x, w.z)),
     stations: zone.ropeways.map((rw) => rw.stations[0]).filter((s) => inside(s[0], s[2])),
+    salvage,
   };
 }
 

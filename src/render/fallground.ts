@@ -172,6 +172,10 @@ export function pushFallGround(bld: MeshBuilder, fall: FallChunk, lod: number, o
   // Round 3o: the yard's own rubble — the ridges UNDER the plates, on the
   // ground, where DESIGN §8 says the fallen deck's lines read.
   rubbleRidges(bld, fall);
+  // Round 3p: the salvage clamp-light fallzone's rule picked (fall.salvage),
+  // built on the cut's own low edge, on its own light channel
+  // (FALL_POOL_ROUND3P §3).
+  salvageLight(bld, fall, lod, lights);
 }
 
 /** A scaffolding tower bolted up the pier's face, with its landing and rail. */
@@ -612,6 +616,40 @@ function rubbleRidges(bld: MeshBuilder, fall: FallChunk): void {
       const rods = r.int(1, 2);
       for (let k = 0; k < rods; k++) rod((r.next() * 2 - 1) * bedL * 0.7, s0 + side * 0.5, 1.2 + r.next() * 1.4);
     }
+  }
+}
+
+/**
+ * Round 3p: the salvage clamp-light on the yard's served cut
+ * (FALL_POOL_ROUND3P §3). A clamp strap around the tilt-down long edge, a
+ * short arm out over the bed line, an emissive head — the crew lighting the
+ * cut they are stripping — and its cable down to the ground outside the edge.
+ * The pooled light registers on its own channel at intensity 4.4, below the
+ * hut's closed 6.6: a small work light, not a second wall-washer. Like
+ * lamp(), the head is emissive at every LOD and the pooled light is
+ * near-field only; the chunk's lamp slots are not consulted, because this
+ * chunk was already oversubscribed under MAX_LAMPS before this round landed
+ * and the light must arrive exactly, not fall out of a cap silently.
+ */
+function salvageLight(bld: MeshBuilder, fall: FallChunk, lod: number, lights?: ChunkLight[]): void {
+  const w = fall.salvage;
+  if (!w) return;
+  const [ax, ay, az] = yawTilt(w.yaw, w.tilt);
+  const at = (u: number, v: number, t: number): Vec3 => [
+    w.x + ax[0] * u + ay[0] * v + az[0] * t,
+    w.y + ax[1] * u + ay[1] * v + az[1] * t,
+    w.z + ax[2] * u + ay[2] * v + az[2] * t,
+  ];
+  const edge = at(0, 0, w.halfZ); // the tilt-down long edge, mid-span
+  const head: Vec3 = [edge[0] + az[0], edge[1] + 1.1, edge[2] + az[2]];
+  // Clamp strap around the edge face, arm from strap to head, cable to ground.
+  orientedBox(bld, at(0, 0, w.halfZ + 0.05), ax, ay, az, [0.34, w.halfY + 0.06, 0.035], STEEL);
+  pushBeam(bld, at(0, 0, w.halfZ + 0.07), head, 0.05, STEEL);
+  bld.pushBox([head[0], head[1], head[2]], [0.14, 0.12, 0.14], LAMP, { rotationY: w.yaw, emissive: 3.5 });
+  pushBeam(bld, [head[0], head[1] - 0.12, head[2]],
+    [head[0] - az[0] * 0.45, GROUND_Y + 0.06, head[2] - az[2] * 0.45], 0.02, CABLE);
+  if (lights && lod < 1) {
+    lights.push({ pos: [head[0], head[1], head[2]], radius: LAMP_RADIUS, color: LAMP, intensity: 4.4 });
   }
 }
 

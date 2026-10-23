@@ -38,7 +38,7 @@ const CHUNK = 256, RAD = 6; // defaultCityConfig: chunkSize 256, radiusChunks 6
 const pileTri = (seed: number, c: FallColumn, lod: number): number => {
   const zone = fallZone(seed);
   const mb = new MeshBuilder();
-  pushFallVillage(mb, { yaw: zone.gridYaw, columns: [c], decks: [], bridges: [], patches: [], wreck: [], stations: [] }, lod);
+  pushFallVillage(mb, { yaw: zone.gridYaw, columns: [c], decks: [], bridges: [], patches: [], wreck: [], stations: [], salvage: null }, lod);
   return mb.triangleCount;
 };
 
@@ -118,7 +118,7 @@ const main = (): void => {
         // hanging to 4.6 m under the overhang.
         for (const c of fc.columns) {
           const one = new MeshBuilder();
-          pushFallVillage(one, { yaw: fc.yaw, columns: [c], decks: [], bridges: [], patches: [], wreck: [], stations: [] }, 0);
+          pushFallVillage(one, { yaw: fc.yaw, columns: [c], decks: [], bridges: [], patches: [], wreck: [], stations: [], salvage: null }, 0);
           const om = one.build();
           const cg = Math.cos(fc.yaw), sg = Math.sin(fc.yaw);
           let top = -Infinity, low = Infinity, mx = 0, mbz2 = 0;

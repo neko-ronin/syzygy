@@ -94,7 +94,7 @@ function litArea(mb: MeshBuilder): { quads: number; area: number } {
 
 const zone = fallZone(SEED);
 const cols: FallColumn[] = zone.columns;
-const oneChunk = (columns: FallColumn[]) => ({ yaw: zone.gridYaw, columns, decks: [], bridges: [], patches: [], wreck: [], stations: [] });
+const oneChunk = (columns: FallColumn[]) => ({ yaw: zone.gridYaw, columns, decks: [], bridges: [], patches: [], wreck: [], stations: [], salvage: null });
 const all = new MeshBuilder();
 pushFallVillage(all, oneChunk(cols), 0);
 const far = new MeshBuilder();
