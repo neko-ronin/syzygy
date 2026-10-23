@@ -642,6 +642,15 @@ differing styles and colors like a real city"*
 >   *which* boxes show blocks at 200-270 m and never addressed density. That is a
 >   larger job and it is not in this arc.
 >
+>   **Corrected 2026-10-22 — the figure above was never measured and the
+>   comparison is cross-distance.** Counting warm-bright components on the sheet
+>   and on pose 18: ours carries **269 marks per MP against the reference long
+>   view's 167**, but each mark is **~2.5 px across against ~7 px** (near view
+>   ~12 px). The deficit is the size of a mark, not the number of them, so a round
+>   that adds blocks would add specks at the same width. The lever, if the row is
+>   reopened, is longer/brighter bays or a nearer pose. Measurements and the JPEG
+>   caveat: `STATE_2026-10-22.md`, "The gap that outlives these rounds".
+>
 > Current state and the commands: [`STATE_2026-10-22.md`](STATE_2026-10-22.md).
 
 > **2026-10-22 update — §B has frames and fourteen verdicts.** The claim in the

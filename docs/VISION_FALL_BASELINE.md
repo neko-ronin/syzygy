@@ -4087,6 +4087,15 @@ is the remaining open item. The lit-row density gap (5 crowns with 2-6 blocks
 against 8-10 in the reference) is the larger, separate change and belongs to a
 future round, not to this arc's close-out.
 
+> **Orchestrator annotation, 2026-10-22 — the "8-10 blocks per crown" figure in
+> the sentence above was not measured, and it compares a 200-270 m view to
+> 20-30 m reference frames.** A component count on the sheet and on pose 18 says
+> the opposite of the implication: our frame carries **269 warm marks per MP
+> against the reference long view's 167**, and what ours lacks is the *size* of
+> each mark — **~2.5 px across against ~7-12 px**. The number is left in place
+> because it is what PART 20 concluded from; it must not be dispatched. See
+> `STATE_2026-10-22.md` for the table, the command and the JPEG caveat.
+
 **The residual, recorded:** the wall reads as seams, not apertures. The reveals
 are 6-7 px tall and are visible as bright lines at 1×. They do not read as
 windows or panes. If a future round wants apertures, it needs a different idiom
