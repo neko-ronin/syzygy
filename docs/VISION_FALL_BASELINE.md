@@ -4516,3 +4516,181 @@ on a source-lit patch of ground in the yard band (x 250-1300, y 560-780) with a
 measured warm area, plus a control frame (16 or 18) showing no new pool. Do not
 add more albedo or chunkier shapes — those are dead levers under ambient-only
 light. The bracket, pool, material and wall are settled.
+
+---
+
+# PART 23 — ROUND 3P: independent review (commit `8837230`, run `03-00-54`, `shots/2026-10-23T03-00-54`)
+
+## Governance
+
+Written by a reviewer that did not implement 3p and wrote none of the 3o reviews.
+Every number below is re-derived from the frames (ffmpeg → raw RGB24, **luma =
+plain RGB mean `(R+G+B)/3`**; **warm-strict = `R>120 && R>1.6B`** — the 3p gate's
+def; **warm-loose = `R>B+15 && R>60`** — the older arc metric PART 22 accepted
+under). Nothing was accepted from `FALL_POOL_ROUND3P.md` §7; where its numbers
+overlap mine they are confirmed in CONFIRMED. Both runs carry seed 6191639.
+Grid built by the reviewer:
+`node tools/compare.mjs --current=shots/2026-10-23T03-00-54 --baseline=shots/2026-10-22T11-09-19 --auto`
+→ `shots/compare/2026-10-23T03-37-36.png` (+ `.txt`): 5 rows, all section B,
+tiers medium/medium. Full-size pose 20 opened in both runs before any measurement.
+
+## Run health (both runs, from `_capture.json`)
+
+- 3n: 5 poses; 3p: 28 poses. **Error null and starved 0 in every pose of both
+  runs; tier `medium` everywhere; no GPU/WGSL error** (the capture harness fails
+  the run on either).
+- Pose 20 g-buffer: 3n 1,329,716 → 3o 1,332,194 → 3p **1,332,230** — the last
+  step is **+36**, exactly the fixture-triangle claim.
+- Delivered lights, pose 20: 1133 → **1134**. But see the anomaly section below:
+  16, 17 and 19 also gained +1.
+
+## The pre-registered gate, re-derived
+
+| §5 clause (registered) | wanted | measured (mine) | result |
+| --- | --- | --- | --- |
+| G1 ROI x 490–780, y 595–640, warm-strict comps | 0 → ≥1 | 0 → **0** (1 px) | **MISS** |
+| G1 band x 250–1300, y 560–780, warm-strict comps ≥40 px | 7 → 8 | 7 → **7** | **MISS** |
+| G1 anti-wash: unlit pockets move ≤ +2.0 | ≤ +2.0 | left **−2.8**, right **−1.3** | pass (downward, not a wash) |
+| G2 cold comps (luma 40–95, \|R−B\| ≤ 30, ≥40 px) in band | ≥ 3n count, ≥2 persist | 8 → **18**; **7 of 8** persist ≤25 px | pass |
+| G3 pool lift, x 1330–1560, y 730–739 vs `07-21-31` | ≥ +45 | **+52.7** (77.5 → 130.2) | pass |
+| G3 max row unchanged | y 730 | y **730** in both (130.0 → 130.2) | pass |
+| G4 wall band x 1480–1600, y 500–600 | ±1.5 pp of 3n | 3.17 % → 3.38 % (**+0.21 pp**) | pass |
+| G5 controls 16–19, whole-frame warm-strict | ≤ 0.03 pp | +0.002 / +0.001 / −0.007 / +0.000 pp | pass |
+| delivery, pose 20 | +1 exactly | 1133 → 1134 | pass (but see anomaly) |
+
+The transect reproduces independently — y 605–615, 40-px bins, x 420→860, mine
+vs §7's claim (16 21 27 29 18 21 19 12 11 12 15):
+16.4 20.6 **27.0 28.9** 18.4 20.9 18.7 12.4 11.4 11.6 14.6 — same profile.
+
+### Why the warm clauses miss — a gate artefact, measured
+
+The strict def (`R>120 && R>1.6B`) fires on **emissive and specular** pixels. The
+new lit area is **matte ground**: across the wedge the lit strip sits at luma
+28–38 (ambient 12–16), R−B ≤ 53 typical, and outside the head's own pixels the
+whole ROI contains exactly **1** strict-warm px. A 4.4-intensity matte pool
+cannot cross `R>120`; the hut lamp's pool crosses it only because water is
+specular (glint R 171–194). Under the **loose** def — the metric PART 22's NEXT
+actually accepted on ("a measured warm area") — the ROI moves **12 → 169 px**
+with one **125-px component at (608, 628)**, inside the wedge. The registered
+clause ported the strict def onto matte ground and was unpassable at the closed
+intensity ceiling (6.6); that is a mis-aimed instrument, not a missed round.
+Recorded as a miss, judged on the task's own language.
+
+## The eye record — does the yard read at 1×?
+
+This is 3o's failure and 3p's purpose. Judged before the numbers, then checked
+against them.
+
+- **1×, full frame:** 3p has a findable midground value event that 3n does not:
+  a pale warm wedge on the ground at the cut slab's low flank, with dark chunk
+  shapes inside it, and figures reading as backlit silhouettes in front of it.
+  In 3n the same band is an unbroken dark expanse — nothing to find.
+- **2× (wedge crops, both runs, same window):** decisive before/after. 3n: slab
+  face barely there, ground flat, figures invisible. 3p: lit wedge with defined
+  extent, chunk shadows inside it, figures legible against it.
+- **4×:** figures read cleanly (dark torsos, warm rims) — the reference frame 3
+  crowd pattern. The right-side box (x 1045–1120, y 630–690) is **unchanged**
+  (luma 39.5 → 39.7, mean RGB equal): pre-existing, not a new event, no light
+  reaching it.
+- **8× (head):** a cream rectangle with a hot core sitting on a structure line,
+  the ground wedge falling away below with a defined edge. The arm reads as the
+  connecting diagonal; the **cable is not legible** (dark-on-dark). It is a
+  fixture, not a floating glow — and not the studio-softbox failure: no bare
+  blown rectangle, the pool anchors it to the ground.
+- **Register:** whole-frame warm-strict 0.570 % → 0.574 %; warm-loose 4.53 % →
+  4.58 %. Flat. This is still a cold dark yard with a working light in it —
+  sheet B's register holds; the frame has not crossed into "warm-lit yard".
+
+## Source, not floodlight
+
+Radial luma rings around the measured lit-set centroid (L>20 in x 450–810,
+y 575–655 → centroid (616, 616)), 3n → 3p:
+
+| radius | Δluma |
+| --- | --- |
+| r < 20 | **+16.6** |
+| 20–40 | +15.6 |
+| 40–60 | +9.2 |
+| 60–80 | +2.8 |
+| 80–110 | −1.1 |
+| 110–150 | +0.2 |
+
+A point-source pool decaying smoothly to ambient — not the 3l slab's
+surface-becomes-the-light (79 % warm), not a uniform plane lift. The patch has
+an edge (transect bins either side stay at ambient 11–16).
+
+## Everything accepted still holds
+
+- **Pool** (x 1330–1560, 10-px rows): lift vs 3j **+52.7** at the registered
+  rows y 730–739 (peak lift +52.9 at y 740–749, inside the plateau); vs 3n the
+  core is stable (+0.2 at y 730, +2.6 at y 740); skirt decay (y 750–850)
+  preserved within +2–4. One honest movement: the **top rows y 715–731** dropped
+  74.7 → 60.7 mean luma (px>110: 1622 → 1190; maxR 171 → 170; warm px 47 → 43).
+  The pooltop crops show **no occluder in either run** — the glint *texture* is
+  softer in 3p (ripple phase differs in a 28-pose run; the sharpest top-edge
+  pixels fell under the >110 count). Confined to glint texture; core and lift
+  intact.
+- **Wall band** +0.21 pp (above). **Controls** ≤ 0.007 pp (above); grid rows 1–4
+  read identical column-to-column.
+- **No light outside the disc:** right-mid zone x 950–1250, y 560–760: 38.4 →
+  37.7 mean luma (flat); the 3p-only-looking box is byte-stable (above).
+- **Delivery anomaly (recorded, benign on frames):** delivered lights gained +1
+  at **16, 17 and 19** as well as 20 (1222→1223, 1133→1134, 1133→1134,
+  1133→1134); **18 gained nothing** (1405) although the fixture's bearing sits
+  ~25° inside 18's viewing cone at ~1.4 km. Frustum reasoning does not explain
+  the pattern; the frames do — controls 16–19 are flat to ≤0.007 pp and the grid
+  rows are identical, so wherever that light is binned it produces no visible
+  pixel anywhere but pose 20's wedge. §7 does not mention the extra +1s;
+  recorded here so the next light round knows delivery counts are not a clean
+  once-only signal.
+- **City-wide 01–15:** 3p is the **first full-sequence run** (all earlier runs
+  are ≤6 poses), so these poses have no pixel baseline to diff against — that
+  limit is stated rather than papered over. What a no-capture review can
+  establish: 28/28 error null, tier medium, starved 0, and the contact sheet
+  scanned — no stray lit patch outside known content in any non-fall pose.
+
+## Close-out (DESIGN §6)
+
+VERDICT: **done.** The yard's midground now carries a findable value event at
+1× — a source-lit wedge with chunk structure and backlit figures where 3n has
+an unbroken dark expanse — and it is a source, not a floodlight: a matte pool
+decaying +16.6 → +2.8 over 80 px, whole-frame warmth flat (+0.004 pp strict),
+defined edges, fixtures anchored (head with shape on a structure line; cable
+the one thing that does not read). The two registered warm clauses miss for a
+measured reason — the strict def detects emissive/specular, the new light is
+matte ground at 4.4 under the closed 6.6 ceiling — and under the acceptance
+language PART 22 actually set ("a measured warm area", loose def) the wedge is
+a 125-px warm component. Pool, wall, controls, run health: all hold. Beds
+findable at 1× was the round's question; it is met.
+
+EVIDENCE: grid `shots/compare/2026-10-23T03-37-36.png` (+ `.txt`); full-size
+pose 20 in `shots/2026-10-23T03-00-54` and `shots/2026-10-22T11-09-19`;
+reviewer crops (wedge 2×, head 8×, figures 4×, rightblock 4×, pooltop 3×) from
+both runs; the tables above, all re-derived from raw RGB.
+
+JUDGED: gate G2/G3/G4/G5 pass on my numbers; G1's warm clauses miss as
+registered and the miss is a threshold-regime artefact (matte vs specular),
+with the loose-def warm area present; the transect, g-buffer +36, delivery
+counts and control deltas reproduce §7 exactly; the eye record is the
+decisive evidence and it is favourable; the two §7-absent anomalies (delivery
++1 at 16/17/19; pool top-row glint reshuffle) are measured and benign.
+
+GAP: outside the lit wedge the yard floor still reads as intact ripple-dithered
+paving at 1× — the surface-class question, not this round's subject, is the
+owner's next decision (`docs/SILT_CLASS_GATE.md`). The cable is not legible at
+8× (dark-on-dark); fixture plausibility rests on head + arm + wedge, and at 1×
+that is sufficient. The city-wide poses 01–15 have no pixel baseline until the
+next full-sequence run.
+
+NEXT: one change, and it is the owner's gate, not a re-roll of this one: take
+`docs/SILT_CLASS_GATE.md` — give the yard floor its silt/wreck surface class so
+the ground the beds sit on stops reading as intact paving outside the lit
+wedge. Do **not** chase the strict-warm clause with intensity: the register is
+right as it stands (a cold dark yard with a working light), and pushing the
+wedge past `R>120` would buy warmth the reference does not want.
+
+CONFIRMED: §7's measurements are honest where they overlap mine (transect to
+±0.5 luma per bin, g-buffer +36, delivery counts, G4/G5 deltas); its two
+registered misses are confirmed as misses with the cause measured here; the
+fixture cost claims (+36 tris, one light channel, no `lamp()` counter use) are
+consistent with `_capture.json` and the frames.
