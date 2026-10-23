@@ -8,6 +8,7 @@ import { MeshBuilder, type Mesh } from '../world/geometry';
 import { makeRng } from '../core/math';
 import gbufferSrc from '../shaders/gbuffer.wgsl?raw';
 import grammarSrc from '../world/groundgrammar.ts?raw';
+import walkSrc from '../world/walkingsurfaces.ts?raw';
 import { bakeChunk } from './citymesh';
 import { bakeMarketDetail, marketBakeState } from './marketbake';
 import { bakeGroundDetail } from './groundbake';
@@ -159,6 +160,46 @@ for (const surface of GROUND_SURFACE_CLASSES) {
   requireThat(floodTris > 0, 'a baked flooded patch must carry tagged flood triangles — a tag that never reaches the vertex buffer is the trap');
   // The patch box's top face is GROUND_Y + 0.03 + 0.02. Water must be ABOVE it.
   requireThat(lowest > GROUND_Y + 0.05 + 1e-3, `flood water at y=${lowest.toFixed(3)} is inside the patch box (top ${(GROUND_Y + 0.05).toFixed(3)}): the class can be right and the frame still shows no water`);
+}
+
+// ---------------------------------------------------------------- silt parity (round 3q)
+//
+// The silt class is appended at index 7, after flood at 6. Every existing tag
+// stays bit-identical. The selftest must assert the index, the reachability of
+// the branch, and the decode, in the same idiom as the flood block above.
+{
+  requireThat(GROUND_SURFACE_CLASSES.indexOf('silt') === 7,
+    'silt must be class 7, appended after flood at 6: indices 0-6 keep every existing tag bit-identical');
+  requireThat(groundSurfaceTag('silt', 'asphalt') < 0,
+    'an unappended class list decodes to a POSITIVE tag, which the renderer reads as emission');
+
+  for (const expr of ['max(0.0, -tag - 1.0)', 'u32(floor(payload / 16.0))', 'u32(floor(payload)) % 16u']) {
+    requireThat(gbufferSrc.includes(expr), `GPU ground decode changed (${expr}): groundgrammar.ts must move with it`);
+  }
+  for (const expr of ['-tag - 1', 'Math.floor(payload / 16)', 'Math.floor(payload) % 16']) {
+    requireThat(grammarSrc.includes(expr), `CPU ground decode changed (${expr}): gbuffer.wgsl must move with it`);
+  }
+
+  const stripComments = (s: string): string => s.replace(/\/\/[^\n]*/g, '');
+  const wgsl = stripComments(gbufferSrc);
+  const fn = wgsl.indexOf('fn groundSurface(');
+  requireThat(fn >= 0, 'groundSurface must exist in gbuffer.wgsl');
+  let depth = 0, end = -1;
+  for (let i = wgsl.indexOf('{', fn); i < wgsl.length; i++) {
+    if (wgsl[i] === '{') depth++;
+    else if (wgsl[i] === '}' && --depth === 0) { end = i; break; }
+  }
+  requireThat(end > fn, 'groundSurface must have a body');
+  const body = wgsl.slice(fn, end);
+  requireThat(body.includes('surface == 7u'), 'silt (class 7) has no test in groundSurface, so it falls into the carriageway catch-all');
+  const finalElse = body.lastIndexOf('else {');
+  const siltBranch = body.indexOf('else if (isSilt)');
+  requireThat(siltBranch > 0 && siltBranch < finalElse, 'the silt branch must sit before the carriageway catch-all, or it never runs');
+  requireThat(/let\s+isSilt\s*=\s*surface\s*==\s*7u\s*;/.test(body), 'isSilt must be decoded from surface == 7u');
+
+  // Silt must not be a walking surface: walkingsurfaces.ts keeps only 'paving'
+  // and 'kerb-top'. Assert by grep that 'silt' is absent from its keep-list.
+  requireThat(!/'silt'/.test(walkSrc), 'silt must not be a walking surface (the crowd must not walk on it)');
 }
 const groundClasses = new Set<string>();
 const kerbTris: Record<string, { keys: string[]; ys: number[] }[]> = {};

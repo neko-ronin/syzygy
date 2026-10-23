@@ -25,6 +25,7 @@ import {
 } from '../world/districts';
 import { groundGrammarFor, groundSurfaceTag, walkingFamily, walkingAlbedo } from '../world/groundgrammar';
 import { bakeGroundDetail, type GroundLight } from './groundbake';
+import { fallZone } from '../world/fallzone';
 import { pushFallChunk } from './fallmesh';
 import type { CrowdObstacle } from '../world/crowdobstacles';
 import { walkingTriangles, type WalkingSurfaceTriangles } from '../world/walkingsurfaces';
@@ -1720,6 +1721,14 @@ export function pushGroundDeck(bld: MeshBuilder, size: number, seed: number): vo
   const n = Math.max(1, Math.round(size / DECK_CELL));
   const half = size * 0.5;
   const step = size / n;
+  // Fall-zone footprint: which 256 m chunks carry fall columns. Cells whose
+  // chunk is in this set are re-tagged 'silt' (Option B of SILT_CLASS_GATE.md)
+  // instead of 'paving' — a bake-time predicate, zero new geometry.
+  const zone = fallZone(seed);
+  const fallChunks = new Set<string>();
+  for (const c of zone.columns) {
+    fallChunks.add(`${Math.floor(c.x / 256)},${Math.floor(c.z / 256)}`);
+  }
   // Node colours, computed once each and shared by the quads around them.
   const cols: Vec3[] = new Array((n + 1) * (n + 1));
   for (let j = 0; j <= n; j++) {
@@ -1744,16 +1753,19 @@ export function pushGroundDeck(bld: MeshBuilder, size: number, seed: number): vo
       const c10 = cols[j * (n + 1) + i + 1];
       const c11 = cols[(j + 1) * (n + 1) + i + 1];
       const c01 = cols[(j + 1) * (n + 1) + i];
+      const inFall = fallChunks.has(`${Math.floor(((x0 + x1) * 0.5) / 256)},${Math.floor(((z0 + z1) * 0.5) / 256)}`);
       // pushQuad takes one colour per quad, so average the four node colours.
-      const c: Vec3 = [
-        (c00[0] + c10[0] + c11[0] + c01[0]) * 0.25,
-        (c00[1] + c10[1] + c11[1] + c01[1]) * 0.25,
-        (c00[2] + c10[2] + c11[2] + c01[2]) * 0.25,
-      ];
+      const c: Vec3 = inFall
+        ? [0.13, 0.12, 0.11]   // silt: near-neutral, slightly warm-grey, >= 0.13 albedo (pool-compatible)
+        : [
+            (c00[0] + c10[0] + c11[0] + c01[0]) * 0.25,
+            (c00[1] + c10[1] + c11[1] + c01[1]) * 0.25,
+            (c00[2] + c10[2] + c11[2] + c01[2]) * 0.25,
+          ];
       bld.pushQuad(
         [x0, GROUND_Y, z1], [x1, GROUND_Y, z1], [x1, GROUND_Y, z0], [x0, GROUND_Y, z0],
         c, 0.12, { normals: [[0, 1, 0], [0, 1, 0], [0, 1, 0], [0, 1, 0]],
-          surfaceTag: groundSurfaceTag('paving', walkingFamily(groundGrammarFor(districtAtField(plan.districts, (x0 + x1) * 0.5, (z0 + z1) * 0.5), 'street'))) },
+          surfaceTag: groundSurfaceTag(inFall ? 'silt' : 'paving', inFall ? 'dirt' : walkingFamily(groundGrammarFor(districtAtField(plan.districts, (x0 + x1) * 0.5, (z0 + z1) * 0.5), 'street'))) },
       );
     }
   }

@@ -457,6 +457,7 @@ fn groundSurface(world: vec3f, n: vec3f, base: vec3f, detail: f32, dist: f32, ta
   let isRaised = surface == 1u || surface == 3u;
   let isGutter = surface == 4u;
   let isFlood = surface == 6u;
+  let isSilt = surface == 7u;
 
   // Value structure between the walking plane and the carriageway.
   //
@@ -502,7 +503,7 @@ fn groundSurface(world: vec3f, n: vec3f, base: vec3f, detail: f32, dist: f32, ta
   // A water surface has no grain. The flood class is the only one that opts
   // out, and it must: grain on a standing sheet reads as wet pavement under
   // the glint, which is the decal failure this class exists to avoid.
-  if (!isFlood) { alb *= 0.90 + 0.20 * grain; }
+  if (!isFlood && !isSilt) { alb *= 0.90 + 0.20 * grain; }
 
   if (vertical) {
     // ---------------------------------------------------------------- kerb face
@@ -602,6 +603,22 @@ fn groundSurface(world: vec3f, n: vec3f, base: vec3f, detail: f32, dist: f32, ta
     rough = mix(0.66, 0.10, open);
     metal = 0.0;
     ao *= 0.94 + 0.06 * open;
+  } else if (isSilt) {
+    // ---------------------------------------------------------------- silt
+    // Dead ground: the yard's own surface after the fall, not asphalt, not
+    // water, not a decal. Low saturation, near-neutral, slightly warm-grey;
+    // no paving joints (joints are the "intact city" tell); no polish; no
+    // carriageway-scale grain. Two-octave albedo noise at footprint scale so
+    // it reads as mud and silt rather than as a flat fill (the decal failure
+    // the carriageway comment records). Roughness high, metallic 0.
+    // Albedo stays >= ~0.13: the pool term multiplies by albedo and the
+    // accepted +45 lift sits on ~0.132 (SILT_CLASS_GATE.md §3). Darkness
+    // comes from saturation and texture, not from value.
+    let siltNoise = fbm2(p * 0.05 + vec2f(11.7, 3.1), 2);
+    alb = base * (0.88 + 0.24 * siltNoise);
+    rough = 0.82;
+    metal = 0.0;
+    ao *= 0.96;
   } else {
     // ---------------------------------------------------------------- carriageway
     // Worn asphalt: grain, resurfacing patches at a scale you can read from a
