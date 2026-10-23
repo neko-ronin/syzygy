@@ -3870,13 +3870,13 @@ GAP:      the reveals are still lines, not apertures. Widening from 0.08 m to 0.
           large bright rectangle, not a framed aperture. Neither idiom produced an
           aperture. The face has more structure than 3m's, but the warm punctuation is
           still lines, not openings.
-NEXT:     one change: try a different idiom — a window with a lit interior plane
-          behind a frame of sufficient depth, or a shuttered opening with battens — so
-          the lit area reads as an aperture behind a frame, not as a seam between
-          boards. The interior plane must be dark enough (or the frame deep enough)
-          that the warm share stays below ~35 %. Re-shoot 20 and judge whether the
-          opening reads as an aperture or a bright rectangle. The lamp, the pool, the
-          material and the bracket are settled; do not touch them.
+NEXT:     (b) stop — no further round is named. The wall is closed at 29.6 % warm
+          with visible seams. The next item for the arc is the ground pass
+          (lifelines, rubble, wreck dressing) from round 3b, which was built but
+          never judged in frame. The lit-row density gap (5 crowns with 2-6 blocks
+          against 8-10 in the reference) is the larger, separate change and belongs
+          to a future round, not to this arc's close-out. The lamp, pool, material
+          and bracket are settled and must not be moved.
 CONFIRMED: warm share 23.6 % -> 29.6 % (3,635 -> 4,554 px on 15,400); mean RGB
           (46.5, 37.3, 38.0) -> (51.1, 40.7, 39.8); dark components 13 -> 16
           (RGB-mean luma < 40, >= 6 px); 0 px >= 250; max R-B 61 -> 62; reveal 1
@@ -4032,3 +4032,66 @@ aperture or a bright rectangle. The lamp, the pool, the material and the bracket
 are settled; do not touch them. If no idiom inside this hut's geometry produces
 an aperture, the answer is that the aperture read requires a different scale or
 a different structure, not a different gap width.
+---
+
+## Ship question and stop decision (second review of round 3n)
+
+### Ship question: does 3n stay, or does the tree go back to 3m?
+
+**3n stays.** The tree does not go back to 3m.
+
+The comparison: 3m (`10-36-13`) has warm share 23.6 % and seams ~3 px; 3n (`11-09-19`)
+has warm share 29.6 % and seams ~6-7 px. Both are below the 35 % acceptable line.
+The difference is that 3n's seams are **more legible** (6-7 px vs 3 px), which means
+the structure is more readable at 1×. The 3m version's seams are almost invisible
+(3 px), so the face reads as "a dark slab with hairline scratches" — the structure
+is there but not readable. 3n's wider seams read as "a boarded face with warm
+seams" — still not apertures, but more legible. The warm share difference (29.6 %
+vs 23.6 %) is small and both are in the acceptable range. Reverting to 3m would
+make the seams almost invisible, which is worse for readability. 3n stays.
+
+### Stop decision: (b) stop, and record the residual
+
+The wall work stops here. The residual:
+
+**What the face now is:** a dark boarded fascia (three boards in near-black `SHEET`,
+blue-biased, mean RGB (51, 41, 40)) with two warm seams (6-7 px tall, peak luma
+86.7 and 79.0), a dark steel hood over the door, two steel pilasters framing the
+door, and the lamp-lit roof edge above. The warm share is 29.6 % (down from 79.1 %).
+The pool is preserved (+52.5 lift). The lamp reads as the source. The frame reads
+as a lit hut in a cold blue yard with a dark, structured face.
+
+**What it still is not:** section B's reference carries warm as *small apertures*
+(window panes, porch lamps, one red cable car) on a large cold dark mass. The face
+here carries warm as *seams in a boarded face* — thin bright lines, not openings.
+The reveals are 6-7 px tall and read as seams, not as apertures, at 1×. The
+warm/cold punctuation is there (the hut is a lit object in a cold yard), but the
+wall's warm punctuation is seams, not apertures.
+
+**Why stopping is the right call:** three idioms were tried (single board, reveals,
+framed opening) and none produced an aperture. Widening the reveals made them
+more visible but did not create depth. The framed opening re-warmed the wall
+(52.8 %, over the failure mode). The two constraints — warm share below ~35 %
+and seams tall enough to read as apertures — may be mutually exclusive at this
+lamp distance and wall size. A fourth idiom (shuttered opening, battens, a window
+with a dark interior) is possible but unverified, and the implementer's own
+assessment is that "the idiom appears to have run out." The pool is accepted, the
+lamp is the source, the lit-row work is closed at 5 of 6, and the wall is no
+longer a slab. The wall is good enough to stop.
+
+**The next item for the arc:** the ground pass — lifelines, rubble, wreck dressing,
+and the flooded lows as places. Round 3b (`0b52d9d`/`fe6bf11`/`b37d74b`) built
+the ground but no frame has judged it as a place (PART 7 found 0 of 4 poses
+contained the floor). With the pool now accepted and the wall settled, the ground
+is the remaining open item. The lit-row density gap (5 crowns with 2-6 blocks
+against 8-10 in the reference) is the larger, separate change and belongs to a
+future round, not to this arc's close-out.
+
+**The residual, recorded:** the wall reads as seams, not apertures. The reveals
+are 6-7 px tall and are visible as bright lines at 1×. They do not read as
+windows or panes. If a future round wants apertures, it needs a different idiom
+(a window with a dark interior behind a frame of sufficient depth, or a shuttered
+opening with battens) or a different scale (a hut closer to the camera, or a
+larger face). The lamp, pool, material and bracket are settled and must not be
+moved. No further round is named by this verdict; the wall is closed at 29.6 %
+warm with visible seams.
