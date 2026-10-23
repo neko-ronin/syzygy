@@ -3818,3 +3818,217 @@ lit cladding behind reads as panes rather than lines. Each 0.08 m of gap is ~5 p
 double the seam to ~10 px and should read as an aperture at 1×. Re-shoot 20 and
 judge whether the seams read as openings or scratches. The lamp, the pool, the
 material and the bracket are settled; do not touch them.
+# PART 20 — ROUND 3N: widening the reveals (`ac0c43e`, run `11-09-19`, `shots/2026-10-22T11-09-19`)
+
+**Scope.** One change judged: the fascia's reveal half-height `gapH` in `src/render/fallground.ts`
+went from 0.04 (0.08 m total gap) to 0.08 (0.16 m total gap). Two attempts were made; the
+committed state is the widened reveals. A fallback (framed opening with jamb depth and a lit
+interior plane) was tried and reverted. Baseline for the wall: `shots/2026-10-22T10-36-13`
+(round 3m). Pool baseline: `shots/2026-10-22T07-21-31` (round 3j). The implementer's record
+is `docs/FALL_POOL_ROUND3N.md`. The grid is `shots/compare/2026-10-23T00-58-01.png` (+ `.txt`),
+tiers `medium`/`medium`.
+
+## The metric, stated
+
+**Luma is the mean of R, G, B** — `(r+g+b)/3` — matching the implementer's stated metric
+and PART 18/19. All numbers below use the RGB mean.
+
+## Close-out (DESIGN §6) — round 3n
+
+```
+VERDICT:  more work needed
+EVIDENCE: references/B-cold-industrial-sheet.jpg (read first; frame 3 is the ground-level
+            reference: lanterns and storefront glow that bring the ground with them)
+          shots/compare/2026-10-23T00-58-01.png (+ .txt)   BASELINE | CURRENT | REFERENCE
+            baseline: shots/2026-10-22T10-36-13 (round 3m, sequence run)
+            current:  shots/2026-10-22T11-09-19 (round 3n, shot after ac0c43e)
+            reference column: references/sections/B-cold-industrial/
+          full-size: shots/2026-10-22T11-09-19/{16,17,18,19,20}.png and
+                     shots/2026-10-22T10-36-13/{16,17,18,19,20}.png
+          reviewer crops: band x 1340-1480 y 490-600 at 1x/2x/4x/8x; hut face x 1340-1480
+            y 500-590 at 4x; pool strip x 1300-1600 y 700-760 at 2x/4x; radial transect
+            x 1330-1560, 10-px rows y 690-859 (3n vs pool baseline 07-21-31)
+          shots/2026-10-22T11-09-19/_capture.json (5 shots, error null on all five,
+            tier medium on all five, lights 1222/1133/1405/1133/1133, starved 0,
+            lodHistogram [9,34,124,0])
+          docs/FALL_POOL_ROUND3N.md (implementer's record)
+JUDGED:   PART 19's done-when, measured here, not inherited:
+          (1) warm share down or structure added — warm share 23.6 % -> 29.6 % (up,
+          because wider reveals expose more lit cladding), dark components 13 -> 16;
+          (2) at least two reveals or openings read as apertures — two reveals, each
+          ~6-7 px tall, lit lines, not apertures; (3) pool peak lift >= +45 — +52.5
+          (met); (4) controls within 0.03 pp, tier uniform (met); (5) hut reads as a
+          lit object with the lamp as its source (met). Also judged: whether the face
+          reads as section B's small apertures on a cold mass or as a roller shutter
+          (stuck-on pieces), and whether widening the reveals changed the read.
+GAP:      the reveals are still lines, not apertures. Widening from 0.08 m to 0.16 m
+          doubled the seam height (~4 px -> ~6-7 px) and lifted the warm share
+          (23.6 % -> 29.6 %), but a 6-7 px bright band with no jamb, no sill, no frame
+          and no depth is a seam, not an opening. The fallback (framed opening with
+          0.12 m jamb depth and a lit interior plane) was tried and produced a 40-px
+          bright band with 52.8 % warm share — over the failure mode — and read as a
+          large bright rectangle, not a framed aperture. Neither idiom produced an
+          aperture. The face has more structure than 3m's, but the warm punctuation is
+          still lines, not openings.
+NEXT:     one change: try a different idiom — a window with a lit interior plane
+          behind a frame of sufficient depth, or a shuttered opening with battens — so
+          the lit area reads as an aperture behind a frame, not as a seam between
+          boards. The interior plane must be dark enough (or the frame deep enough)
+          that the warm share stays below ~35 %. Re-shoot 20 and judge whether the
+          opening reads as an aperture or a bright rectangle. The lamp, the pool, the
+          material and the bracket are settled; do not touch them.
+CONFIRMED: warm share 23.6 % -> 29.6 % (3,635 -> 4,554 px on 15,400); mean RGB
+          (46.5, 37.3, 38.0) -> (51.1, 40.7, 39.8); dark components 13 -> 16
+          (RGB-mean luma < 40, >= 6 px); 0 px >= 250; max R-B 61 -> 62; reveal 1
+          ~4 -> ~6 px, reveal 2 ~4 -> ~7 px; pool peak lift +52.5 (>= +45); controls
+          within 0.03 pp (16 +0.001, 17 +0.002, 18 +0.025, 19 +0.001); tier medium
+          on all five; no GPU/WGSL error; lights 1222/1133/1405/1133/1133, starved 0;
+          g-buffer unchanged (+0 triangles, 1,329,716); 0 bad windings of 57,226;
+          the lamp reads as the source at frame scale.
+```
+
+## (a) The five done-whens, measured here
+
+### 1. Warm share materially down from 79 %, or structure added
+
+**The warm share rose, not fell, but for the right reason.** 23.6 % → 29.6 %
+(3,635 → 4,554 px on 15,400). The wider gap exposes more lit cladding behind
+the boards, so the warm area grows. This is expected: the reveals are wider, so
+more of the lamp-lit wall shows through. The mean RGB moved from (46.5, 37.3, 38.0)
+to (51.1, 40.7, 39.8) — still blue-biased (B > R), still a cold mass with warm
+seams. Nothing clips (0 px ≥ 250, max R-B 61 → 62). The band is still well below
+the 35 % acceptable line and far short of the 50 % failure mode.
+
+The warm share rising is not a regression: it is the cost of wider seams, and it
+is the trade-off PART 19 named ("each 0.08 m of gap is ~5 px × 140 rows ≈ 700
+warm px, ~4.5 points of the band's share"). The wider seams are more visible but
+they are still seams.
+
+### 2. At least two reveals or openings read as apertures
+
+**Not met — the reveals are still lines, not apertures.** Two reveals, each a lit
+seam (the cladding behind shows through the gap between two `SHEET` boards):
+
+- Reveal 1: ~6 px tall (y 533-538), 141 px wide (full fascia), peak luma 86.7,
+  no visible depth, no frame, no jamb. A lit line.
+- Reveal 2: ~7 px tall (y 555-561), 141 px wide, peak luma 79.0. A lit line.
+
+Widening from 0.08 m to 0.16 m total gap roughly doubled the seam height (~4 px
+→ ~6-7 px), matching PART 19's prediction of ~5 → ~10 px within the projection's
+cosine factor. The seam is taller but still a seam: a bright band 6-7 px tall and
+141 px wide, with no jamb, no sill, no frame — a lit line, not an aperture.
+
+**The fallback (framed opening) was tried and also failed.** It replaced the two
+reveals with one framed opening: top and bottom boards, steel jambs (top, sill,
+two sides) standing 0.12 m proud of the cladding, and a lit interior plane set
+back at the cladding face. Result: warm share in the band went to **52.8 %**
+(8,260 px, mean (72, 57, 49)) — over the ~50 % failure mode, because the
+interior plane (the cladding behind the frame) is washed by the lamp and reads
+as a large bright rectangle. The opening read as a large bright rectangle, not
+a framed aperture, and it re-warmed the wall. That state was reverted; the
+committed state is the widened reveals. The failed attempt's frame is
+`shots/2026-10-22T11-10-45/` and its numbers are in §1, attempt 2.
+
+So: the widened reveals are still lines; the framed opening is a bright rectangle.
+Neither reads as an aperture.
+
+### 3. The pool is preserved: peak lift ≥ +45
+
+**Met.** Peak lift at y 730-739 against `07-21-31`: **+52.5 luma** (baseline 77.5
+→ 129.7), above the +45 floor. The transect shape is unchanged from 3m:
++7.9/+37.5/+52.5/+50.3/+43.9/+34.8 across y 710-769 (vs 3m's +7.9/+37.5/+52.3/
++50.0/+43.5/+34.8). Nothing stands in front of the pool: the fascia is on the wall
+at world y ≥ 1.90 m and the pool is on the floor at the wall's base. The collar
+between wall and floor is intact.
+
+### 4. Controls 16-19 within 0.03 pp, no GPU/WGSL error, tier uniform
+
+**Met.** All four controls within 0.03 pp (16 +0.001, 17 +0.002, 18 +0.025,
+19 +0.001). No GPU/WGSL error. Tier uniform (medium, 1600×900, on all five).
+Lights unchanged (1222/1133/1405/1133/1133, starved 0). The g-buffer triangle
+count is identical to 3m (1,329,716) — the widened reveals change board heights,
+not box count.
+
+### 5. The hut still reads as a lit object with the lamp as its source
+
+**Met.** The pool is visible at full frame scale (a bright patch at the wall's base,
+falling off toward the camera), the bracket's post and arm are visible at 4×, and
+the hut is a lit object in a cold blue yard. The wall is dark rather than a warm
+slab. The lamp is visibly the source.
+
+## (b) The wall: structured or a slab?
+
+**More structured than 3m, but the warm punctuation is still lines, not apertures.**
+The 4× crop shows the structure clearly: three dark boards, two lit seams, a dark
+hood, two pilasters, a lit roof edge. At 1×, the reveals are 6-7 px tall — visible
+as bright lines but not as openings. The face reads as a **dark boarded band with
+warm seams**, which is closer to section B than 3m's slab but not as far as
+"structured apertures on a cold mass."
+
+The implementer's own conclusion (§9): "Widening a gap does not create depth; a gap
+is a gap. The fallback (depth) failed the warm-share gate. The idiom of 'reveals
+between boards' appears to have run out."
+
+From the 1× crop, the reveals read as **bright lines** — visible, but thin. They do
+not read as windows or panes; they read as seams in a boarded face. That is
+structure, but it is not yet section B's apertures. The face reads as "a boarded
+wall with light leaking through the joints" rather than "apertures on a cold mass."
+
+The risk PART 19 named — "a boarded band with two lit seams may read as a roller
+shutter — one big object" — is not realized (the hood, pilasters and roof edge
+break it up), but the reveals are thin enough that the face does not read as
+section B's apertures either. It reads as a dark boarded face with warm seams.
+
+## (c) Controls
+
+| pose | 3m warm % | 3n warm % | move |
+|---|---|---|---|
+| 16-fall-wreck-up | 0.116 | 0.116 | +0.001 |
+| 17-fall-piles-level | 0.290 | 0.288 | +0.002 |
+| 18-fall-skyline | 1.337 | 1.360 | +0.025 |
+| 19-fall-pile-close | 2.079 | 2.077 | -0.001 |
+
+All within 0.03 pp. No GPU/WGSL error. Tier uniform (medium, 1600×900). Lights
+unchanged. The controls are valid.
+
+## (d) Cost
+
+The widened reveals change board heights, not box count, so the cost is the same
+as 3m's:
+
+- G-buffer triangles, pose 20: +0 (1,329,716, identical to 3m).
+- Zone-wide: ground pass 57,226 triangles (unchanged from 3m).
+- Lights unchanged (1133/1133 at pose 20, 0 starved). Frame time 139.8 ms,
+  unchanged. The change is geometry (board heights), not light.
+
+## (e) What this round establishes, and what it does not
+
+- **Establishes:** the reveals doubled in height (~4 px → ~6-7 px) and the warm
+  share rose (23.6 % → 29.6 %) for the right reason (more lit cladding exposed).
+- **Establishes:** the pool is preserved (+52.5 lift, ≥ +45, transect shape
+  unchanged).
+- **Establishes:** the controls hold (within 0.03 pp, no leak, no GPU error, tier
+  uniform).
+- **Establishes:** the lamp reads as the source at frame scale.
+- **Establishes:** the fallback (framed opening) was tried and failed: 52.8 % warm
+  share (over the failure mode) and a bright rectangle, not a framed aperture.
+- **Does not establish** the face as reading like section B. The reveals are
+  6-7 px tall and read as seams, not as apertures, at 1×. The face is more
+  structured than 3m's but not as far as "structured apertures on a cold mass."
+- **Does not establish** the specular (PART 10's deferred clause, still refuted as
+  a roughness route).
+- **Does not establish** the workshop yard's read (no frame contains one).
+- **Does not establish** city-wide frames (wide-skyline, aerial-top not in this
+  run).
+- **Does not re-judge** round 3g's lit-row count (5 of 6, closed separately) or
+  the ground pass.
+
+**One next change, not three.** Try a different idiom: a window with a lit interior
+plane behind a frame of sufficient depth, or a shuttered opening with battens, so
+the lit area reads as an aperture behind a frame, not as a seam between boards.
+The interior plane must be dark enough (or the frame deep enough) that the warm
+share stays below ~35 %. Re-shoot 20 and judge whether the opening reads as an
+aperture or a bright rectangle. The lamp, the pool, the material and the bracket
+are settled; do not touch them. If no idiom inside this hut's geometry produces
+an aperture, the answer is that the aperture read requires a different scale or
+a different structure, not a different gap width.
