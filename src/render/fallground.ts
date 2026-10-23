@@ -169,6 +169,9 @@ export function pushFallGround(bld: MeshBuilder, fall: FallChunk, lod: number, o
   // §2 of the round: the wreck's ridges, rebar and facade grid. Last, because
   // it dresses pieces the shared greybox above already emitted.
   dressWreck(bld, fall);
+  // Round 3o: the yard's own rubble — the ridges UNDER the plates, on the
+  // ground, where DESIGN §8 says the fallen deck's lines read.
+  rubbleRidges(bld, fall);
 }
 
 /** A scaffolding tower bolted up the pier's face, with its landing and rail. */
@@ -514,6 +517,100 @@ function dressWreck(bld: MeshBuilder, fall: FallChunk): void {
       }
       // Roof slab edge, so the top of the body is not another bare plane.
       orientedBox(bld, at(0, w.halfY + 0.05, 0), ax, ay, az, [w.halfX * 0.96, 0.06, w.halfZ * 0.9], tintOf(CONCRETE, 0.8));
+    }
+  }
+}
+
+/**
+ * Round 3o: the yard's own rubble — the ridges that lie where the deck came
+ * down. Round 3b dressed the plates themselves (top lumps, end fringes, the
+ * bodies' facade grid); the ground UNDER them still reads as whatever paving
+ * family the old city's ground mesh happens to wear, which surveying pose 20's
+ * yard exposed as the arc's open "ground as a place" gap: the floor is a
+ * printed pattern, and the only reads on it are one lamp's pool and one drum.
+ * DESIGN §8 asks for "rubble ridges along the lines where the deck came down";
+ * this is that, derived strictly from the wreck pieces — no new placement
+ * record, no new ground class, no light, no obstacle registration (the beds
+ * are 4 cm tall and the crowd already thins inside the zone).
+ *
+ * A piece plants its ridge on the ground: two beds of pale concrete fines (the
+ * dust a break leaves — the value lift that makes the line readable at 15-50
+ * m), dark chunks thrown over them (the mass that breaks the paver tiling),
+ * and a rod or two of rebar. The side offset shrinks with cos(tilt) because a
+ * tilted plate's edge lands inside its own footprint. Points inside a flooded
+ * patch are skipped — the pool round accepted that ground, and a ridge there
+ * would lie drowned under the water quads anyway. The stream is dressWreck's
+ * seed xor the ground's SALT, so the two passes never replay each other.
+ */
+function rubbleRidges(bld: MeshBuilder, fall: FallChunk): void {
+  // Flooded patches are grid-aligned rectangles: test in the grid frame.
+  const ca = Math.cos(fall.yaw), sa = Math.sin(fall.yaw);
+  const inFlood = (x: number, z: number): boolean => {
+    for (const p of fall.patches) {
+      if (p.kind !== 'flooded') continue;
+      const dx = x - p.x, dz = z - p.z;
+      const a = ca * dx - sa * dz, b = sa * dx + ca * dz;
+      if (Math.abs(a) < p.halfX + 0.4 && Math.abs(b) < p.halfZ + 0.4) return true;
+    }
+    return false;
+  };
+  for (const w of fall.wreck) {
+    const r = makeRng(((w.x * 7919 + w.z * 104729 + w.yaw * 1e5) | 0) ^ SALT);
+    // The fall line's ground trace: the piece's local x carries the run, and a
+    // ground point is the piece's (u, t) with the tilt flattened out — the
+    // horizontal part of az is its side direction scaled by cos(tilt).
+    const ct = Math.cos(w.tilt);
+    const runX = Math.cos(w.yaw), runZ = -Math.sin(w.yaw);
+    const sideX = Math.sin(w.yaw), sideZ = Math.cos(w.yaw);
+    const at = (u: number, t: number): [number, number] => [
+      w.x + runX * u + sideX * t, w.z + runZ * u + sideZ * t];
+    const bed = (u: number, t: number, across: number, along: number, tone: Vec3): void => {
+      const [x, z] = at(u, t);
+      if (inFlood(x, z)) return;
+      bld.pushBox([x, GROUND_Y + 0.045, z], [along, 0.02, across], tone, { rotationY: w.yaw });
+    };
+    const chunk = (u: number, t: number, h: number, tone: Vec3): void => {
+      const [x, z] = at(u, t);
+      if (inFlood(x, z)) return;
+      bld.pushBox([x, GROUND_Y + h / 2, z], [0.18 + r.next() * 0.55, h / 2, 0.14 + r.next() * 0.45], tone, { rotationY: w.yaw });
+    };
+    const rod = (u: number, t: number, len: number): void => {
+      const [x0, z0] = at(u, t);
+      const [x1, z1] = at(u + len, t + r.jitter(0.5));
+      if (inFlood(x0, z0) && inFlood(x1, z1)) return;
+      pushBeam(bld, [x0, GROUND_Y + 0.05, z0], [x1, GROUND_Y + 0.09 + r.next() * 0.12, z1], 0.03, REBAR);
+    };
+    // Bodies first (their flanks are further out than a slab's edges), then
+    // the two great ridges of every slab. Attempt-2 tones: the first capture's
+    // beds (tint 1.16-1.44) lifted the ground by only +10-18 luma — beneath
+    // the old city's paving pattern, whose own modulation is ±20-25 — so the
+    // crust still owned the read. The fines now sit clear of the crust's band
+    // (a pale scar), and the chunks darker than the ground for the mass.
+    if (w.kind === 'body') {
+      for (const side of [-1, 1]) {
+        const s0 = side * (w.halfZ * ct + 0.8);
+        bed(0, s0, 2.2 + r.next(), w.halfX * 1.28, tintOf(CONCRETE, 1.52 + r.next() * 0.12));
+        const n = 4 + r.int(0, 3);
+        for (let k = 0; k < n; k++) {
+          chunk(r.jitter(w.halfX * 0.7), s0 + r.jitter(1.0), 0.15 + r.next() * 0.55,
+            tintOf(CONCRETE, 0.42 + r.next() * 0.28));
+        }
+        rod(0, s0, 1.6 + r.next());
+      }
+      continue;
+    }
+    for (const side of [-1, 1]) {
+      const s0 = side * (w.halfZ * ct + 0.55);
+      const bedL = w.halfX * (1.3 + r.next() * 0.25);
+      bed(0, s0, 1.7 + r.next() * 0.9, bedL, tintOf(CONCRETE, 1.56 + r.next() * 0.14));
+      bed(0, s0 - side * 0.55, 0.9 + r.next() * 0.6, bedL * 0.72, tintOf(CONCRETE, 1.30 + r.next() * 0.12));
+      const n = 3 + r.int(0, 2);
+      for (let k = 0; k < n; k++) {
+        chunk((r.next() * 2 - 1) * bedL * 0.72, s0 + r.jitter(0.8), 0.12 + r.next() * 0.44,
+          tintOf(CONCRETE, 0.42 + r.next() * 0.30));
+      }
+      const rods = r.int(1, 2);
+      for (let k = 0; k < rods; k++) rod((r.next() * 2 - 1) * bedL * 0.7, s0 + side * 0.5, 1.2 + r.next() * 1.4);
     }
   }
 }
