@@ -4694,3 +4694,172 @@ CONFIRMED: §7's measurements are honest where they overlap mine (transect to
 registered misses are confirmed as misses with the cause measured here; the
 fixture cost claims (+36 tris, one light channel, no `lamp()` counter use) are
 consistent with `_capture.json` and the frames.
+
+## PART 24 — round 3q: the `silt` class
+
+Reviewer: independent of the implementer (brief part24-3q; commit `e2ecf85`, whose tree
+contains 3o+3p, parent `959cfed`). Preflight was BLOCK all round (mem-unused 71 MB, disk
+11.1 GB at open, 7.0 GB at close), so this review ran zero captures and zero commits;
+everything below is measured on frames its runs already produced — 3q1 `03-51-29`,
+3qA2 `03-53-09`, 3qA3 `03-55-31` — against 3j `07-21-31`, 3n `11-09-19`, 3p `03-00-54`.
+Written here, not committed; publishing is the orchestrator's.
+
+Metrics, stated once: luma = plain RGB mean (0–255). warm-strict = `R>120 && R>1.6B`;
+warm-loose = `R>B+15 && R>60`; the gate's "warm-leaning" = plain `R>B`. Shares are percent
+of the stated region's pixels (full frame = 1,440,000). All `_capture.json` values below
+were re-read from the run directories, not quoted from `FALL_POOL_ROUND3Q.md`.
+
+### What the runs actually recorded (own JSON)
+
+The 3q1 5-pose fall run is clean: tier medium, `error: null`, starved 0 on all five landed
+shots, fingerprint byte-equal to 3p on every pose — lights 1223/1134/1405/1134/1134,
+g-buffer 1,075,686 / 948,798 / 1,298,308 / 2,031,450 / 1,332,230 (poses 16–20), resident
+chunks 134/137/167/167/167. Same for 3qA3's landed city poses (01 through 04). The tree
+served contained 3o+3p and the re-tag added zero triangles. The re-tag reaches the judged
+frame, verified two ways: the orchestrator's chunk arithmetic (camera at chunk 2,−2; all
+ground 3–100 m ahead in chunks 2,−2 / 1,−2, inside the 27-chunk key set
+`citymesh.ts::pushGroundDeck` consults once per bake), and the pixel record below.
+
+It follows that the implementer's §4 table is not the run: its lights column (1133 etc.)
+and g-buffer column (1,329,716 at 20 — that is 3n's value) match no `_capture.json` in any
+of the three post-3q directories. Quoted, not run — PITFALLS §39 again, at table scale. §4
+also drops attempt 2 from its record entirely (it names 03-51-29 and calls 03-55-31
+"attempt 2"), and its "12 of 29 landed" overcounts A3 by one: the JSON says 11, with the
+night variant among the failures.
+
+Crash forensics: 3qA2 (`03-53-09`) landed 10 shots (01-wide-skyline … 03-tram-level) after
+its own `notes` field recorded that 01f, 01g, 02, 03 auto-downgraded to tier `low`
+("these frames are not comparable"), and its first error is at **04-canal-level**, not 05
+— every later shot records `page.evaluate: Target page, context or browser has been
+closed`. 3qA3 (pinned medium) landed 11, last OK 04-canal-level, and died in the 04/05
+heavies. Both deaths are page death with **zero GPU/WGSL error text anywhere**. The
+evidence supports environment/load: 04 (g-buffer 2.15 M) and 05 (3.30 M) are the two
+heaviest poses of the sequence, attempt 2's tier auto-downgrade shows the app shedding load
+before the first death, and the machine sits in the state preflight BLOCK describes. What
+it does not establish: exoneration. The silt branch rendered error-free in 3q1 from the
+same cameras and 3q touches no buffers, but a load-death at the heaviest poses cannot be
+formally attributed from runs that never got past 05.
+
+### Gate, walked clause by clause (gate = `SILT_CLASS_GATE.md` §7)
+
+1. **Joints removed — PASS.** Code read first (`src/shaders/gbuffer.wgsl`): the
+   running-bond joint code lives only in the constructed-paving branch (`:538–587`,
+   reachable for surface 1/3, and surface 0 with fam ∉ {0,1,2}); the silt branch (surface
+   7, flag `:460`, branch `:606`) precedes the carriageway catch-all and never reaches it;
+   the shared grain clause is excluded by `if (!isFlood && !isSilt)`. The silt branch
+   **assigns** `alb = base*(0.88+0.24*fbm2)`, overwriting the `dirt`-family deckMul, so old
+   and new paths both average ≈ base×1.0 — a full texture swap with a near-zero mean move
+   is the expected signature. Pixels (3× patch A, deck-only x 950–1250 y 600–720): 3p is a
+   dense fine ripple mosaic (grain + joints + per-cell hash); 3q1 is a smooth field with
+   faint residual rings — and the rings that survive in every build are the renderer's
+   dither, present unchanged in 3j.
+2. **Band mean — reproduces §5.1.** x 250–1300, y 560–780: 3n (15.5, 19.8, 62.1) → 3q1
+   (16.4, 21.2, 64.3), std 24.8 → 25.2 (§5.1's 15.4 / 21.1 are rounding). The clean pair is
+   3p → 3q1, only the re-tag differing: (+0.6, +1.4, +2.5) RGB, luma +1.50. Same-build
+   cross-run floor from tier-matched A2↔A3 pairs: 01 +0.38, 01a +0.08, 01b −0.30,
+   01c +0.87 luma (low traffic); 01d −9.03 and 01e +4.76 — crowd poses cannot be floored
+   cross-run at all. +1.50 is above the low-traffic floor: the pixels genuinely moved.
+3. **Pool — PASS, and it settles PART 23's anomaly.** Lift y 730–739 vs 3j = **+52.5** ✓
+   (gate ≥ +45). Every pool row in 3q1 is byte-identical to 3n (y720 = 95.9 exact, y730 =
+   130.0, y740 = 121.3). 3p's y-720 73.8 was a 28-pose run-length artifact: the two 5-pose
+   runs (3n, 3q1) agree exactly.
+4. **Warm-leaning clause — VOID as registered.** Measured plain R>B: 3n 7.69 % → 3q1
+   8.09 % (+0.40). The clause demands a **fall of ≥15 points** from a baseline that
+   measures 7.69 — the largest possible fall is 7.69. The instrument was unsatisfiable on
+   the day it was registered, and nobody flagged it. The band's warm pixels are the
+   figures, the wedge and the pool skirt, not the deck, so a deck change could never have
+   delivered it. The clause's intent (the printed-paving palette is gone from the yard)
+   is instead carried by check 1's pixels.
+5. **Wall band x 1480–1600, y 500–600 — PASS.** warm-strict 3n 3.225 → 3q1 3.250
+   (+0.025 pp, inside ±1.5); loose 30.63 → 30.64. §5.3's "30.439 → 30.456" is the loose
+   definition — one sentence mixing the gate's two thermometers; recorded so the next
+   reader does not re-derive it.
+6. **Std-dev clause — passes, and is insensitive.** Band std 24.8 → 25.2 (+1.6 %) — no
+   collapse against the 20 % line, but the band mixes pool skirt, wedge, beds, figures and
+   city strip. Deck-only patches say it locally: std A 14.41 → 15.49, B 4.63 → 4.85, C
+   8.20 → 9.42, D 13.61 → 13.38 (3p → 3q1). Silt's fbm adds low-frequency blotch variance
+   while the removed joints subtract grid variance; roughly net-zero. The clause cannot
+   distinguish this round's texture change from run noise.
+7. **Controls 16–19 — unresolved by the runs that exist.** Pose 17's sim state differs
+   materially between the only two runs that carry it: crowdDebug.frames **181,343 (3p)
+   vs 5,681 (3q1)**, live 1,546 vs 1,581, trafficDraw 20 vs 22 instances with different
+   drawn counts (cablecar 3 vs 4, balloon 2 vs 3) — while geometry/delivery are
+   byte-equal. The −0.076 pp at 17 is therefore a run-shape confound, **not** a silt leak
+   (the deck's albedo path is 3q's only pixel delta and it changes no sim behaviour); but
+   it is also not a passing control — the gate's ±0.03 pp is unsatisfiable across
+   different run lengths. The evidence that would settle it does not exist.
+
+### The visual record
+
+Grid `shots/compare/2026-10-23T05-58-55.png` (+ `.txt` sidecar): five rows, poses 16–20,
+BASELINE 3n | CURRENT 3q1, each judged against its own section-B (cold-industrial)
+reference frames, both columns tier medium. At whole-frame scale the pairs are near-twins;
+no fall pose regresses. Against section B the family still reads bluer and emptier than
+the reference platforms — the standing mapping gap of this arc, not a 3q delta.
+
+1× yard band (x 250–1300, y 560–780; 3n / 3p / 3q1): near-twins. **No axis-aligned paving
+lattice is visible at 1× in any run.** Everything is the dither ripple field, and the only
+1× difference between 3n and 3p/3q1 is unlit vs lit wedge. The registered tell was
+photographed at 2–4× on closer crops, not at pose 20's 1× — the decidable joint evidence
+is the 3× deck-only record of check 1, which shows the mosaic-vs-field swap repeatable
+across patches A/C/D.
+
+Stripe family (x 330–630, y 650–770): parallel diagonal stripes identical in **3j, 3n, 3p
+and 3q1** — original citygen content predating the entire fall arc. Not the deck's paving,
+not 3q's business; it presses neither for nor against 3q. Identified before judging, per
+the round's rule.
+
+Silt as it stands reads as quiet ground whose visible 1× structure is dither rings; its
+fbm blotches barely read at pose-20 distance. The gate warns against "a uniform dark fill
+with no structure": the std numbers say structure did not collapse, the eye says what
+remains is dither, not surface texture. Whether quiet ground between the piles is the
+wanted read at this distance is a design decision the gate has no instrument registered
+for — the owner's call, not a check this round can pass or fail.
+
+### What I could not establish
+
+- The controls floor pass (warm share per pose, 3p vs 3qA3 judged against the floor, pose
+  17's −0.076 pp reproduced under a named def) crashed on a script bug after the floor
+  table; the floor values above are from its first pass, and −0.076 pp stands unreproduced
+  under any def.
+- The near-field strip (x 700–1300, y 760–900 — the deck 3–8 m out, which the judged band
+  truncates) was never cut, so the closest silt's read is unverified.
+- Crash exoneration cannot be proven from runs that never got past 05.
+- Full-sequence city controls 01–15 and a same-length A/B: the evidence for this does not
+  exist — capture was BLOCKED all round.
+
+### Close-out (DESIGN §6)
+
+VERDICT: more work needed
+
+EVIDENCE: 1× bands and 3× patches A/B/C/D from 3p vs 3q1 (and vs 3j/3n for the
+stripe-family and identity checks); the grid `shots/compare/2026-10-23T05-58-55.png` and
+sidecar; pool/wall/band/control numbers re-derived from raw RGB of the six run
+directories; `_capture.json` forensics of all three post-3q runs; shader read of
+`gbuffer.wgsl` :442–641 and `citymesh.ts` `pushGroundDeck`.
+
+JUDGED: the surface class landed and did what it claims — the printed-paving texture is
+gone from the silt areas of the yard, pool and wall bands survive byte-close to baseline,
+the run carries 3o+3p with zero new triangles and no GPU/WGSL error, and the crowd never
+walks the class (`walkingsurfaces.ts` has no `silt`). Checks 1, 2, 3, 5, 6 pass or
+reproduce on my numbers; check 4 is void as registered (the gate's instrument, not 3q's
+behaviour); check 7 is unsettled by a sim-state confound no existing pair can settle.
+
+GAP: exactly the registered gaps the runs cannot close — the controls clause at matched
+run length, the near-field silt read, and the warm-leaning clause needing re-registration
+against the measured 7.69 % baseline (or replacement by an instrument that responds to
+the deck rather than to the figures and wedge).
+
+NEXT: one change — `node tools/capture.mjs --sequence --quality medium`, when preflight
+unblocks. One full post-3q sequence completes the same-length A/B against 3p's 28-pose
+pre-side: lands the 01–15 controls at the gate's tolerance, retests pose 17 with matched
+crowd/traffic state, and gains a second data point on the 04/05 load deaths at pinned
+medium — if it dies there again, the attribution is loaded with evidence; if it completes,
+the controls clause closes.
+
+CONFIRMED: §5.1's band means and §5.2's +52.5 lift reproduce within rounding on my
+re-derivation; §6's non-establishment statements are honest; but §4's fingerprint table is
+stale in both its lights and g-buffer columns (the run's real values are 3p-equal, which
+is the *stronger* result, and the table's weaker numbers were the ones quoted), §4's
+crash story belongs to attempt 3 while attempt 2 — mixed tiers, dead at 04 — was omitted
+from the record, and "12 of 29 landed" overcounts the JSON's 11 by one.
