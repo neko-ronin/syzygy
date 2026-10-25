@@ -3,6 +3,27 @@
 **Implementer's record. The verdict is the reviewer's. This file says what changed,
 what it measured, and what it did not establish. It does not claim a verdict.**
 
+> **Reviewed 2026-10-25: `done`, with four corrections to what follows.** The verdicts are
+> [`VISION_FALL_BASELINE.md`](VISION_FALL_BASELINE.md) PART 24 (the class and the gate) and
+> PART 25 (the controls at matched length). Read those, not this record, for anything that
+> matters. Corrections, because this file is wrong in three places and incomplete in a fourth:
+>
+> 1. **§4's fingerprint table is not the run.** It prints lights 1133 and g-buffer 1,329,716
+>    at pose 20, which is 3n's number; the run's own `_capture.json` says 1223/1134 and
+>    1,332,230. The real values are the *stronger* result (3p-equal), so quoting the weaker
+>    stale ones was a pure loss. PITFALLS §39.
+> 2. **§4's crash story belongs to the wrong attempt**, and its count is off by one: `03-53-09`
+>    (attempt 2, unmentioned here) is the mixed-tier run that died at `04-canal-level`, and
+>    `03-55-31` landed 11 shots, not 12.
+> 3. **§5.4's control reading is unmeasurable as written.** A fixed ±0.03 pp is finer than the
+>    same-build drift on crowd poses (3.6 pp with no code change). At matched run length the
+>    registered controls close anyway: poses 16-19 inside ±0.03 pp under every thermometer,
+>    strict max 0.0043 pp, and pose 17's −0.076 pp is an artifact of unequal run lengths.
+> 4. **Missing:** the run budget. Both dead sequences were partly the harness's
+>    `SYZYGY_TIMEOUT || 120_000` against a ~526 s job (PITFALLS §41), which is why no full
+>    sequence had completed. The two completed post-3q runs are `18-24-47` and its same-build
+>    control `18-34-37`.
+
 ## 1. What changed
 
 One new surface class, `silt`, appended at index 7 of `GROUND_SURFACE_CLASSES`

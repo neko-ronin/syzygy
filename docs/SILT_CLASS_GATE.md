@@ -193,6 +193,29 @@ Notes on the assertion:
 
 Pre-registered acceptance, judgeable without reinterpretation:
 
+> **Post-round status, 2026-10-25 — the round is `done`, two clauses here are not.** Verdicts:
+> [`VISION_FALL_BASELINE.md`](VISION_FALL_BASELINE.md) PART 24 and PART 25. What held: the
+> texture swap (measured on deck-only patches, not on this band), the pool at +52.5, the wall
+> at +0.025 pp, no new geometry, no GPU error, the std-dev floor, and the controls at matched
+> run length (16-19 inside ±0.03 pp under every thermometer, strict max 0.0043 pp — pose 17's
+> −0.076 pp was an artifact of a 5-pose run against a 28-pose one).
+>
+> What did **not** hold, and must not be reused as written:
+>
+> - **The ≥15-point warm-leaning drop was arithmetically impossible.** The baseline measures
+>   7.69 % `R>B` in this band, so the largest fall available is 7.69 points. The clause was
+>   unsatisfiable the day it was registered; the band's warm pixels are the figures, the wedge
+>   and the pool skirt, not the deck, so a deck change could never deliver it.
+> - **±0.03 pp is finer than the noise on any crowd-bearing pose.** Two runs of an *unchanged*
+>   build moved `03-tram-level` by 3.6 pp and `01d-street-crowd` by 1.6 pp at the same seed,
+>   with identical instance counts. The threshold reaches or exceeds the measured same-build
+>   floor on ten city poses.
+>
+> Replacement line, to be used in the next gate: *fall-family controls hold ±0.03 pp strict;
+> city controls hold within their own same-build, same-length floor pair, with the floor
+> recorded per pose and treated as a lower bound on sim drift.* And a sequence must be run with
+> `SYZYGY_TIMEOUT=900000` — the default 120 s cannot fit 28 poses (PITFALLS §41).
+
 **Measurement.** On pose 20's frame (`20-fall-ground-level`, `--sequence`, `--quality=medium`), the yard band `x 250-1300, y 560-780`:
 
 - **Warm-leaning pixels (`R > B`) on the ground surface inside the band:** the
