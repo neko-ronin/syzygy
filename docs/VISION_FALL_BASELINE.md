@@ -4863,3 +4863,197 @@ stale in both its lights and g-buffer columns (the run's real values are 3p-equa
 is the *stronger* result, and the table's weaker numbers were the ones quoted), §4's
 crash story belongs to attempt 3 while attempt 2 — mixed tiers, dead at 04 — was omitted
 from the record, and "12 of 29 landed" overcounts the JSON's 11 by one.
+
+### Postscript (orchestrator, same session — not part of the review)
+
+Two corrections that arrived after this PART was written. Neither changes the verdict; both
+change how the crash evidence should be read.
+
+**The crash attribution in "Crash forensics" is now split in two, and only one half is
+settled.** A third attempt on 2026-10-25 printed `FAIL  global timeout of 120s exceeded` and
+left **no** `_capture.json` — that is `tools/capture.mjs`'s own watchdog
+(`SYZYGY_TIMEOUT || 120_000`, `:920`, which closes the browser before exiting). A full
+sequence cannot finish inside that default: the only complete one, `03-00-54`, spans **531 s**.
+But that is *not* what killed `03-55-31`, which the review above attributed to load: it wrote
+a **complete** sidecar at 20:57:31, eleven seconds after its last PNG, carrying 18
+`Target page, context or browser has been closed` entries. A watchdog kill cannot do that —
+the process outlived the browser, failed the rest instantly, and exited normally. So the page
+death at ~107 s in the two earlier runs remains **unexplained**; the machine was 72-92 MB from
+a swap death all day, which is a plausible cause and is not a measurement. The reviewer's
+"environment/load" reading stands for those two runs and is neither confirmed nor refuted; the
+one thing now excluded is 3q. See [`PITFALLS.md`](PITFALLS.md) §41 for the tell that separates
+the two failure modes.
+
+**One run this review cites no longer exists.** `03-53-09` (3qA2) was pruned by the
+orchestrator under the owner's `prune shots/` instruction, minutes after this PART was written
+and before it was read. At prune time no document cited it; the verdict then cited it. Its
+`_capture.json` went with it, so the A2 numbers quoted above — four poses auto-downgraded to
+`low`, first error at `04-canal-level`, 10 shots landed — can no longer be re-checked against
+the directory. That is the orchestrator's sequencing error, not the reviewer's, and it is
+recorded here rather than quietly dropped. The 2026-10-25 attempt (`18-22-01`) died the other
+way — watchdog, no sidecar — so by §38 its twelve frames are not citable evidence either.
+
+## PART 25 — round 3q: the controls, at matched length
+
+Second half of the PART 24 review, same reviewer. The runs this part judges:
+**pre** = `03-00-54` (28 poses), **post1** = `18-24-47`, **post2** = `18-34-37` — post1/post2
+being the two full post-3q sequences in the *same build*. I verified each against its own
+`_capture.json`: named shots 28/28, zero errors, tier `medium` on every stat entry,
+`starved: 0` on every pose, `mode: sequence`, `quality: medium`, and — measured, not
+assumed — **the same seed `6191639` recorded on all three runs** (0x5e7a17), the same
+`url: localhost:4173`, durations 525.8/525.9 s (pre: 531 s each). `tools/capture.mjs` hard-codes the dev
+server (`useDev = true`, line 568), so 4173 is a custom dev port, not `vite preview` — the
+AGENTS dev-server rule is honoured. `18-22-01` has no `_capture.json` (watchdog death,
+PITFALLS §38): not evidence, uncited.
+
+**§41 retires and replaces part of PART 24's own crash record.** The load-death reading
+("04/05 are the heaviest poses") was wrong: the watchdog's 120 s default is why full
+sequences never completed, and §41 was written because that reading had already reached a
+verdict and the state file — mine is part of what it corrects. What survives of PART 24:
+the marker that a same-build post-3q completion was needed. What closes: exonerated by
+*process* now — two full post-3q sequences completed at 526 s with zero errors — not just
+by fingerprint. What stays open: `03-55-31`'s page death at ~107 s remains unexplained
+(§41), and is a machine-state question, not a 3q one.
+
+Metrics: warm share = whole-frame `R>120 && R>1.6B` (the gate's strict thermometer; lean
+`R>B` and loose `R>B+15 && R>60` reported alongside where they differ), percent of
+1,440,000 px, re-derived from raw RGB of all 84 frames.
+
+### The controls table (pre → post1 → post2, strict, pp of 1,440,000)
+
+```
+pose                       pre   post1  post2   floor   d_pre  inf
+01-wide-skyline           3.055  3.066  3.063  -0.003  +0.011   N
+01a-lot-interior          2.573  2.580  2.577  -0.003  +0.007   N
+01b-origin-field          5.197  5.194  5.279  +0.085  -0.003   Y
+01c-origin-avenue         8.632  8.723  8.767  +0.044  +0.091   N
+01d-street-crowd         13.223 12.117 13.559  +1.443  -1.106   Y
+01e-crowd-closeup        12.446 10.988 10.885  -0.103  -1.458   N
+01f-facade-base           1.188  1.247  1.230  -0.017  +0.059   N
+01g-kerb-face             0.536  0.536  0.535  -0.000  -0.001   N
+02-canyon-up             15.333 15.299 15.291  -0.008  -0.034   N
+03-tram-level            12.055  9.503  8.798  -0.705  -2.552   N
+04-canal-level           18.345 18.996 18.068  -0.928  +0.652   Y
+05-aerial-top             0.258  0.256  0.256  -0.001  -0.002   N
+06-low-vertigo            0.663  0.658  0.659  +0.001  -0.005   N
+07-sunset-gorge          22.176 22.168 22.201  +0.033  -0.008   Y
+08-night-lanterns         1.338  1.343  1.333  -0.010  +0.005   Y
+09-market-down            9.957 10.301 10.315  +0.014  +0.343   N
+09-market-down-day        3.907  3.839  3.807  -0.032  -0.068   N
+09-market-aisle-night    12.720 12.712 12.797  +0.085  -0.009   Y
+13-terraces-d             7.633  7.684  7.694  +0.010  +0.051   N
+14-old-town-c            27.519 27.579 27.596  +0.017  +0.059   N
+15-old-town-ruins-night   3.959  3.970  3.995  +0.026  +0.010   Y
+01-wide-skyline-night     0.805  0.802  0.805  +0.003  -0.003   Y
+09-market-islands         5.439  4.675  5.077  +0.402  -0.764   N
+16-fall-wreck-up          0.017  0.015  0.014  -0.001  -0.002   N
+17-fall-piles-level       0.001  0.001  0.001  -0.000  -0.000   N
+18-fall-skyline           0.226  0.221  0.226  +0.004  -0.004   N
+19-fall-pile-close        0.057  0.054  0.054  +0.000  -0.003   N
+20-fall-ground-level      0.574  0.577  0.579  +0.002  +0.003   N
+```
+
+(`floor` = post2−post1, nothing changed between those runs; `inf` = |d_pre| ≤ |floor|.)
+
+### What the table and the sim fields say
+
+**No pose is sim-free, and none can be floored by a binary.** `crowdDebug.live` is 2550 on
+24/28 poses and 1008–1576 on the fall family (16/17/19), with `trafficDraw.instances` 1–30
+on every pose; run lengths drift the tick counts by 3–6 % per run *at the same seed*
+(crowd `frames` 4149→4070 at 01; 181,343→175,829 at 17). Whole-frame warm counts on city
+poses are therefore sim-dominated, and the same-seed control pair still moves ±0.001–1.44
+pp there. 8/28 poses sit inside their per-pose floor; every out-of-floor pose is a city
+pose whose drift scale (03 −2.55 pp, 01e −1.46, 09-market-islands −0.76) dwarfs anything a
+deck tag could produce — and the silt class's own scope poses (16–20) all sit at |d| ≤
+0.0043 pp pre→post1. The floor as measured is **a lower bound** on run drift: it is one
+sample pair (03's floor −0.705 under-covers its pre→post1 −2.552).
+
+**The registered controls clause (gate :212: poses 16–19, warm share within 0.03 pp)
+closes at matched length — under every thermometer.** Strict: 16 −0.0019, 17 −0.0004,
+18 −0.0043, 19 −0.0033 (max 0.0043, 7–75× inside the threshold). Under lean: 16 +0.0001,
+17 −0.0076, 18 +0.0189, 19 +0.0106. Under loose: 16 +0.0001, 17 +0.0092, 18 +0.0219,
+19 +0.0117 — the largest, 0.0219 pp, still inside ±0.03. What does not generalize is the
+**0.03 number itself as a city-wide instrument**: the measured floor reaches or exceeds it
+on ten poses (01b, 01c, 01d, 01e, 03, 04, 09-market-aisle-night, 09-market-islands clearly,
+and 07 at +0.033 and 09-market-down-day at −0.032 just over), so a city pose could drift
+past the threshold for reasons the same build produces twice. The replacement
+clause I propose for the gate's next edition, one line: *fall-family controls hold
+±0.03 pp strict; city controls hold within their same-build same-length floor pair, with
+the floor treated as a lower bound on sim drift and recorded per pose.*
+
+**Pose 17 closes.** At matched length the PART 24 confound is gone: crowd `frames`
+181,343 → 175,829/176,755 (≈3 % tick drift rather than the 32× of the 5-pose runs),
+`live` 1,546 → 1,576/1,570, traffic equal at 20 instances / 4 blocks, geometry and lights
+byte-equal (g-buffer 948,798, lights 1134 in all three). The residual warm moves are
+strict −0.0004 (≈6 px), lean −0.0076 (≈109 px), loose +0.0092 (≈132 px): above the
+same-run floor (1–59 px there) but a league below the registered ±0.03,
+and at the scale of the measured sim microstate gap. The archived −0.076 pp does not
+reproduce under any def at matched length — recorded as the artifact of unequal run
+lengths it was, not carried.
+
+**Two geometry lurches (measured here, previously unrecorded):** 26/28 poses have
+byte-equal g-buffers across all three runs. `01e-crowd-closeup` carries ±105,710 tris
+(post1 shows the "lurch state" — the value PART 24's attempt-2 also recorded); its whole
+warm move (−1.46 pp) co-occurs with it. `16-fall-wreck-up` carries a **+34,962-tri** state
+in *both* post runs at identical 1,110,648, while pre records 1,075,686 and the same build
+at 5 poses records pre's value exactly. Lights (1223) and resident chunks (167/161) are
+equal on both; the tag adds zero triangles, so neither lurch is a tag-count effect; their
+mechanism is unexplained (streaming-settle shape is the plausible family). Pixel impact is
+bounded either way: 16 moves ≤0.002 pp under any def.
+
+**The read PART 24 never got — the near-field strip x 700–1300, y 760–900, 2×, pose 20.**
+Ownership first: `citymesh.ts:1724–1758` re-tags by the cell-centre's 256 m chunk, and
+running `fallZone(0x5e7a17)` (= the runs' seed) gives 27 chunk keys including `2,-2`,
+whose cells cover the strip — so this ground **is** the silt class. Read: against 3p, both
+post runs keep a periodic row family at the same pixel positions, and the field *between*
+the rows changes character — 3p's beaded paving grain is gone, leaving the smoother silt
+field with dither-ring arcs. Measured: the row family is a 12-px-band feature present in
+**all five builds** (3j/3n/3p/Q1/Q2; shear slope −0.20, period-corner correlation +0.74 in
+pre-arc 3j, +0.93 in-arc; pairwise profile correlation +0.99 in-arc, +0.83 across seeds),
+and its 12-px amplitude halves between post1 (0.27) and post2 (0.12) — layout locked,
+strength riding on dither, exactly the second-run-control behaviour. Since the silt branch
+provably draws no lines (constructed-paving branch unreachable for surface 7, re-checked),
+this family is **static content at or above the deck that 3q does not own**, the
+near-field twin of the mid-ground stripe family (PART 24: identical in 3j/3n/3p/3q1).
+Verdict on the brief's question: **the closest silt reads as ground, not fill** — its
+visible structure is other objects' rows plus dither plus fbm blotching, its own paving
+mosaic is gone, and no flat dead fill appears.
+
+### What I could not establish
+
+- Which static object draws the invariant near-field row family (marking decal, kit part,
+  rail?) — measured, classified as not-3q, not named.
+- The mechanism of the two geometry lurches (01e ±105,710; 16 +34,962 resident-settle at
+  matched length) — lights and chunks equal, cause unattributed from available records.
+- A floor stronger than one control pair per pose (the brief gave me exactly two runs;
+  03's under-coverage shows one pair underestimates drift on sim-heavy poses).
+
+### Close-out (DESIGN §6)
+
+VERDICT: done
+
+EVIDENCE: all 84 frames of the three sequences re-derived from raw RGB under the named
+defs; `_capture.json` forensics on the three runs (seed, url, tier, starved, sim fields,
+g-buffers); the near-field strips at 2× from 3j/3n/3p/post1/post2 with cross-run profile
+correlations; `fallZone` executed at the run seed (27 chunk keys, 2,-2 confirmed); the
+predicate read at `citymesh.ts:1724–1758`; `capture.mjs:566–570` for the dev-server check.
+
+JUDGED: the controls clause closes at matched length under all three thermometers — every
+registered pose (16–19) inside ±0.03 pp (max 0.0219 pp, at 18 under the loose def; 0.0043
+pp strict) — pose 17's PART 24
+confound collapses into ≤0.0092 pp of sim microstate, the near-field strip reads as silt
+ground (paving grain gone, no dead fill), and two full-sequence completions exonerate 3q
+by process. The change does what its gate registered.
+
+GAP: the gate document, not this round, carries the remaining work: the warm-leaning band
+clause is still void as registered (PART 24), and the ±0.03 controls threshold cannot
+generalize to city poses (ten measured floors reach or exceed it) — both need re-registration against
+the owner's intent.
+
+What remains open for the arc — a `done` here closes the round, not the zone: the
+standing per-section gap (this reviewer judged only the fall family against its section
+references); the owner's design question about quiet ground (the silt read is quiet, with
+its structure carried by dither and static content rather than surface texture); the
+unidentified static row family at/above the deck (now measured twice — midground stripes
+and near-field rows — never named); the two geometry lurches; and the gate's two
+re-registrations above.

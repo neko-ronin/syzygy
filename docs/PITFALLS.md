@@ -1155,6 +1155,43 @@ containing more than one tier **fails the run** (named poses, `--quality` sugges
 alongside the GPU-error gate. The frames are still written — they are evidence of what happened —
 but the run is not comparable and says so.
 
+## 41. A full sequence cannot finish inside the harness's default budget — and its two failure modes look alike
+
+**Symptom:** three consecutive attempts at a 28-pose sequence all died at poses 09-12
+(`04-canal-level` or just after), with no GPU or WGSL error anywhere, on a machine
+`preflight` was calling `BLOCK`. Two were read as load deaths at the heaviest poses (04
+g-buffer 2.15 M, 05 3.30 M). One of those readings reached a verdict (PART 24) and the
+state file, and both were wrong.
+
+**Cause one, proven:** `tools/capture.mjs:39` is `process.env.SYZYGY_TIMEOUT || 120_000`.
+The watchdog at `:920` calls `browser?.close()` and then `process.exit(1)`, so it prints
+`FAIL  global timeout of 120s exceeded` and writes **no** `_capture.json`. A 28-pose run
+takes far longer than 120 s — the only complete one, `03-00-54`, spans
+20:01:08 → 20:09:59 = **531 s** — so a full sequence cannot complete on the default at all.
+
+**Cause two, not proven, and not the budget:** `03-55-31` wrote a *complete* `_capture.json`
+at 20:57:31, eleven seconds after its last PNG (20:57:20), with 18 entries reading
+`Target page, context or browser has been closed`. A run that its own watchdog killed
+cannot have done that: the process outlived the browser, failed the remaining shots
+instantly, and exited normally. Something closed the page at ~107 s, and that something is
+still unexplained — the machine was 72-92 MB from a swap death all day, which is a
+plausible cause and is **not** a measurement.
+
+**The tell that separates them, which costs one `ls` and one `stat`:**
+
+| | watchdog | page death |
+| --- | --- | --- |
+| `_capture.json` | absent | present, complete, with close errors on the tail |
+| last file vs dir mtime | last PNG, then nothing | JSON written after the last PNG |
+| log line | `FAIL global timeout` | none; run ends `PASS`-shaped |
+
+**Rule:** a sequence gets an explicit budget —
+`SYZYGY_TIMEOUT=900000 node tools/capture.mjs --sequence` — and before attributing any run
+death to load, check whether the run wrote a sidecar at all. "No sidecar" means the harness
+killed it and the frames it left are not evidence (PITFALLS §38); "sidecar with close
+errors" means the browser died on its own and the cause is still open. The two look
+identical in the console and are opposite findings.
+
 ## Working norms that held up
 
 - **Measure before theorising.** Every bug above cost far less time to measure

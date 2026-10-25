@@ -1,5 +1,21 @@
 # Handoff
 
+**2026-10-25, the fall zone's ground closes: 3p and 3q are `done`
+([PARTS 23 and 25](VISION_FALL_BASELINE.md)).**
+The yard had no light of its own (3o's beds were invisible because nothing within
+`LAMP_RADIUS` reached them — PART 22), then it had a pool but still read as an intact street.
+3p added one salvage clamp-light (pool +52.7, controls flat); 3q made the ground a first-class
+`silt` surface class, re-tagging the zone's 27 chunk keys at bake time — zero new triangles.
+The paving mosaic is gone from the silt areas, the pool survives at +52.5, the wall moved
++0.025 pp, and at matched run length poses 16-19 sit inside ±0.03 pp under every thermometer
+(strict max 0.0043 pp). The near field reads as ground, not fill.
+**Two things outlive the round.** The gate document needs re-registering before it judges
+anything else: its warm-leaning clause was arithmetically unsatisfiable (a ≥15-point fall from
+a 7.69 % baseline) and its ±0.03 pp control threshold is finer than the same-build drift on ten
+city poses. And a sequence needs `SYZYGY_TIMEOUT=900000` — the 120 s default cannot fit a
+28-pose run, which is why no full sequence had ever completed (PITFALLS §41). The arc's own
+unresolved item is the `03-55-31` page death, which is a machine question, not a 3q one.
+
 **2026-10-22, the fall zone: eighteen verdicts across fifteen implementation
 rounds. Read [STATE_2026-10-22](STATE_2026-10-22.md) first — one page, current.**
 The short version: the fall zone's poses were being shot at a red sunset while sheet
@@ -9,7 +25,7 @@ and 18 to the existing `bluehour` rig took warm pixels from 96.9 % to 0.0 % at 1
 only warmth, and that is the real gap: the crowns carried one 2 px point each where
 sheet B's carry rows of window blocks, and nothing in the zone lit its own ground.
 Every round since was judged by an agent that did not implement it, in
-[VISION_FALL_BASELINE](VISION_FALL_BASELINE.md) PARTS 1-18:
+[VISION_FALL_BASELINE](VISION_FALL_BASELINE.md) PARTS 1-18 (19-25 follow below):
 
 - **The lit row closed `done` at 5 of 6** (PART 16). The pick (3i) took five crowns;
   id108 is a stack seen edge-on at 264 m, foreshortened to two clear panes, and the
