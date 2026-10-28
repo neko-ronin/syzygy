@@ -577,7 +577,42 @@ fn groundSurface(world: vec3f, n: vec3f, base: vec3f, detail: f32, dist: f32, ta
       metal = 0.35;
     } else {
       joint = groundJointsD(ps, pitch, prm.x, dist);
-      alb *= 0.88 + 0.24 * hash21(cell + vec2f(h * 13.0, 5.0));
+      alb *= 0.82 + 0.36 * hash21(cell + vec2f(h * 13.0, 5.0));
+    }
+    // ------------------------------------------------------------- sub-tile material
+    // The lattice is the only thing this branch used to draw. Measured on
+    // `01g-kerb-face` (round 4a): 24x24 px joint-free windows at 2.7 m had a
+    // median peak-to-peak of 6/255 and the near field was the FLATTEST part of
+    // the frame (box(100) sd 6.08 against 14-25 in every sheet-B near ground),
+    // while the smooth grain below got WEAKER as the camera approached. A rule
+    // drawn on a flat fill is not a material, and STREET_SPEC section B asks for
+    // exactly the layer that was missing: "irregular pale accumulation, dark
+    // joints, mottled exposed areas".
+    //
+    // Two scales. `mottle` is the 1-3 m patchwork - pale deposited grit and
+    // darker exposed stone - evaluated at every distance, but readable only to
+    // about 6 m on `01g-kerb-face`; past that the lattice's own texture wins and
+    // the field is indistinguishable from attempt 3 (VISION_F8_CLOSE_RANGE_4A3.md).
+    // `agg` is 1-3 cm aggregate, and it is faded out
+    // by 9 m on purpose: any closer octave than that is sub-pixel at range and
+    // would alias, which is R3's problem and not this round's.
+    //
+    // THE REMAP IS EXPLICIT BECAUSE `fbm2` IS NOT NORMALISED. It sums octaves at
+    // 0.5/0.25/0.125 of `vnoise2`, so two octaves return [0, 0.75] with a mean of
+    // 0.375; the first attempt wrote `0.80 + 0.40 * mottle` and delivered about
+    // +-5 % at 1 sigma while its constants read +-20 %. The second attempt
+    // centred the field wrongly in the other direction: 2.6 cyc/m puts the
+    // fundamental at 0.385 m and every octave BELOW it, i.e. at and under the
+    // 0.30 m tile, which is why the deck read as dirty tiles and not weathered
+    // stone (VISION_F8_CLOSE_RANGE_4A.md). 0.6 cyc/m is a 1.67 m fundamental with
+    // an 0.82 m octave - the scale a patch of damp stone actually has.
+    let mottle = (fbm2(p * 0.6 + vec2f(7.1, 2.3), 2) - 0.375) * (1.0 / 0.375);
+    alb *= 1.0 + 0.35 * mottle;
+    let aggFade = 1.0 - smoothstep(5.0, 9.0, dist);
+    if (aggFade > 0.001 && fam != 3u && fam != 5u) {
+      let agg = 0.6 * vnoise2(p * 34.0 + vec2f(3.7, 11.9))
+              + 0.4 * vnoise2(p * 63.0 + vec2f(19.1, 5.3));
+      alb *= 1.0 + (agg - 0.5) * 0.42 * aggFade;
     }
     // Joints are darker and hold dirt; they also occlude.
     alb = mix(alb, alb * 0.42 + vec3f(0.004), joint * 0.85);
