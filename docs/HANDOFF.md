@@ -1157,7 +1157,40 @@ nothing.
 
 ---
 
-## F8 — The bare deck at close range (NEW, 2026-10-02 — the largest remaining visual defect)
+## F8 — The bare deck at close range (NEW 2026-10-02 — CLOSED 2026-10-27 by round 4a)
+
+> **2026-10-26 — the premise has half expired; the row is still open on its second clause.**
+> Reviewed on the current build (`38325d8`), not the 2026-10-04 frame:
+> [`VISION_F8_CLOSE_RANGE.md`](VISION_F8_CLOSE_RANGE.md). The deck is no longer a bare slab —
+> a world-locked 0.30 m lattice covers it, 10 % of 24×24 windows are joint-free against 77 %
+> in the 2026-10-04 frame, and **"visible joints at 2–3 m" is met**. What is not met is
+> **"a material read"**: inside the slabs the surface is a flat fill (median sd 1.28, peak to
+> peak 6/255), the near field is the *flattest* part of the frame, and box(100) sd is 6.08
+> against 14–25 in every section-B near ground. It went from an empty plane to a **ruled**
+> plane. Round 4a is the material below the tile:
+> [`GROUND_CLOSE_ROUND4A.md`](GROUND_CLOSE_ROUND4A.md); the gate is registered there, and it
+> rejects the review's darkening clause on the evidence of `STREET_SPEC.md` §B ("foreground
+> treads are lighter than adjacent dark fronts"), which the sheet agrees with.
+>
+> **2026-10-27 — CLOSED.** Round 4a took four attempts and three independent reviews
+> (`VISION_F8_CLOSE_RANGE_4A.md`, `_4A2.md`, `_4A3.md`). The first two returned `more work
+> needed` and each found a real error: `fbm2` is unnormalised, so the declared ±20 % delivered
+> ~±5 %, and its fundamental sat *below* the 0.30 m tile; then, with the scale corrected to
+> 1.67 m, its bell-shaped distribution still delivered ±4.9 % at 1σ for a constant that read
+> as ±16 %. The third review passed the certified frame `2026-10-27T01-33-02`
+> (`PASS`, 29 shots, 28/28 `medium`, no errors, `starved 0`) as **`done`**: joint-free 24×24
+> window sd 1.51 → 3.90 (target 3.5), joint-free share 0.256 → 0.159, joint contrast 60.1 at
+> the same 213/106 px periods, deck/facade 1.50, far gradient 4.58, fall-zone strict controls
+> within 0.001 pp. Counted, not described: two dominant and three minor tonal patches at
+> 1.4–2.3 m and ±5 luma, over the joint grid and the aggregate dapple.
+> Two registered bars were **not** met and are recorded as defects in the bars, not waived:
+> the round's own 4.5-luma band-pass delta (2.26 near / 3.18 mid), because the same metric
+> moves 0.45 luma between builds that differ by one shader term, and clause 2 (`box100`),
+> which the bare slab still scores ~9.9 on. The reviewer's residue is a **new row, not
+> amplitude**: the field is edge-free by construction and has no relationship to joints, kerb
+> or drainage, so it reads as uneven tone and cannot read as accumulation. Another amplitude
+> round is explicitly not justified — 0.35 is the largest edgeless field the near deck carries
+> before it reads as blotch.
 
 **This is what the kerb fix exposed.** With authored detail finally arriving at
 the frame for the first time, the first honest close-focus frame shows that
@@ -1199,8 +1232,9 @@ Not when a histogram moves.
 **Cheapest first move:** **photograph the hero frame.** Market Spine Counter
 Walk's derivation is delivered and has never been shot, and it gates R11's second
 clause and R2. The 2026-10-02 session produced fifty commits and no frame anyone
-judged better, which is the whole of what was missing. After that, F8 — it is the
-largest remaining visual defect and it is now measurable.
+judged better, which is the whole of what was missing. F8 was the same shape of
+defect and is now closed (2026-10-27); the next open rows are R3 (aliasing, the
+highest-priority unclosed one) and R6 (atmosphere).
 
 ## The short version
 
@@ -1351,8 +1385,11 @@ seventy percent of the first honest close-focus frame. The kerb now reads — 4.
 authored contrast, previously consumed by nothing, now at 18–37 px instead of
 0.45 px — and having real relief beside it makes the deck read as *unfinished*
 rather than *paved*. Split between `groundSurface()` in `gbuffer.wgsl` and
-`groundgrammar.ts`. **This is the largest remaining visual defect in the project
-and it is measurable rather than a matter of taste.**
+`groundgrammar.ts`. **CLOSED 2026-10-27 by round 4a** (`done`,
+[`VISION_F8_CLOSE_RANGE_4A3.md`](VISION_F8_CLOSE_RANGE_4A3.md)): the flat fill is
+gone (joint-free window sd 1.51 → 3.90, joint-free share 0.256 → 0.159) and the
+deck carries a counted 1.4–2.3 m tonal field over its joint grid. The record is
+[`GROUND_CLOSE_ROUND4A.md`](GROUND_CLOSE_ROUND4A.md).
 
 **1b. What the crowd does is R12, reordered by `D26`.** Owner direction: local-
 first — part Lenia, part boids, part scene-making, with scenes emitting scripts

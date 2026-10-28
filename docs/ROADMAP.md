@@ -59,6 +59,18 @@ and traffic"*
 >    previously consumed by nothing, 0.45 px → 18-37 px), and having real relief
 >    beside it makes the deck read as unfinished. Owner: `groundSurface()` +
 >    `groundgrammar.ts`.
+>    **2026-10-26:** re-measured on the current build — the slab is gone (a 0.30 m
+>    joint lattice now covers the deck, so "visible joints" passes) and the open
+>    half is **material below the tile**: flat fill inside the slabs, near field
+>    the flattest part of the frame. [`VISION_F8_CLOSE_RANGE.md`](VISION_F8_CLOSE_RANGE.md),
+>    round [`GROUND_CLOSE_ROUND4A.md`](GROUND_CLOSE_ROUND4A.md).
+>    **2026-10-27: CLOSED** — independent review
+>    [`VISION_F8_CLOSE_RANGE_4A3.md`](VISION_F8_CLOSE_RANGE_4A3.md) returns `done` on
+>    the certified frame `2026-10-27T01-33-02`: joint-free window sd 1.51 → 3.90,
+>    joint-free share 0.256 → 0.159, joint contrast 60.1 at unchanged periods, and a
+>    counted 1.4–2.3 m tonal field of ~±5 luma over the lattice. Residue is a
+>    **different row, not more amplitude**: the field is edge-free and unattached to
+>    joints/kerb/drainage, so it reads as uneven tone rather than accumulation.
 >  - **The neighbour buffer holds no near neighbour for 100% of agents** —
 >    nearest-in-buffer 3.396 m vs a true nearest of 0.000 m, 90.7x. Separation
 >    has been computed against the wrong bodies. Fix the query before any tuning.
@@ -73,7 +85,8 @@ looking down an avenue you see a bare grey slab.
 Three sub-problems. Full fix proposals — evidence, steps, and the check that
 proves each closed — are in [`HANDOFF.md`](HANDOFF.md) as F5, F1/F2 and F4
 respectively. F1/F2 and F4 are **closed**; F5's kerb leg is **closed and
-verified**, its close-range deck leg is **not** (F8).
+verified**, and its close-range deck leg (**F8**) was **closed 2026-10-27** by round 4a —
+[`VISION_F8_CLOSE_RANGE_4A3.md`](VISION_F8_CLOSE_RANGE_4A3.md) returns `done`.
 
 1. **Ground detail.** No lane markings, no kerb read, no drain covers, no clutter
    at eye height. The `bakeGround` kerb strips exist but are barely visible.
