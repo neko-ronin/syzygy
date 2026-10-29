@@ -404,14 +404,44 @@ visible warm pool on the adjacent walking surface.
 **Status: todo** · **Priority: high** · *Vision: "near or surpasses the
 videos"*
 
-Deferred has no MSAA. TAA exists and is correct but does not converge inside the
-capture settle budget, and thin geometry (cables, railings, window slots) is the
-worst case.
+Deferred has no MSAA, and **the temporal pass has no temporal state at all** (measured
+2026-10-28, below). Thin geometry (cables, railings, window slots) is the worst case.
 
-Options, best first: accumulate more history frames in the harness's `settle`;
-jitter the projection sub-pixel and take N samples; a cheap edge-aware resolve;
-explicit SMAA-style pass. *Engineering note:* everything else in this list is
-wasted effort if the base image is unstable, so this precedes polish work.
+> **2026-10-28 — the second sentence was wrong, measured.**
+> [`ALIASING_SETTLE_PROBE.md`](ALIASING_SETTLE_PROBE.md) captured the same frozen poses at
+> 1 / 40 / 600 extra frames of history on top of the pose's own 30, and the image is a
+> **fixed point**: `spikePx` 4.86 % → 4.85 % → 4.85 % on `01-wide-skyline`, 6.19 % → 6.18 %
+> on `05-aerial-top` (`r = 0.998` against a registered 0.95 threshold). TAA converges long
+> before the capture budget, so **"accumulate more history" is dead as an option** — there is
+> no more history to accumulate. The aliasing that survives 630 frames is what the resolve
+> leaves behind, which makes this a renderer row, not a harness row.
+> Two corrections fell out of building the probe: `--sequence` never froze the world (only
+> hero-pair did), so any settle sweep measured crowd animation as convergence; and the
+> project's customary `mean|dL/dx|` **moves the wrong way** on a known-aliased image
+> (nearest-neighbour control: jaggies up, metric down). The harness now has `--freeze`, and
+> `--settle` reports frames advanced and whether they were paced or synchronously stepped.
+> **The mechanism, corrected by review** ([`VISION_R3_SETTLE_PROBE.md`](VISION_R3_SETTLE_PROBE.md)):
+> the image is *not* a fixed point — 6.40 % of the upper frame changes by >2 luma between
+> settle 1 and 600 with the world frozen, and 16.39 % on the aerial pose. `spikePx` stayed flat
+> because what changes is noise that nothing averages away. And nothing averages it because
+> **the TAA pass has no history**: its two textures are created, bound as *sources* and cleared,
+> never written by any pass (`src/render/renderer.ts:909, 1962-2055, 2521-2530`). `post.wgsl`
+> blends `mix(centerY, hist, 0.82)` against an always-zero texture, so the resolve mixes 82 % of
+> a black neighbourhood floor into every pixel — a **per-frame edge crush that darkens with
+> local contrast** (−0.09 / −5.1 / −10.4 / −21.9 luma by contrast quartile in the on/off
+> control), not a temporal filter.
+> **So the next change is to make history exist** — write the resolved frame into the other
+> history texture each frame, add the sub-pixel projection jitter `post.wgsl` was written for,
+> then re-run this probe — not an SMAA pass, and not a toggle: `__syzygy.setQualityParams({
+> taaEnabled: false })` already exists at `src/main.ts:983`.
+
+Options, re-ranked by the probe: **write the missing TAA history and jitter the
+projection sub-pixel** (the pass was written for both and has neither); a cheap
+edge-aware resolve; explicit SMAA-style pass. ~~Accumulate more history frames in
+the harness's `settle`~~ — **struck**: history does not exist, so no amount of settle
+can accumulate it, and the probe shows 600 frames change nothing. *Engineering note:*
+everything else in this list is wasted effort if the base image is unstable, so this
+precedes polish work.
 
 ## R4 — Performance and LOD
 

@@ -44,6 +44,18 @@ function parseArgs(argv) {
   const opts = {
     sequence: false, poses: [], debug: 0, debugseq: false, grab: null, query: '', quality: '', eval: null,
     dev: false, timeout: GLOBAL_TIMEOUT_MS, keepOpen: false, heroPair: false, scene: null,
+    // `settle` overrides every pose's settle count. It was added to ask whether
+    // the captured image was under-converged rather than the renderer being
+    // wrong, and it answered: 1 / 40 / 600 extra frames are the same picture
+    // (`docs/ALIASING_SETTLE_PROBE.md`), because the TAA pass has no history to
+    // accumulate. Keep the flag — it is how you show that, and how you bound a
+    // settle sweep honestly — but do not re-read convergence into it.
+    settle: null,
+    // `freeze` pauses the world after the pose has settled and then accumulates
+    // the settle frames on top. Without it, a settle sweep measures crowd and
+    // weather animation as well as TAA convergence, and the two cannot be told
+    // apart (docs/ALIASING_SETTLE_PROBE.md, first instrument, void).
+    freeze: false,
     // `chunks` is the boot warm (`?chunks=N`): how many chunks to force resident
     // before the first presented frame. `poseChunks` is the post-pose warm, which
     // is the one that bakes at the LOD the capture camera will actually see.
@@ -62,6 +74,8 @@ function parseArgs(argv) {
     else if (a.startsWith('--query=')) opts.query = a.slice(8);
     else if (a.startsWith('--chunks=')) opts.chunks = Math.max(0, Number(a.slice(9)) | 0);
     else if (a.startsWith('--pose-chunks=')) opts.poseChunks = Math.max(0, Number(a.slice(14)) | 0);
+    else if (a.startsWith('--settle=')) opts.settle = Math.max(1, Number(a.slice(9)) | 0);
+    else if (a === '--freeze') opts.freeze = true;
     else if (a === '--no-warm') { opts.chunks = 0; opts.poseChunks = 0; }
     else if (a === '--keep-open') opts.keepOpen = true;
     else if (a === '--quality' || a === '-q') opts.quality = argv[++i] ?? '';
@@ -87,12 +101,20 @@ const HELP = `
   node tools/capture.mjs --hero-pair            derived hero, frozen daylight/night control
   node tools/capture.mjs --hero-pair --scene=shots/<run>/_scene.json  replay saved actors/camera
   node tools/capture.mjs --dev                 use ` + '`vite dev`' + ` instead of preview
-  node tools/capture.mjs --timeout 180         global budget in seconds (default 120)
+  node tools/capture.mjs --timeout 180         global budget in SECONDS (default 120)
+
+  SYZYGY_TIMEOUT is in MILLISECONDS, not seconds -- SYZYGY_TIMEOUT=600 is 600 ms.
+  Anything below 60000 prints a warning, because a capture takes 13 s or more.
 
   node tools/capture.mjs --no-warm             stream the world instead of baking it
                                              (the cold path, for A/B against a warm run)
   node tools/capture.mjs --chunks=64           chunks to bake before the first frame (?chunks=)
   node tools/capture.mjs --pose-chunks=96      chunks to bake after setPose, at the pose's LOD
+  node tools/capture.mjs --settle=600          override every pose's settle frames (panel sweep:
+                                             TAA history was measured to change nothing, see
+                                             docs/ALIASING_SETTLE_PROBE.md)
+  node tools/capture.mjs --freeze              pause the world after the pose settles, then
+                                             accumulate --settle frames of history on top
 
   Diagnostic poses (01d/01e/01f) take their position from live world state via
   the app's \`pose()\`; \`--eval "__syzygy.pose('street-crowd')"\` prints the exact
@@ -500,6 +522,28 @@ const stamp = () => new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const say = (m) => process.stdout.write(`${m}\n`);
 
+/**
+ * `SYZYGY_TIMEOUT` is MILLISECONDS; the `--timeout` flag is SECONDS.
+ *
+ * That asymmetry is invisible and it fails as a slow boot rather than as a bad
+ * number: `SYZYGY_TIMEOUT=600` means 600 ms, so `waitForApp` gives up while the
+ * world is still generating and the error reads "app did not become ready",
+ * which sends you looking at the generator. It cost a reviewer three runs on
+ * 2026-10-28. Anything under a minute is almost certainly a seconds value, and
+ * an actual capture takes 13 s or more, so warn rather than let it pass.
+ */
+function warnTimeoutUnits() {
+  const raw = process.env.SYZYGY_TIMEOUT;
+  if (!raw) return;
+  const ms = Number(raw);
+  if (!Number.isFinite(ms) || ms <= 0) return;
+  if (ms < 60_000) {
+    say(`  WARNING   SYZYGY_TIMEOUT=${raw} is milliseconds, so this run gives up after ${ms} ms.`);
+    say(`            If you meant ${raw} seconds, use --timeout=${raw} (that flag is in seconds)`);
+    say(`            or SYZYGY_TIMEOUT=${ms * 1000}. A real capture takes 13 s or more.`);
+  }
+}
+
 /** A readable one-line error. Never a stack trace. */
 class CaptureError extends Error {}
 
@@ -766,11 +810,22 @@ async function settle(page, frames) {
 
   // rAF genuinely not advancing (page not painting): fall back to synchronous
   // ticks, and say so rather than quietly capturing a world that never ticked.
+  let paced = true;
+  let done = advanced;
   if (advanced < Math.min(4, frames)) {
     const stepped = await callApp(page, 'step', frames);
-    if (stepped.ok) return { paced: false, advanced: frames };
+    if (stepped.ok) { paced = false; done = frames; }
   }
-  return { paced: true, advanced };
+  // Under-convergence was silent: the loop exits on a wall-clock deadline, so a
+  // settle of 600 frames can quietly become 180 and the capture then reports a
+  // converged-looking frame that is nothing of the sort. Say the number, and say
+  // which path produced it -- a synchronous `step` burns through the count without
+  // pacing the GPU, so `advanced === frames` on that path does not mean the same
+  // thing as it does through rAF.
+  if (frames >= 100 || done < frames) {
+    say(`  settle    ${done}/${frames} frames (${paced ? 'paced' : 'stepped'})${done < frames ? ' - under-converged' : ''}`);
+  }
+  return { paced, advanced: done };
 }
 
 /**
@@ -906,6 +961,7 @@ async function contactSheet(dir, out) {
 
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
+  warnTimeoutUnits();
   if (opts.help) { say(HELP); return 0; }
 
   mkdirSync(SHOTS, { recursive: true });
@@ -985,7 +1041,7 @@ async function main() {
       const pose = POSES.find((p) => p.name.includes(name)) ?? POSES[0];
       await callApp(page, 'setPose', { ...pose, name: pose.name }).catch((e) => say(`    ! setPose: ${e.message}`));
       await warmPose(page, opts.poseChunks, opts.warmTicks);
-      await settle(page, pose.settle ?? 30);
+      await settle(page, opts.settle ?? pose.settle ?? 30);
       for (const variant of over.split('|')) {
         const [k, patch] = variant.split('=');
         const target = k === 'lens' ? 'setLens' : k === 'weather' ? 'setWeather' : k;
@@ -1095,7 +1151,7 @@ async function main() {
         const pose = wanted[0];
         await callApp(page, 'setPose', { ...pose, name: pose.name }).catch((e) => say(`    ! setPose: ${e.message}`));
         await warmPose(page, opts.poseChunks, opts.warmTicks);
-        await settle(page, pose.settle ?? 30);
+        await settle(page, opts.settle ?? pose.settle ?? 30);
         for (const mode of [0, 1, 2, 3, 4, 5]) {
           await callApp(page, 'setDebug', mode).catch(() => {});
           await settle(page, 3);
@@ -1158,7 +1214,15 @@ async function main() {
           const warm = await warmPose(page, opts.poseChunks, opts.warmTicks);
           const warmMs = warm ? warm.ms : 0;
 
-          const settled = await settle(page, pose.settle ?? 24);
+          // The pose's own settle brings the camera to rest; with --freeze the
+          // world is then paused and --settle accumulates history on top, so a
+          // settle sweep changes HISTORY and nothing else.
+          if (opts.freeze) {
+            await settle(page, pose.settle ?? 24);
+            const fz = await callApp(page, 'freezeCapture');
+            if (!fz.ok) throw new Error(`freezeCapture: ${fz.error ?? 'refused'}`);
+          }
+          const settled = await settle(page, opts.settle ?? pose.settle ?? 24);
 
           // REQUESTED vs HELD. A pose that was asked for is not yet a pose that
           // was rendered: `setPose` writes yaw/pitch/fov into a camera that
@@ -1362,7 +1426,11 @@ async function main() {
       }
       const file = join(SHOTS, `${runStamp}${pose ? `-${pose.name}` : ''}.png`);
       await warmPose(page, opts.poseChunks, opts.warmTicks);
-      await settle(page, pose?.settle ?? 45);
+      if (opts.freeze) {
+        await settle(page, pose?.settle ?? 45);
+        await callApp(page, 'freezeCapture').catch(() => {});
+      }
+      await settle(page, opts.settle ?? pose?.settle ?? 45);
 
       // Rule 4 as a mechanical check, in the branch that had none. Same
       // tolerances and same reasoning as the sequence loop above; if the camera
@@ -1544,6 +1612,10 @@ function writeIndex(runStamp, results, notes, opts) {
     when: new Date().toISOString(),
     mode: opts.sequence ? 'sequence' : 'single',
     quality: opts.quality || null,
+    // Which settle the frames were captured at. TAA converges over history, so a
+    // reviewer must be able to tell a converged frame from a 24-frame one.
+    settle: opts.settle ?? null,
+    frozen: opts.freeze,
     url: BASE,
     // `provenance` on every shot, so the index answers "which world is this frame
     // from?" without anyone opening a console. A reviewer looking at a warm pool
